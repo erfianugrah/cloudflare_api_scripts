@@ -26,10 +26,15 @@ for zone_ids in data["result"]:
 
     # Get the ID from the current item
     zone_id = zone_ids["id"]
-    
+
     if zone_id == "3f2c4daa43d5920f313654a873b31d06":
-    # Make a request to the firewall rules endpoint with the current ID to get the list of firewall rules
+        # Make a request to the firewall rules endpoint with the current ID to get the list of firewall rules
         page = 1
+
+        # Create the object that will contain the "rules" array to be used in custom rules API
+        rules_data = {}
+        rules_data["rules"] = []
+
         while True:
             firewall_rules_api = BASE_URL + \
                 f"/{zone_id}/firewall/rules?page={page}&per_page=1000"
@@ -52,7 +57,7 @@ for zone_ids in data["result"]:
                 # Extract top-level prop from the firewall rule payload
                 firewall_rule_transform["description"] = firewall_rule["description"]
                 firewall_rule_transform["action"] = firewall_rule["action"]
-                
+
                 # Fix those bypass rules into skip, since bypass doesn't exist in custom rules
                 if firewall_rule_transform["action"] == "bypass":
                     firewall_rule_transform["action"] = "skip"
@@ -60,49 +65,9 @@ for zone_ids in data["result"]:
                 # Extract nested objects from the firewall rule payload
                 filters = firewall_rule["filter"]
                 firewall_rule_transform["expression"] = filters["expression"]
-            
-                # Create the object that will contain the "rules" array to be used in custom rules API
-                rules_data = {}
-
-                # Create the "rules" array to be used in the custom rules API
-                rules_data["rules"] = []
 
                 # Add the firewall rule objects from before into "rules" array
                 rules_data["rules"].append(firewall_rule_transform)
-
-            # Get list of rulesets from zone
-            rulesets_api = BASE_URL + \
-                f"/{zone_id}/rulesets"
-            response = requests.get(rulesets_api, headers=headers)
-            data = response.json()
-
-            # Iterate over the data from
-            for ruleset_ids in data["result"]:
-                if ruleset_ids["phase"] == "http_request_firewall_custom":
-                    ruleset_id = ruleset_ids["id"]
-                
-                    # Get the current rules from the ruleset
-                    rulesets_id_api = BASE_URL + \
-                        f"/{zone_id}/rulesets/{ruleset_id}"
-                    response = requests.get(rulesets_id_api, headers=headers)
-                    # print(response.text)
-
-                    # Add the payload from the ruleset to the "rules" array
-                    data = response.json()
-                    rulesets_current_payload = data.get("result")
-                    
-                    # Extract rules array from rulesets response
-                    rulesets_current_payload_transform = {}
-                    rulesets_current_payload_transform["rules"] = rulesets_current_payload["rules"]
-                    print(rulesets_current_payload_transform)
-                    rules_data["rules"].append(rulesets_current_payload_transform)
-                    # print(rules_data)
-                    
-                    # Add the final payload to the custom rules API for migration
-                    rulesets_specific_id_api = BASE_URL + \
-                        f"/{zone_id}/rulesets/{ruleset_id}"
-                    response = requests.put(rulesets_specific_id_api, headers=headers, json=rules_data)
-                    print(response.text)
 
             # Check if there are more pages of results
             if not data["result"]:
@@ -110,3 +75,39 @@ for zone_ids in data["result"]:
 
             # Move to the next page of results
             page += 1
+
+            # Get list of rulesets from zone
+            rulesets_api = BASE_URL + \
+                f"/{zone_id}/rulesets"
+            response = requests.get(rulesets_api, headers=headers)
+            data = response.json()
+
+        # Iterate over the data from
+        for ruleset_ids in data["result"]:
+            if ruleset_ids["phase"] == "http_request_firewall_custom":
+                ruleset_id = ruleset_ids["id"]
+
+                # Get the current rules from the ruleset
+                rulesets_id_api = BASE_URL + \
+                    f"/{zone_id}/rulesets/{ruleset_id}"
+                response = requests.get(rulesets_id_api, headers=headers)
+                # print(response.text)
+
+                # Add the payload from the ruleset to the "rules" array
+                data = response.json()
+                rulesets_current_payload = data.get("result")
+
+                # Extract rules array from rulesets response
+                rulesets_current_payload_transform = {}
+                rulesets_current_payload_transform["rules"] = rulesets_current_payload["rules"]
+                print(rulesets_current_payload_transform)
+                rules_data["rules"].append(
+                    rulesets_current_payload_transform)
+                # print(rules_data)
+
+                # Add the final payload to the custom rules API for migration
+                rulesets_specific_id_api = BASE_URL + \
+                    f"/{zone_id}/rulesets/{ruleset_id}"
+                response = requests.put(
+                    rulesets_specific_id_api, headers=headers, json=rules_data)
+                print(response.text)
