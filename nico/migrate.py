@@ -73,7 +73,10 @@ def main(client, zone_ids):
     for zone_id in zone_ids:
         print("Zone ID: {}".format(zone_id))
 
+        ruleset_id = get_ruleset_id(client=client, zone_id=zone_id,
+                                    phase="http_request_firewall_custom")
         # Existing Custom Rules are NOT preserved, and will be deleted.
+        # TODO: create a function to read existing Custom Rules and add them to custom_rules_list
         custom_rules_list = []
 
         firewall_rules_list = create_firewall_rules_list(
@@ -91,8 +94,7 @@ def main(client, zone_ids):
                 custom_rule["action_parameters"]["products"] = firewall_rule["products"]
             custom_rules_list.append(custom_rule)
 
-        ruleset_id = get_ruleset_id(client=client, zone_id=zone_id,
-                                    phase="http_request_firewall_custom")
+        # Append custom_rules_list to the Custom Rules ruleset for this zone
         update_zone_ruleset(
             client=client, zone_id=zone_id, ruleset_id=ruleset_id, custom_rules_list=custom_rules_list)
 
