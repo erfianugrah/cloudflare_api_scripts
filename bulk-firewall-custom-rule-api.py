@@ -1,27 +1,4 @@
-import os
-import requests
 
-# Base endpoint for Cloudflare's API for zones
-BASE_URL = "https://api.cloudflare.com/client/v4/zones"
-
-# Define Auth headers
-auth_email = os.environ.get('CLOUDFLARE_EMAIL')
-auth_key = os.environ.get('CLOUDFLARE_API_KEY')
-
-
-# Set headers
-headers = {
-    "X-Auth-Key": auth_key,
-    "X-Auth-Email": auth_email
-}
-
-# Make a request to the zones API endpoint to get the zone ids
-response = requests.get(BASE_URL, headers=headers)
-
-# Parse the response as JSON
-data = response.json()
-
-# Iterate over the zone ids
 for zone_ids in data["result"]:
 
     # Get the ID from the current item
@@ -76,11 +53,11 @@ for zone_ids in data["result"]:
             # Move to the next page of results
             page += 1
 
-            # Get list of rulesets from zone
-            rulesets_api = BASE_URL + \
-                f"/{zone_id}/rulesets"
-            response = requests.get(rulesets_api, headers=headers)
-            data = response.json()
+        # Get list of rulesets from zone
+        rulesets_api = BASE_URL + \
+            f"/{zone_id}/rulesets"
+        response = requests.get(rulesets_api, headers=headers)
+        data = response.json()
 
         # Iterate over the data from
         for ruleset_ids in data["result"]:
