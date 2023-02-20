@@ -68,7 +68,7 @@ def update_zone_ruleset(client, zone_id, ruleset_id, custom_rules_list):
     return (True)
 
 
-def main(client, zone_ids):
+def migrate_fw_rules(client, zone_ids):
     # This function will read all firewall rules per zone and create them as Custom Rules
     for zone_id in zone_ids:
         print("Zone ID: {}".format(zone_id))
@@ -76,7 +76,7 @@ def main(client, zone_ids):
         ruleset_id = get_ruleset_id(client=client, zone_id=zone_id,
                                     phase="http_request_firewall_custom")
         # Existing Custom Rules are NOT preserved, and will be deleted.
-        # TODO: create a function to read existing Custom Rules and add them to custom_rules_list
+        # TODO: create a function to get_existing_custom_rules_list() and extend custom_rules_list
         custom_rules_list = []
 
         firewall_rules_list = create_firewall_rules_list(
@@ -115,4 +115,4 @@ if __name__ == "__main__":
     zone_ids = ["bb86f947e760f9fa051bc4c1690ae4d6"]
 
     # Call main function
-    main(client=client, zone_ids=zone_ids)
+    migrate_fw_rules(client=client, zone_ids=zone_ids)
