@@ -91,7 +91,11 @@ def migrate_fw_rules(client, zone_ids):
             if custom_rule["action"] == "bypass":
                 custom_rule["action"] = "skip"
                 custom_rule["action_parameters"] = {}
-                custom_rule["action_parameters"]["products"] = firewall_rule["products"]
+                custom_rule["action_parameters"]["products"] = firewall_rule["products"]                
+            if custom_rule["action"] == "allow":
+                custom_rule["action"] = "skip"
+                custom_rule["action_parameters"] = {}
+                custom_rule["action_parameters"]["ruleset"] = "current"
             custom_rules_list.append(custom_rule)
 
         # Append custom_rules_list to the Custom Rules ruleset for this zone
