@@ -107,8 +107,10 @@ filename = 'dns_records.json'
 
 # Open the file in write mode
 with open(filename, 'w') as f:
+    
     # Loop through the list of zone IDs
     for zone_id in zone_ids:
+        
         # Call the list_dns_records_proxied() function to get the DNS records
         dns_records = list_dns_records_proxied(BASE_URL, headers, zone_id)
         
