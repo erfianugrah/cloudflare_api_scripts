@@ -115,5 +115,6 @@ with open(filename, 'w') as f:
         dns_records = list_dns_records_proxied(BASE_URL, headers, zone_id)
         
         if dns_records:
+            
         # Write the DNS records to the file, one zone at a time
             f.write(json.dumps({zone_id: dns_records}) + '\n')
