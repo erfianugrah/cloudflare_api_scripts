@@ -83,17 +83,17 @@ def list_dns_records_proxied(BASE_URL, headers, zone_id):
         raw_dns_records = data["result"]
 
         for dns_records in raw_dns_records:
+            proxied_dns_record = {}
             if dns_records["proxied"]:
-                proxied_dns_record = {}
                 proxied_dns_record["name"] = dns_records["name"]
                 proxied_dns_record["type"] = dns_records["type"]
                 proxied_dns_record["content"] = dns_records["content"]
                 proxied_dns_record["ttl"] = dns_records["ttl"]
                 proxied_dns_record["zone_name"] = dns_records["zone_name"]
                 
-                # Add all dns_records into list
-                if proxied_dns_record:
-                    proxied_dns_records_list.append(proxied_dns_record)
+            # Add all dns_records into list
+            if proxied_dns_record:
+                proxied_dns_records_list.append(proxied_dns_record)
             
         if not raw_dns_records:
             break
@@ -112,5 +112,6 @@ with open(filename, 'w') as f:
         # Call the list_dns_records_proxied() function to get the DNS records
         dns_records = list_dns_records_proxied(BASE_URL, headers, zone_id)
         
+        if dns_records:
         # Write the DNS records to the file, one zone at a time
-        f.write(json.dumps({zone_id: dns_records}))
+            f.write(json.dumps({zone_id: dns_records}) + '\n')
