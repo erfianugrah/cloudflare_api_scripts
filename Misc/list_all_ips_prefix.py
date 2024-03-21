@@ -1,10 +1,15 @@
 import ipaddress
 
-prefix = '168.86.128.0/18'
-network = ipaddress.ip_network(prefix)
+# Define the /8 network
+network = ipaddress.IPv4Network('154.0.0.0/8')
 
-first_ip = network.network_address
-last_ip = network.broadcast_address
+# Generate /25 subnets
+subnets = list(network.subnets(new_prefix=25))
 
-print("First IP:", first_ip)
-print("Last IP:", last_ip)
+# Format the subnets with double quotes and commas, and enclose in square brackets
+subnets_str = '[' + ', '.join(f'"{subnet}"' for subnet in subnets) + ']'
+
+# Open a file for writing
+with open('subnets.txt', 'w') as file:
+    # Write the formatted subnets to the file
+    file.write(subnets_str)
