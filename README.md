@@ -6,7 +6,18 @@ The scripts are in the [current](https://github.com/erfianugrah/cloudflare_api_s
 
 # Remember to install requirements
 
-```python3 -m pip intall -r requirements.txt```
+```bash
+python3 -m pip intall -r requirements.txt
+```
 
+# Set up virtual env
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
 # Run the script
-```python3 "script name"```
+
+```bash
+python3 "script name"
+```

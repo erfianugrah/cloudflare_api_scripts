@@ -146,7 +146,7 @@ def get_custom_ruleset_id(BASE_URL, headers, zone_id):
         if ruleset_ids["phase"] == "http_request_firewall_custom" and ruleset_ids["source"] == "firewall_custom":
             ruleset_id = ruleset_ids["id"]
     
-    return ruleset_id
+            return ruleset_id
 
 def get_current_custom_ruleset_data(BASE_URL, headers, zone_id):
     

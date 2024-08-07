@@ -27,7 +27,7 @@ def list_idps(account_id):
     while True:
         endpoint = f"{BASE_URL}/{account_id}/access/identity_providers?page={page}&per_page=100"
         response = requests.get(endpoint, headers=headers)
-        if response.status_code != 200:
+        if response.status_code not in [200, 202]:
             print(f"Failed to retrieve idps. Status code: {response.status_code}")
             print(response.text)
             break
@@ -42,7 +42,7 @@ def list_idps(account_id):
 def delete_idps(account_id, idp_id):
     endpoint = f"{BASE_URL}/{account_id}/access/identity_providers/{idp_id}"
     response = requests.delete(endpoint, headers=headers)
-    if response.status_code == 200:
+    if response.status_code in [200, 202]:
         print(f"Deleted idp {idp_id} successfully.")
     else:
         print(f"Failed to delete idp {idp_id}. Status code: {response.status_code}")
