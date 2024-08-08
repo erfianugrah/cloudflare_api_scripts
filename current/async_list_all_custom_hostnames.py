@@ -2,14 +2,17 @@ import os
 import asyncio
 import aiohttp
 import json
-from concurrent.futures import ThreadPoolExecutor
 
 BASE_URL = "https://api.cloudflare.com/client/v4/zones"
 auth_email = os.environ.get('CLOUDFLARE_EMAIL')
 auth_key = os.environ.get('CLOUDFLARE_API_KEY')
+
+# Only include non-None values in headers
 headers = {
-    "X-Auth-Key": auth_key,
-    "X-Auth-Email": auth_email
+    key: value for key, value in {
+        "X-Auth-Key": auth_key,
+        "X-Auth-Email": auth_email
+    }.items() if value is not None
 }
 
 async def fetch_data(session, url):
