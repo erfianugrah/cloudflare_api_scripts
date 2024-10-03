@@ -4,7 +4,6 @@ import os
 from typing import List, Dict
 import csv
 import json
-from tabulate import tabulate
 from datetime import datetime, timezone
 import matplotlib.pyplot as plt
 
@@ -95,6 +94,40 @@ def format_nested_dict(d, indent=0):
             result.append(f"{'  ' * indent}{key}: {value}")
     return '\n'.join(result)
 
+def generate_summary(results: List[Dict]) -> Dict:
+    total_users = len(results)
+    total_active_sessions = sum(user['Active Sessions'] for user in results)
+    total_apps = sum(len(user['Apps']) for user in results)
+
+    summary = {
+        'Total Users': total_users,
+        'Total Active Sessions': total_active_sessions,
+        'Total Apps': total_apps,
+        'Users': [
+            {
+                'Name': user['Name'],
+                'Email': user['Email'],
+                'Active Sessions': user['Active Sessions'],
+                'Apps': len(user['Apps'])
+            } for user in results
+        ]
+    }
+    return summary
+
+def print_summary(summary: Dict):
+    print("\nAccount Summary:")
+    print("-" * 50)
+    print(f"Total Users: {summary['Total Users']}")
+    print(f"Total Active Sessions: {summary['Total Active Sessions']}")
+    print(f"Total Apps: {summary['Total Apps']}")
+    print("\nPer User Summary:")
+    print("-" * 50)
+    for user in summary['Users']:
+        print(f"{user['Name']} ({user['Email']}):")
+        print(f"  Active Sessions: {user['Active Sessions']}")
+        print(f"  Apps: {user['Apps']}")
+    print("-" * 50)
+
 async def main():
     account_id = os.environ.get('CLOUDFLARE_ACCOUNT_ID') or input("Enter your Cloudflare account ID: ").strip()
 
@@ -102,7 +135,12 @@ async def main():
         users = await get_users(session, account_id)
         results = await asyncio.gather(*[process_user(session, account_id, user) for user in users])
 
-    # Console Output
+    # Generate and print summary
+    summary = generate_summary(results)
+    print_summary(summary)
+
+    # Detailed console output
+    print("\nDetailed User Information:")
     for user in results:
         print(format_nested_dict(user))
         print('-' * 50)
@@ -115,8 +153,8 @@ async def main():
         json.dump(results, jsonfile, indent=2)
     print(f"\nJSON file '{json_filename}' has been created.")
 
-    # CSV Output (flattened structure)
-    csv_filename = f'cloudflare_users_{timestamp}.csv'
+    # Detailed CSV Output (flattened structure)
+    csv_filename = f'cloudflare_users_detailed_{timestamp}.csv'
     with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
         fieldnames = ['Name', 'Email', 'Active Sessions', 'Session Expiration', 'Last Issued', 
                       'App Name', 'App Hostname', 'App Type', 'App UID']
@@ -131,7 +169,19 @@ async def main():
                     writer.writerow(row)
             else:
                 writer.writerow(base_row)
-    print(f"\nCSV file '{csv_filename}' has been created.")
+    print(f"\nDetailed CSV file '{csv_filename}' has been created.")
+
+    # Summary CSV Output
+    summary_csv_filename = f'cloudflare_users_summary_{timestamp}.csv'
+    with open(summary_csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['Total Users', 'Total Active Sessions', 'Total Apps'])
+        writer.writerow([summary['Total Users'], summary['Total Active Sessions'], summary['Total Apps']])
+        writer.writerow([])  # Empty row for separation
+        writer.writerow(['Name', 'Email', 'Active Sessions', 'Apps'])
+        for user in summary['Users']:
+            writer.writerow([user['Name'], user['Email'], user['Active Sessions'], user['Apps']])
+    print(f"\nSummary CSV file '{summary_csv_filename}' has been created.")
 
     chart_filename = f'cloudflare_users_chart_{timestamp}.png'
     create_chart(results, chart_filename)
