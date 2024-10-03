@@ -3,115 +3,136 @@ import aiohttp
 import os
 from typing import List, Dict
 import csv
+import json
 from tabulate import tabulate
 from datetime import datetime, timezone
 import matplotlib.pyplot as plt
 
-# Define base URL
 BASE_URL = 'https://api.cloudflare.com/client/v4/accounts'
 
-# Define Auth headers
-auth_email = os.environ.get('CLOUDFLARE_EMAIL')
-auth_key = os.environ.get('CLOUDFLARE_API_KEY')
-
-# Set headers
 headers = {
-    "X-Auth-Key": auth_key,
-    "X-Auth-Email": auth_email
+    "X-Auth-Key": os.environ.get('CLOUDFLARE_API_KEY'),
+    "X-Auth-Email": os.environ.get('CLOUDFLARE_EMAIL')
 }
 
-async def get_users(session: aiohttp.ClientSession, account_id: str) -> List[Dict]:
-    url = f'{BASE_URL}/{account_id}/access/users?per_page=1000'
+async def fetch_data(session: aiohttp.ClientSession, url: str) -> Dict:
     async with session.get(url, headers=headers) as response:
-        data = await response.json()
-        return data['result']
+        return await response.json()
+
+async def get_users(session: aiohttp.ClientSession, account_id: str) -> List[Dict]:
+    data = await fetch_data(session, f'{BASE_URL}/{account_id}/access/users?per_page=1000')
+    return data['result']
 
 async def get_active_sessions(session: aiohttp.ClientSession, account_id: str, user_id: str) -> List[Dict]:
-    url = f'{BASE_URL}/{account_id}/access/users/{user_id}/active_sessions'
-    async with session.get(url, headers=headers) as response:
-        data = await response.json()
-        return data['result']
+    data = await fetch_data(session, f'{BASE_URL}/{account_id}/access/users/{user_id}/active_sessions')
+    return data['result']
 
 def format_timestamp(timestamp: int) -> str:
     return datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
 
 async def process_user(session: aiohttp.ClientSession, account_id: str, user: Dict) -> Dict:
-    user_id = user['id']
-    email = user['email']
-    name = user['name']
+    active_sessions = await get_active_sessions(session, account_id, user['id'])
     
-    active_sessions = await get_active_sessions(session, account_id, user_id)
+    user_data = {
+        'Name': user['name'],
+        'Email': user['email'],
+        'Active Sessions': len(active_sessions),
+        'Apps': []
+    }
     
     if active_sessions:
         session = active_sessions[0]
-        expiration = format_timestamp(session['expiration'])
-        apps = session['metadata']['apps']
-        app_info = next(iter(apps.values()))  # Get the first (and typically only) app
-        hostname = app_info.get('hostname', 'N/A')
-        app_name = app_info.get('name', 'N/A')
-        app_type = app_info.get('type', 'N/A')
-        app_uid = app_info.get('uid', 'N/A')
-        last_issued = format_timestamp(session['metadata']['iat'])
+        user_data['Session Expiration'] = format_timestamp(session['expiration'])
+        user_data['Last Issued'] = format_timestamp(session['metadata']['iat'])
+        
+        for app_data in session['metadata']['apps'].values():
+            user_data['Apps'].append({
+                'Name': app_data.get('name', 'N/A'),
+                'Hostname': app_data.get('hostname', 'N/A'),
+                'Type': app_data.get('type', 'N/A'),
+                'UID': app_data.get('uid', 'N/A')
+            })
     else:
-        expiration = hostname = app_name = app_type = app_uid = last_issued = 'N/A'
+        user_data['Session Expiration'] = 'N/A'
+        user_data['Last Issued'] = 'N/A'
     
-    return {
-        'Name': name,
-        'Email': email,
-        'Active Sessions': len(active_sessions),
-        'Session Expiration': expiration,
-        'App Hostname': hostname,
-        'App Name': app_name,
-        'App Type': app_type,
-        'App UID': app_uid,
-        'Last Issued': last_issued
-    }
-
-def get_account_id() -> str:
-    account_id = os.environ.get('CLOUDFLARE_ACCOUNT_ID')
-    if account_id:
-        print(f"Using Cloudflare Account ID from environment: {account_id}")
-    else:
-        account_id = input("Please enter your Cloudflare account ID: ").strip()
-    return account_id
+    return user_data
 
 def create_chart(results: List[Dict], output_filename: str):
     names = [result['Name'] for result in results]
     active_sessions = [result['Active Sessions'] for result in results]
+    app_counts = [len(result['Apps']) for result in results]
 
-    plt.figure(figsize=(12, 6))
-    plt.bar(names, active_sessions)
-    plt.title('Active Sessions per User')
-    plt.xlabel('User Name')
-    plt.ylabel('Number of Active Sessions')
-    plt.xticks(rotation=45, ha='right')
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+    
+    ax1.bar(names, active_sessions)
+    ax1.set_title('Active Sessions per User')
+    ax1.set_xlabel('User Name')
+    ax1.set_ylabel('Number of Active Sessions')
+    ax1.tick_params(axis='x', rotation=45)
+
+    ax2.bar(names, app_counts)
+    ax2.set_title('Active Apps per User')
+    ax2.set_xlabel('User Name')
+    ax2.set_ylabel('Number of Active Apps')
+    ax2.tick_params(axis='x', rotation=45)
+
     plt.tight_layout()
     plt.savefig(output_filename)
     print(f"\nChart saved as {output_filename}")
 
+def format_nested_dict(d, indent=0):
+    result = []
+    for key, value in d.items():
+        if isinstance(value, list) and value and isinstance(value[0], dict):
+            result.append(f"{'  ' * indent}{key}:")
+            for item in value:
+                result.append(format_nested_dict(item, indent + 1))
+        elif isinstance(value, dict):
+            result.append(f"{'  ' * indent}{key}:")
+            result.append(format_nested_dict(value, indent + 1))
+        else:
+            result.append(f"{'  ' * indent}{key}: {value}")
+    return '\n'.join(result)
+
 async def main():
-    account_id = get_account_id()
+    account_id = os.environ.get('CLOUDFLARE_ACCOUNT_ID') or input("Enter your Cloudflare account ID: ").strip()
 
     async with aiohttp.ClientSession() as session:
         users = await get_users(session, account_id)
-        
-        tasks = [process_user(session, account_id, user) for user in users]
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*[process_user(session, account_id, user) for user in users])
 
-    # ASCII Table Output
-    print(tabulate(results, headers='keys', tablefmt='grid'))
+    # Console Output
+    for user in results:
+        print(format_nested_dict(user))
+        print('-' * 50)
 
-    # CSV Output
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # JSON Output
+    json_filename = f'cloudflare_users_{timestamp}.json'
+    with open(json_filename, 'w', encoding='utf-8') as jsonfile:
+        json.dump(results, jsonfile, indent=2)
+    print(f"\nJSON file '{json_filename}' has been created.")
+
+    # CSV Output (flattened structure)
     csv_filename = f'cloudflare_users_{timestamp}.csv'
     with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=results[0].keys())
+        fieldnames = ['Name', 'Email', 'Active Sessions', 'Session Expiration', 'Last Issued', 
+                      'App Name', 'App Hostname', 'App Type', 'App UID']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(results)
-
+        for user in results:
+            base_row = {k: v for k, v in user.items() if k != 'Apps'}
+            if user['Apps']:
+                for app in user['Apps']:
+                    row = base_row.copy()
+                    row.update({f'App {k}': v for k, v in app.items()})
+                    writer.writerow(row)
+            else:
+                writer.writerow(base_row)
     print(f"\nCSV file '{csv_filename}' has been created.")
 
-    # Chart Output
     chart_filename = f'cloudflare_users_chart_{timestamp}.png'
     create_chart(results, chart_filename)
 
