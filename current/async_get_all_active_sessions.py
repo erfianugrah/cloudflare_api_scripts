@@ -5,7 +5,7 @@ from typing import List, Dict
 import csv
 from tabulate import tabulate
 from datetime import datetime, timezone
-import json
+import matplotlib.pyplot as plt
 
 # Define base URL
 BASE_URL = 'https://api.cloudflare.com/client/v4/accounts'
@@ -75,6 +75,20 @@ def get_account_id() -> str:
         account_id = input("Please enter your Cloudflare account ID: ").strip()
     return account_id
 
+def create_chart(results: List[Dict], output_filename: str):
+    names = [result['Name'] for result in results]
+    active_sessions = [result['Active Sessions'] for result in results]
+
+    plt.figure(figsize=(12, 6))
+    plt.bar(names, active_sessions)
+    plt.title('Active Sessions per User')
+    plt.xlabel('User Name')
+    plt.ylabel('Number of Active Sessions')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    plt.savefig(output_filename)
+    print(f"\nChart saved as {output_filename}")
+
 async def main():
     account_id = get_account_id()
 
@@ -96,6 +110,10 @@ async def main():
         writer.writerows(results)
 
     print(f"\nCSV file '{csv_filename}' has been created.")
+
+    # Chart Output
+    chart_filename = f'cloudflare_users_chart_{timestamp}.png'
+    create_chart(results, chart_filename)
 
 if __name__ == "__main__":
     asyncio.run(main())
