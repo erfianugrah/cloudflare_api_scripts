@@ -19,7 +19,7 @@ class DataProcessor:
         }
     
     def process_zone_metrics(self, raw_data: Dict) -> Optional[pd.DataFrame]:
-        """Process raw zone metrics into a DataFrame."""
+        """Process raw zone metrics with correct sampling interval interpretation."""
         try:
             viewer_data = raw_data.get('data', {}).get('viewer', {})
             zones_data = viewer_data.get('zones', [])
@@ -36,7 +36,19 @@ class DataProcessor:
             for group in requests_data:
                 try:
                     metric = self._process_metric_group(group)
+                    
+                    # Get sampling interval and calculate sampling rate
+                    sample_interval = group['avg'].get('sampleInterval', 1)
+                    sampling_rate = 1 / sample_interval if sample_interval > 0 else 1
+                    
+                    # Store sampling metadata
+                    metric['sample_interval'] = sample_interval
+                    metric['sampling_rate'] = sampling_rate
+                    
+                    # Adjust count-based metrics for sampling rate
+                    self._adjust_for_sampling_rate(metric)
                     metrics.append(metric)
+                    
                 except Exception as e:
                     logger.warning(f"Error processing metric group: {str(e)}")
                     continue
@@ -45,9 +57,13 @@ class DataProcessor:
                 return None
             
             df = pd.DataFrame(metrics)
-            df['cache_hit_ratio'] = (
-                df['cache_status'].isin(['hit', 'stale', 'revalidated'])
-            ).astype(float) * 100
+            
+            # Add timestamp column for time-series analysis
+            df['timestamp'] = pd.to_datetime(df['datetime'])
+            
+            # Calculate sampling statistics
+            df['sampled_requests'] = df['visits_sampled']
+            df['estimated_total_requests'] = df['visits']
             
             return df
             
@@ -82,6 +98,23 @@ class DataProcessor:
         metric.update(self._extract_performance_metrics(group))
         
         return metric
+    
+    def _adjust_for_sampling_rate(self, metric: Dict) -> None:
+        """
+        Adjust count-based metrics using sampling rate.
+        SI=1 means 100% data, SI=10 means 10%, SI=100 means 1%, etc.
+        """
+        sampling_rate = metric['sampling_rate']
+        
+        # Metrics that need to be scaled up to represent 100% of traffic
+        count_metrics = ['visits', 'bytes']
+        for field in count_metrics:
+            if field in metric:
+                # Scale up by dividing by sampling rate
+                # Example: If SI=10 (10% sampling), multiply by 10
+                metric[f'estimated_total_{field}'] = int(metric[field] / sampling_rate)
+                metric[f'{field}_sampled'] = metric[field]  # Keep original sampled values
+                metric[field] = metric[f'estimated_total_{field}']  # Update main metric
     
     def _extract_performance_metrics(self, group: MetricGroup) -> Dict:
         """Extract performance metrics from a group."""
