@@ -1,3 +1,12 @@
 waf-migration.py
 venv
 rustver
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+*.log
+reports/
+.DS_Store
+*.csv
+*.json
