@@ -36,8 +36,8 @@ An advanced analytics tool for analyzing Cloudflare zone performance metrics, pr
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/cloudflare-analytics.git
-cd cloudflare-analytics
+git clonehttps://github.com/erfianugrah/cloudflare_api_scripts.git 
+cd cloudflare-api-scripts
 ```
 
 2. Create and activate a virtual environment:
