@@ -6,8 +6,10 @@ from typing import Optional, List, Dict
 import pandas as pd
 import numpy as np
 from datetime import datetime, timezone, timedelta
-import asyncio
 from pathlib import Path
+import concurrent.futures
+from threading import Lock
+from queue import Queue
 
 from .config import Config, setup_logging
 from .api_client import CloudflareAPIClient
@@ -27,6 +29,10 @@ class CloudflareAnalytics:
         self.visualizer = Visualizer(self.config)
         self.reporter = Reporter(self.config)
         self.ui = UserInterface()
+        self.thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+        self.process_pool = concurrent.futures.ProcessPoolExecutor()
+        self.lock = Lock()
+        self.results_queue = Queue()
 
     def run_analysis(
         self,
@@ -34,93 +40,128 @@ class CloudflareAnalytics:
         end_time: Optional[datetime] = None,
         sample_interval: Optional[int] = None
     ) -> None:
-        """Run complete analysis."""
+        """Run complete analysis with multi-threading."""
         try:
             analysis_start = datetime.now(timezone.utc)
+            api_client = CloudflareAPIClient(self.config)
             
-            # Create async event loop
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            # Fetch and select zones
+            zones = api_client.get_zones()
+            selected_zones = self.ui.select_zones(zones)
             
-            # Run async API calls in the loop
-            async def fetch_data():
-                async with CloudflareAPIClient(self.config) as api_client:
-                    # Fetch and select zones
-                    zones = await api_client.get_zones()
-                    selected_zones = self.ui.select_zones(zones)
-                    
-                    if not selected_zones:
-                        logger.warning("No zones selected for analysis")
-                        return None
+            if not selected_zones:
+                logger.warning("No zones selected for analysis")
+                return None
 
-                    results = []
-                    for zone in selected_zones:
-                        try:
-                            zone_name = zone['name']
-                            logger.info(f"Analyzing zone: {zone_name}")
-                            
-                            # Fetch metrics with sampling control
-                            raw_data = await api_client.fetch_zone_metrics(
-                                zone['id'],
-                                start_time=start_time,
-                                end_time=end_time,
-                                sample_interval=sample_interval
-                            )
-                            
-                            if not raw_data:
-                                logger.error(f"Failed to fetch metrics for zone {zone_name}")
-                                continue
-                            
-                            # Process data synchronously
-                            df = self.data_processor.process_zone_metrics(raw_data)
-                            if df is None or df.empty:
-                                logger.warning(f"No data available for zone {zone_name}")
-                                continue
-                            
-                            # Process analysis synchronously
-                            cache_analysis = self.analyzer.analyze_cache(df, zone_name)
-                            perf_analysis = self.analyzer.analyze_performance(df, zone_name)
-                            
-                            if not cache_analysis or not perf_analysis:
-                                logger.warning(f"Analysis failed for zone {zone_name}")
-                                continue
-                            
-                            # Generate visualizations synchronously
-                            self.visualizer.create_visualizations(
-                                df, cache_analysis, zone_name, 'cache'
-                            )
-                            self.visualizer.create_visualizations(
-                                df, perf_analysis, zone_name, 'performance'
-                            )
-                            
-                            results.append({
-                                'zone_name': zone_name,
-                                'cache_analysis': cache_analysis,
-                                'perf_analysis': perf_analysis,
-                                'sampling_metrics': self._get_sampling_metrics(df)
-                            })
-                            
-                        except Exception as e:
-                            logger.error(f"Error processing zone {zone_name}: {str(e)}")
-                            continue
-                    
-                    return results
+            # Process zones in parallel
+            futures = []
+            for zone in selected_zones:
+                future = self.thread_pool.submit(
+                    self._process_zone,
+                    api_client,
+                    zone,
+                    start_time,
+                    end_time,
+                    sample_interval
+                )
+                futures.append(future)
 
-            # Run the async function in the loop
-            results = loop.run_until_complete(fetch_data())
-            loop.close()
-            
+            # Collect results
+            results = []
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    result = future.result()
+                    if result:
+                        results.append(result)
+                except Exception as e:
+                    logger.error(f"Error processing zone: {str(e)}")
+
             if not results:
                 logger.error("No zones were successfully analyzed")
                 return
 
-            # Generate summary report synchronously
+            # Generate summary report
             self.reporter.generate_summary(results, analysis_start)
             logger.info("Analysis complete! Check the 'reports' directory for results.")
             
         except Exception as e:
             logger.error(f"Fatal error in analysis: {str(e)}")
             raise
+        finally:
+            self.cleanup()
+
+    def _process_zone(
+        self,
+        api_client: CloudflareAPIClient,
+        zone: Dict,
+        start_time: Optional[datetime],
+        end_time: Optional[datetime],
+        sample_interval: Optional[int]
+    ) -> Optional[Dict]:
+        """Process a single zone with thread safety."""
+        try:
+            zone_name = zone['name']
+            with self.lock:
+                logger.info(f"Analyzing zone: {zone_name}")
+            
+            # Fetch metrics
+            raw_data = api_client.fetch_zone_metrics(
+                zone['id'],
+                start_time=start_time,
+                end_time=end_time,
+                sample_interval=sample_interval
+            )
+            
+            if not raw_data:
+                logger.error(f"Failed to fetch metrics for zone {zone_name}")
+                return None
+
+            # Process data using process pool for CPU-intensive tasks
+            df = self.process_pool.submit(
+                self.data_processor.process_zone_metrics,
+                raw_data
+            ).result()
+            
+            if df is None or df.empty:
+                logger.warning(f"No data available for zone {zone_name}")
+                return None
+            
+            # Run analysis in process pool
+            cache_analysis = self.process_pool.submit(
+                self.analyzer.analyze_cache,
+                df, zone_name
+            ).result()
+            
+            perf_analysis = self.process_pool.submit(
+                self.analyzer.analyze_performance,
+                df, zone_name
+            ).result()
+            
+            if not cache_analysis or not perf_analysis:
+                logger.warning(f"Analysis failed for zone {zone_name}")
+                return None
+            
+            # Generate visualizations in process pool
+            self.process_pool.submit(
+                self.visualizer.create_visualizations,
+                df, cache_analysis, zone_name, 'cache'
+            ).result()
+            
+            self.process_pool.submit(
+                self.visualizer.create_visualizations,
+                df, perf_analysis, zone_name, 'performance'
+            ).result()
+            
+            return {
+                'zone_name': zone_name,
+                'cache_analysis': cache_analysis,
+                'perf_analysis': perf_analysis,
+                'sampling_metrics': self._get_sampling_metrics(df)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error processing zone {zone_name}: {str(e)}")
+            return None
 
     def _get_sampling_metrics(self, df: pd.DataFrame) -> Dict:
         """Calculate sampling metrics."""
@@ -133,33 +174,38 @@ class CloudflareAnalytics:
             'avg_confidence_score': float(df['confidence_score'].mean())
         }
 
-    def _save_json(self, file_path: Path, data: Dict) -> None:
-        """Helper method for saving JSON files."""
-        with open(file_path, 'w') as f:
-            json.dump(data, f, indent=2)
+    def cleanup(self):
+        """Cleanup resources."""
+        if self.thread_pool:
+            self.thread_pool.shutdown(wait=True)
+        if self.process_pool:
+            self.process_pool.shutdown(wait=True)
 
-def configure_analysis():
+def configure_analysis() -> tuple:
     """Configure analysis parameters with user input."""
     try:
         print("\nCloudflare Analytics Configuration")
         print("=================================")
         
         print("\nTime Range Options:")
-        print("1. Last 24 hours (default)")
-        print("2. Last 7 days")
-        print("3. Last 30 days")
-        print("4. Custom range")
+        print("1. Last 3 hours")
+        print("2. Last 24 hours")
+        print("3. Last 7 days")
+        print("4. Last 30 days")
+        print("5. Custom range")
         
-        choice = input("\nSelect time range option [1-4]: ").strip() or "1"
+        choice = input("\nSelect time range option [1-5]: ").strip() or "2"
         
         end_time = datetime.now(timezone.utc)
         if choice == "1":
-            start_time = end_time - timedelta(hours=24)
+            start_time = end_time - timedelta(hours=3)
         elif choice == "2":
-            start_time = end_time - timedelta(days=7)
+            start_time = end_time - timedelta(hours=24)
         elif choice == "3":
-            start_time = end_time - timedelta(days=30)
+            start_time = end_time - timedelta(days=7)
         elif choice == "4":
+            start_time = end_time - timedelta(days=30)
+        elif choice == "5":
             days = int(input("Enter number of days to analyze: "))
             start_time = end_time - timedelta(days=days)
         else:
@@ -203,16 +249,20 @@ def main():
     try:
         analytics = CloudflareAnalytics()
         
-        # Get analysis configuration
-        start_time, end_time, sample_interval = configure_analysis()
-        
-        # Run analysis
-        analytics.run_analysis(
-            start_time=start_time,
-            end_time=end_time,
-            sample_interval=sample_interval
-        )
-        
+        try:
+            # Get analysis configuration
+            start_time, end_time, sample_interval = configure_analysis()
+            
+            # Run analysis
+            analytics.run_analysis(
+                start_time=start_time,
+                end_time=end_time,
+                sample_interval=sample_interval
+            )
+            
+        finally:
+            analytics.cleanup()
+            
     except KeyboardInterrupt:
         logger.warning("Analysis interrupted by user")
         sys.exit(1)
