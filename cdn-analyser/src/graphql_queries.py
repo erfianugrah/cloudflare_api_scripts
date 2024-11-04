@@ -1,33 +1,37 @@
+from typing import Dict, List, Optional
+import pandas as pd
+import numpy as np
+import logging
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
 ZONE_METRICS_QUERY = """
-query ZoneMetrics($zoneTag: string!, $filter: ZoneHttpRequestsAdaptiveGroupsFilter_InputObject!) {
+query ZoneMetrics($zoneTag: String!, $filter: ZoneHttpRequestsAdaptiveGroupsFilter!) {
   viewer {
     zones(filter: { zoneTag: $zoneTag }) {
       httpRequestsAdaptiveGroups(
-        limit: 100,
-        filter: $filter
+        limit: 1000,
+        filter: $filter,
+        orderBy: [datetime_ASC]
       ) {
         dimensions {
           datetime
           clientCountryName
-          clientRequestHTTPHost
-          clientRequestPath
-          clientRequestHTTPProtocol
-          clientRequestHTTPMethodName
-          edgeResponseContentTypeName
-          edgeResponseStatus
+          clientDeviceType
           cacheStatus
+          edgeResponseContentTypeName
+          clientRequestHTTPProtocol
+          edgeResponseStatus
           coloCode
         }
         avg {
+          sampleInterval
           edgeTimeToFirstByteMs
           originResponseDurationMs
           edgeDnsResponseTimeMs
-          sampleInterval
         }
         quantiles {
-          edgeDnsResponseTimeMsP50
-          edgeDnsResponseTimeMsP95
-          edgeDnsResponseTimeMsP99
           edgeTimeToFirstByteMsP50
           edgeTimeToFirstByteMsP95
           edgeTimeToFirstByteMsP99
@@ -36,14 +40,16 @@ query ZoneMetrics($zoneTag: string!, $filter: ZoneHttpRequestsAdaptiveGroupsFilt
           originResponseDurationMsP99
         }
         sum {
-          edgeResponseBytes
           visits
+          edgeResponseBytes
+          edgeTimeToFirstByteMs
+          originResponseDurationMs
         }
+        count
         ratio {
           status4xx
           status5xx
         }
-        count
       }
     }
   }

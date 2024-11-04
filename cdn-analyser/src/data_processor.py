@@ -1,144 +1,163 @@
+# data_processor.py
 import pandas as pd
 import numpy as np
 from typing import Dict, Optional
 import logging
-from .types import MetricGroup
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 class DataProcessor:
     def __init__(self):
-        self.cache_categories = {
-            'HIT': ['hit', 'stream_hit'],
-            'MISS': ['miss', 'expired', 'updating', 'stale'],
+        self.cache_statuses = {
+            'HIT': ['hit', 'stale', 'revalidated'],
+            'MISS': ['miss', 'expired', 'updating'],
             'BYPASS': ['bypass', 'ignored'],
-            'REVALIDATED': ['revalidated'],
-            'DYNAMIC': ['dynamic'],
-            'DEFERRED': ['deferred'],
+            'ERROR': ['error'],
             'UNKNOWN': ['unknown']
         }
-    
+
     def process_zone_metrics(self, raw_data: Dict) -> Optional[pd.DataFrame]:
-        """Process raw zone metrics with correct sampling interval interpretation."""
+        """Process raw zone metrics."""
         try:
+            if raw_data is None:
+                logger.error("Raw data is None")
+                return None
+                
             viewer_data = raw_data.get('data', {}).get('viewer', {})
             zones_data = viewer_data.get('zones', [])
             
             if not zones_data:
+                logger.error("No zones data found in response")
                 return None
                 
-            requests_data = zones_data[0].get('httpRequestsAdaptiveGroups', [])
+            http_requests = zones_data[0].get('httpRequestsAdaptiveGroups', [])
             
-            if not requests_data:
+            if not http_requests:
+                logger.error("No HTTP requests data found in response")
                 return None
-            
-            metrics = []
-            for group in requests_data:
-                try:
-                    metric = self._process_metric_group(group)
-                    
-                    # Get sampling interval and calculate sampling rate
-                    sample_interval = group['avg'].get('sampleInterval', 1)
-                    sampling_rate = 1 / sample_interval if sample_interval > 0 else 1
-                    
-                    # Store sampling metadata
-                    metric['sample_interval'] = sample_interval
-                    metric['sampling_rate'] = sampling_rate
-                    
-                    # Adjust count-based metrics for sampling rate
-                    self._adjust_for_sampling_rate(metric)
-                    metrics.append(metric)
-                    
-                except Exception as e:
-                    logger.warning(f"Error processing metric group: {str(e)}")
-                    continue
-            
+
+            # Process each metric group
+            metrics = [
+                self._process_metric_group(group)
+                for group in http_requests
+                if group is not None
+            ]
+
+            metrics = [m for m in metrics if m is not None]
             if not metrics:
+                logger.warning("No valid metrics processed")
                 return None
-            
+
             df = pd.DataFrame(metrics)
-            
-            # Add timestamp column for time-series analysis
             df['timestamp'] = pd.to_datetime(df['datetime'])
             
-            # Calculate sampling statistics
-            df['sampled_requests'] = df['visits_sampled']
-            df['estimated_total_requests'] = df['visits']
-            
+            # Calculate adjusted metrics
+            df['visits_adjusted'] = df.apply(
+                lambda row: row['visits'] / row['sampling_rate'] 
+                if row['sampling_rate'] > 0 else 0,
+                axis=1
+            )
+            df['bytes_adjusted'] = df.apply(
+                lambda row: row['bytes'] / row['sampling_rate']
+                if row['sampling_rate'] > 0 else 0,
+                axis=1
+            )
+
+            # Calculate confidence scores
+            df['confidence_score'] = self._calculate_confidence_scores(df)
+
             return df
-            
+
         except Exception as e:
             logger.error(f"Error processing zone metrics: {str(e)}")
             return None
-    
-    def _process_metric_group(self, group: MetricGroup) -> Dict:
-        """Process a single metric group."""
-        cache_status = group['dimensions'].get('cacheStatus', 'unknown').lower()
-        cache_category = 'UNKNOWN'
-        for category, statuses in self.cache_categories.items():
-            if cache_status in statuses:
-                cache_category = category
-                break
-        
-        metric = {
-            'datetime': group['dimensions']['datetime'],
-            'country': group['dimensions'].get('clientCountryName', 'Unknown'),
-            'host': group['dimensions'].get('clientRequestHTTPHost', 'Unknown'),
-            'path': group['dimensions'].get('clientRequestPath', '/'),
-            'method': group['dimensions'].get('clientRequestHTTPMethodName', 'Unknown'),
-            'protocol': group['dimensions'].get('clientRequestHTTPProtocol', 'Unknown'),
-            'content_type': group['dimensions'].get('edgeResponseContentTypeName', 'Unknown'),
-            'status': group['dimensions'].get('edgeResponseStatus', 0),
-            'colo': group['dimensions'].get('coloCode', 'Unknown'),
-            'cache_status': cache_status,
-            'cache_category': cache_category,
-        }
-        
-        # Add performance metrics
-        metric.update(self._extract_performance_metrics(group))
-        
-        return metric
-    
-    def _adjust_for_sampling_rate(self, metric: Dict) -> None:
-        """
-        Adjust count-based metrics using sampling rate.
-        SI=1 means 100% data, SI=10 means 10%, SI=100 means 1%, etc.
-        """
-        sampling_rate = metric['sampling_rate']
-        
-        # Metrics that need to be scaled up to represent 100% of traffic
-        count_metrics = ['visits', 'bytes']
-        for field in count_metrics:
-            if field in metric:
-                # Scale up by dividing by sampling rate
-                # Example: If SI=10 (10% sampling), multiply by 10
-                metric[f'estimated_total_{field}'] = int(metric[field] / sampling_rate)
-                metric[f'{field}_sampled'] = metric[field]  # Keep original sampled values
-                metric[field] = metric[f'estimated_total_{field}']  # Update main metric
-    
-    def _extract_performance_metrics(self, group: MetricGroup) -> Dict:
-        """Extract performance metrics from a group."""
-        avg_data = group.get('avg', {})
-        quantiles = group.get('quantiles', {})
-        sum_data = group.get('sum', {})
-        ratio_data = group.get('ratio', {})
-        
-        return {
-            'ttfb_avg': avg_data.get('edgeTimeToFirstByteMs', 0),
-            'origin_time_avg': avg_data.get('originResponseDurationMs', 0),
-            'dns_time_avg': avg_data.get('edgeDnsResponseTimeMs', 0),
-            'sample_interval': avg_data.get('sampleInterval', 1),
-            'dns_time_p50': quantiles.get('edgeDnsResponseTimeMsP50', 0),
-            'dns_time_p95': quantiles.get('edgeDnsResponseTimeMsP95', 0),
-            'dns_time_p99': quantiles.get('edgeDnsResponseTimeMsP99', 0),
-            'ttfb_p50': quantiles.get('edgeTimeToFirstByteMsP50', 0),
-            'ttfb_p95': quantiles.get('edgeTimeToFirstByteMsP95', 0),
-            'ttfb_p99': quantiles.get('edgeTimeToFirstByteMsP99', 0),
-            'origin_time_p50': quantiles.get('originResponseDurationMsP50', 0),
-            'origin_time_p95': quantiles.get('originResponseDurationMsP95', 0),
-            'origin_time_p99': quantiles.get('originResponseDurationMsP99', 0),
-            'bytes': sum_data.get('edgeResponseBytes', 0),
-            'visits': sum_data.get('visits', 0),
-            'error_4xx_ratio': ratio_data.get('status4xx', 0),
-            'error_5xx_ratio': ratio_data.get('status5xx', 0),
-        }
+
+    def _process_metric_group(self, group: Dict) -> Optional[Dict]:
+        """Process individual metric group."""
+        try:
+            dimensions = group['dimensions']
+            avg_metrics = group['avg']
+            quantiles = group.get('quantiles', {})
+            sums = group['sum']
+            ratios = group.get('ratio', {})
+
+            # Calculate sampling rate from interval
+            sample_interval = avg_metrics.get('sampleInterval', 1)
+            sampling_rate = 1 / sample_interval if sample_interval > 0 else 1
+
+            # Categorize cache status
+            cache_status = dimensions.get('cacheStatus', 'unknown').lower()
+            cache_category = next(
+                (cat for cat, statuses in self.cache_statuses.items() 
+                 if cache_status in statuses),
+                'UNKNOWN'
+            )
+
+            return {
+                # Temporal dimensions
+                'datetime': dimensions['datetime'],
+                'timestamp': pd.to_datetime(dimensions['datetime']),
+                
+                # Request metadata
+                'country': dimensions.get('clientCountryName', 'Unknown'),
+                'device_type': dimensions.get('clientDeviceType', 'Unknown'),
+                'protocol': dimensions.get('clientRequestHTTPProtocol', 'Unknown'),
+                'content_type': dimensions.get('edgeResponseContentTypeName', 'Unknown'),
+                'colo': dimensions.get('coloCode', 'Unknown'),
+                
+                # Cache information
+                'cache_status': cache_status,
+                'cache_category': cache_category,
+                
+                # Performance metrics
+                'ttfb_avg': avg_metrics.get('edgeTimeToFirstByteMs', 0),
+                'origin_time_avg': avg_metrics.get('originResponseDurationMs', 0),
+                'dns_time_avg': avg_metrics.get('edgeDnsResponseTimeMs', 0),
+                
+                # Error rates
+                'error_rate_4xx': ratios.get('status4xx', 0),
+                'error_rate_5xx': ratios.get('status5xx', 0),
+                
+                # Percentile metrics
+                'ttfb_p50': quantiles.get('edgeTimeToFirstByteMsP50', 0),
+                'ttfb_p95': quantiles.get('edgeTimeToFirstByteMsP95', 0),
+                'ttfb_p99': quantiles.get('edgeTimeToFirstByteMsP99', 0),
+                'origin_p50': quantiles.get('originResponseDurationMsP50', 0),
+                'origin_p95': quantiles.get('originResponseDurationMsP95', 0),
+                'origin_p99': quantiles.get('originResponseDurationMsP99', 0),
+                
+                # Volume metrics
+                'visits': sums.get('visits', 0),
+                'bytes': sums.get('edgeResponseBytes', 0),
+                
+                # Sampling metadata
+                'sampling_rate': sampling_rate,
+                'sample_interval': sample_interval,
+                'sample_count': group.get('count', 0)
+            }
+
+        except Exception as e:
+            logger.warning(f"Error processing individual metric: {str(e)}")
+            return None
+
+    def _calculate_confidence_scores(self, df: pd.DataFrame) -> pd.Series:
+        """Calculate confidence scores based on sampling rate and sample size."""
+        def get_confidence(row):
+            rate = row['sampling_rate']
+            sample_size = row['visits']
+            
+            if rate >= 0.5:  # 50% or more sampling
+                base_confidence = 0.99
+            elif rate >= 0.1:  # 10% or more sampling
+                base_confidence = 0.95 if sample_size >= 1000 else 0.90
+            elif rate >= 0.01:  # 1% or more sampling
+                base_confidence = 0.90 if sample_size >= 10000 else 0.85
+            else:
+                base_confidence = 0.80 if sample_size >= 100000 else 0.75
+            
+            # Adjust for sample size
+            size_factor = min(1.0, np.log10(sample_size + 1) / 6)
+            return base_confidence * size_factor
+
+        return df.apply(get_confidence, axis=1)
