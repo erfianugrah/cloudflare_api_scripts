@@ -154,6 +154,9 @@ query ZoneMetrics($zoneTag: String!, $filter: ZoneHttpRequestsAdaptiveGroupsFilt
           cacheStatus
           coloCode
           clientAsn
+          clientIP
+          clientRefererHost
+          clientRequestHTTPHost
           clientRequestPath
           clientRequestHTTPMethodName
         }

@@ -5,6 +5,7 @@ from typing import Dict, Optional
 import logging
 from datetime import datetime
 import hashlib
+import traceback  # Add this import
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,9 @@ class DataProcessor:
             # Process timestamps
             df['timestamp'] = pd.to_datetime(df['datetime'])
             
+            # Ensure status column exists and is properly formatted
+            df['status'] = df['edgeResponseStatus'].astype(int)
+            
             # Calculate adjusted metrics
             df['visits_adjusted'] = df.apply(
                 lambda row: row['visits'] / row['sampling_rate'] 
@@ -67,6 +71,10 @@ class DataProcessor:
                 axis=1
             )
 
+            # Calculate error rates
+            df['error_rate_4xx'] = df['status'].between(400, 499).astype(float)
+            df['error_rate_5xx'] = df['status'].between(500, 599).astype(float)
+
             # Calculate confidence scores
             df['confidence_score'] = self._calculate_confidence_scores(df)
             
@@ -76,10 +84,15 @@ class DataProcessor:
             # Add path-specific metrics
             df = self._add_path_metrics(df)
 
+            # Log DataFrame info for debugging
+            logger.debug(f"Processed DataFrame columns: {df.columns.tolist()}")
+            logger.debug(f"Processed DataFrame shape: {df.shape}")
+
             return df
 
         except Exception as e:
             logger.error(f"Error processing zone metrics: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
             return None
 
     def _process_metric_group(self, group: Dict) -> Optional[Dict]:
@@ -103,6 +116,9 @@ class DataProcessor:
                 'UNKNOWN'
             )
 
+            # Ensure proper handling of status code
+            edge_response_status = int(dimensions.get('edgeResponseStatus', 0))
+
             return {
                 # Temporal dimensions
                 'datetime': dimensions['datetime'],
@@ -115,6 +131,8 @@ class DataProcessor:
                 'colo': dimensions.get('coloCode', 'Unknown'),
                 'clientRequestPath': dimensions.get('clientRequestPath', '/'),
                 'clientRequestMethod': dimensions.get('clientRequestHTTPMethodName', 'GET'),
+                'edgeResponseStatus': edge_response_status,
+                'status_code': edge_response_status,  # Add explicit status_code field
                 
                 # Cache information
                 'cache_status': cache_status,
@@ -150,6 +168,7 @@ class DataProcessor:
         except Exception as e:
             logger.warning(f"Error processing individual metric: {str(e)}")
             return None
+
 
     def _normalize_path(self, path: str) -> str:
         """Normalize path for grouping similar paths."""

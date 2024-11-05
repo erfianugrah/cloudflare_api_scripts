@@ -1,14 +1,14 @@
-# visualizer.py
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from pathlib import Path
 import logging
-from typing import Dict, Optional, Tuple
-from matplotlib.dates import (DateFormatter, AutoDateLocator, 
-                            HourLocator, DayLocator, MinuteLocator)
+from typing import Dict, Optional
+from matplotlib.dates import DateFormatter, AutoDateLocator, HourLocator, DayLocator, MinuteLocator
 import seaborn as sns
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+import traceback
+from matplotlib.colors import LinearSegmentedColormap
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +16,14 @@ class Visualizer:
     def __init__(self, config):
         self.config = config
         self.setup_style()
+        self.colors = {
+            'primary': '#2ecc71',
+            'secondary': '#3498db',
+            'tertiary': '#9b59b6',
+            'warning': '#f1c40f',
+            'error': '#e74c3c',
+            'neutral': '#95a5a6'
+        }
     
     def setup_style(self):
         """Configure visualization style."""
@@ -26,620 +34,476 @@ class Visualizer:
         plt.rcParams['axes.grid'] = True
         plt.rcParams['grid.alpha'] = 0.3
         plt.rcParams['figure.autolayout'] = True
+        
+        # Set color palette
         sns.set_palette("husl")
+        
+        # Improve readability
+        plt.rcParams['font.size'] = 10
+        plt.rcParams['axes.titlesize'] = 12
+        plt.rcParams['axes.labelsize'] = 10
+        plt.rcParams['xtick.labelsize'] = 9
+        plt.rcParams['ytick.labelsize'] = 9
 
-    def _determine_time_scale(self, df: pd.DataFrame) -> Tuple[str, str]:
-        """Determine appropriate time scale based on data range."""
+    def create_visualizations(self, df: pd.DataFrame, analysis: Dict, zone_name: str) -> None:
+        """Create all visualizations for the analysis results."""
         try:
-            time_range = df['timestamp'].max() - df['timestamp'].min()
-            total_minutes = time_range.total_seconds() / 60
-            
-            if total_minutes <= 60:  # 1 hour
-                return '5min', '5 Minutes'
-            elif total_minutes <= 24 * 60:  # 24 hours
-                return '1h', 'Hour'
-            elif total_minutes <= 7 * 24 * 60:  # 7 days
-                return '6h', '6 Hours'
-            elif total_minutes <= 30 * 24 * 60:  # 30 days
-                return '1D', 'Day'
-            elif total_minutes <= 90 * 24 * 60:  # 90 days
-                return '1W', 'Week'
-            else:
-                return '1M', 'Month'
-        except Exception as e:
-            logger.error(f"Error determining time scale: {str(e)}")
-            return '1h', 'Hour'  # Default
+            if df is None or df.empty or not analysis:
+                logger.error("No data available for visualization")
+                return
 
-    def _setup_time_axis(self, ax, df: pd.DataFrame):
-        """Configure time axis formatting based on data range."""
-        try:
-            time_range = df['timestamp'].max() - df['timestamp'].min()
-            total_minutes = time_range.total_seconds() / 60
-            
-            if total_minutes <= 60:  # 1 hour
-                ax.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
-                ax.xaxis.set_major_locator(MinuteLocator(interval=5))
-            elif total_minutes <= 24 * 60:  # 24 hours
-                ax.xaxis.set_major_formatter(DateFormatter('%H:%M'))
-                ax.xaxis.set_major_locator(HourLocator(interval=2))
-            elif total_minutes <= 7 * 24 * 60:  # 7 days
-                ax.xaxis.set_major_formatter(DateFormatter('%m/%d %H:%M'))
-                ax.xaxis.set_major_locator(DayLocator())
-            else:
-                ax.xaxis.set_major_formatter(DateFormatter('%Y-%m-%d'))
-                ax.xaxis.set_major_locator(AutoDateLocator())
-            
-            plt.xticks(rotation=45, ha='right')
-            
-            # Add buffer to time range
-            if len(df['timestamp'].unique()) > 1:
-                buffer = timedelta(minutes=total_minutes * 0.05)  # 5% buffer
-                ax.set_xlim(
-                    df['timestamp'].min() - buffer,
-                    df['timestamp'].max() + buffer
-                )
-                
-        except Exception as e:
-            logger.error(f"Error setting up time axis: {str(e)}")
+            # Convert timestamp to datetime if it's not already
+            if 'timestamp' in df.columns and not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
 
-    def _safe_resample(self, df: pd.DataFrame, time_unit: str, value_column: str,
-                      agg_func: str = 'mean') -> pd.Series:
-        """Safely resample time series data without timestamp operations."""
-        try:
-            df_copy = df.copy()
-            df_copy = df_copy.sort_values('timestamp')
-            df_copy = df_copy.set_index('timestamp')
-            
-            resampled = df_copy[value_column].resample(time_unit)
-            
-            if agg_func == 'mean':
-                result = resampled.mean()
-            elif agg_func == 'sum':
-                result = resampled.sum()
-            else:
-                result = resampled.mean()
-            
-            # Use modern pandas methods instead of deprecated fillna
-            result = result.ffill().bfill()
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error resampling data: {str(e)}")
-            return pd.Series(dtype=float)
-
-    def _plot_time_series(self, ax, df: pd.DataFrame, value_column: str,
-                         time_unit: str, label: str, color: str = 'blue') -> Optional[pd.Series]:
-        """Plot time series data with proper handling."""
-        try:
-            resampled = self._safe_resample(df, time_unit, value_column)
-            
-            if not resampled.empty:
-                ax.plot(resampled.index, resampled.values,
-                       marker='o', label=label, color=color, linewidth=2,
-                       markersize=4, alpha=0.7)
-                
-                self._setup_time_axis(ax, df)
-                return resampled
-                
-        except Exception as e:
-            logger.error(f"Error plotting time series: {str(e)}")
-            return None
-
-    def create_visualizations(self, df: pd.DataFrame, analysis: Dict, zone_name: str, analysis_type: str) -> None:
-        """Create visualizations with dynamic time scaling."""
-        try:
-            output_dir = self.config.images_dir / zone_name / analysis_type
+            output_dir = self.config.images_dir / zone_name
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Create a copy of the DataFrame
-            df_copy = df.copy()
+            # Create main visualization groups
+            self._create_performance_overview(df, analysis, output_dir)
+            self._create_cache_analysis(df, analysis, output_dir)
+            self._create_error_analysis(df, analysis, output_dir)
+            self._create_geographic_analysis(df, analysis, output_dir)
+            self._create_time_series(df, analysis, output_dir)
+            self._create_path_analysis(df, analysis, output_dir)
 
-            if analysis_type == 'cache':
-                self._create_cache_visualizations(df_copy, analysis, output_dir)
-            elif analysis_type == 'performance':
-                self._create_performance_visualizations(df_copy, analysis, output_dir)
-            
-            # Always create path-based visualizations
-            self._create_path_visualizations(df_copy, output_dir)
-            
         except Exception as e:
             logger.error(f"Error creating visualizations: {str(e)}")
+            logger.error(traceback.format_exc())
             plt.close('all')
 
-    def _create_path_visualizations(self, df: pd.DataFrame, output_dir: Path) -> None:
-        """Create path-specific visualizations."""
+    def _create_performance_overview(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
+        """Create performance overview visualizations."""
         try:
-            # Calculate path metrics
-            path_metrics = (df.groupby('path_group')
-                          .agg({
-                              'visits_adjusted': 'sum',
-                              'ttfb_avg': 'mean',
-                              'cache_status': lambda x: (x.isin(['hit', 'stale', 'revalidated']).mean() * 100)
-                          })
-                          .sort_values('visits_adjusted', ascending=False)
-                          .head(10))
-
-            # 1. Path Overview
-            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(15, 15))
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
             
-            # Prepare path labels
-            path_labels = [path[:30] + '...' if len(path) > 30 else path 
-                         for path in path_metrics.index]
+            # 1. TTFB Distribution
+            ttfb_data = df['ttfb_avg'].dropna().astype(float)
+            sns.histplot(data=ttfb_data, ax=ax1, bins=30, color=self.colors['primary'])
+            ax1.set_title('TTFB Distribution')
+            ax1.set_xlabel('TTFB (ms)')
+            ax1.set_ylabel('Count')
 
-            # TTFB by Path
-            sns.barplot(x=range(len(path_metrics)), y=path_metrics['ttfb_avg'],
-                       ax=ax1, color='blue', alpha=0.7)
-            ax1.set_title('Average TTFB by Path')
-            ax1.set_ylabel('TTFB (ms)')
-            ax1.set_xticks(range(len(path_metrics)))
-            ax1.set_xticklabels(path_labels, rotation=45, ha='right')
+            # 2. Performance by Cache Status
+            cache_perf = df.groupby('cache_status').agg({
+                'ttfb_avg': 'mean',
+                'visits_adjusted': 'sum'
+            }).reset_index()
+            
+            cache_perf['ttfb_avg'] = cache_perf['ttfb_avg'].astype(float)
+            ax2.bar(range(len(cache_perf)), cache_perf['ttfb_avg'], color=self.colors['secondary'])
+            ax2.set_title('Average TTFB by Cache Status')
+            ax2.set_xlabel('Cache Status')
+            ax2.set_ylabel('TTFB (ms)')
+            ax2.set_xticks(range(len(cache_perf)))
+            ax2.set_xticklabels(cache_perf['cache_status'], rotation=45, ha='right')
 
-            # Cache Hit Ratio by Path
-            sns.barplot(x=range(len(path_metrics)), y=path_metrics['cache_status'],
-                       ax=ax2, color='green', alpha=0.7)
-            ax2.set_title('Cache Hit Ratio by Path')
-            ax2.set_ylabel('Cache Hit Ratio (%)')
-            ax2.set_xticks(range(len(path_metrics)))
-            ax2.set_xticklabels(path_labels, rotation=45, ha='right')
-
-            # Request Volume by Path
-            sns.barplot(x=range(len(path_metrics)), y=path_metrics['visits_adjusted'],
-                       ax=ax3, color='purple', alpha=0.7)
-            ax3.set_title('Request Volume by Path')
-            ax3.set_ylabel('Number of Requests')
-            ax3.set_xticks(range(len(path_metrics)))
-            ax3.set_xticklabels(path_labels, rotation=45, ha='right')
+            # 3. Status Code Distribution
+            status_counts = df['status_code'].astype(int).value_counts().sort_index()
+            ax3.bar(status_counts.index.astype(str), status_counts.values, color=self.colors['tertiary'])
+            ax3.set_title('Status Code Distribution')
+            ax3.set_xlabel('Status Code')
+            ax3.set_ylabel('Count')
+            
+            # 4. Performance by HTTP Protocol
+            protocol_perf = df.groupby('protocol').agg({
+                'ttfb_avg': 'mean',
+                'visits_adjusted': 'sum'
+            }).reset_index()
+            
+            protocol_perf['ttfb_avg'] = protocol_perf['ttfb_avg'].astype(float)
+            ax4.bar(range(len(protocol_perf)), protocol_perf['ttfb_avg'], color=self.colors['error'])
+            ax4.set_title('Average TTFB by HTTP Protocol')
+            ax4.set_xlabel('Protocol')
+            ax4.set_ylabel('TTFB (ms)')
+            ax4.set_xticks(range(len(protocol_perf)))
+            ax4.set_xticklabels(protocol_perf['protocol'], rotation=45, ha='right')
 
             plt.tight_layout()
-            self._save_fig_safely(fig, output_dir / 'path_overview.png')
-
-            # 2. Time Series by Path
-            time_unit, time_label = self._determine_time_scale(df)
-            
-            for path in path_metrics.index:
-                mask = df['path_group'] == path
-                if mask.any():
-                    path_df = df[mask].copy()
-                    self._create_path_time_series(path_df, path, time_unit, output_dir)
+            self._save_fig_safely(fig, output_dir / 'performance_overview.png')
 
         except Exception as e:
-            logger.error(f"Error creating path visualizations: {str(e)}")
+            logger.error(f"Error creating performance overview: {str(e)}")
             plt.close('all')
 
-    def _create_path_time_series(self, path_df: pd.DataFrame, path: str,
-                               time_unit: str, output_dir: Path) -> None:
-        """Create time series plots for a specific path."""
+    def _create_cache_analysis(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
+        """Create cache analysis visualizations."""
         try:
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10))
-            
-            # TTFB Over Time
-            self._plot_time_series(
-                ax1, path_df, 'ttfb_avg', time_unit,
-                'TTFB', color='blue'
-            )
-            ax1.set_title(f'TTFB Over Time - {path[:50]}{"..." if len(path) > 50 else ""}')
-            ax1.set_ylabel('TTFB (ms)')
-            
-            # Cache Hit Ratio Over Time
-            cache_hits = path_df['cache_status'].isin(['hit', 'stale', 'revalidated'])
-            path_df.loc[:, 'cache_hit_ratio'] = cache_hits.astype(float) * 100
-            
-            self._plot_time_series(
-                ax2, path_df, 'cache_hit_ratio', time_unit,
-                'Cache Hit Ratio', color='green'
-            )
-            ax2.set_title('Cache Hit Ratio Over Time')
-            ax2.set_ylabel('Cache Hit Ratio (%)')
-            
-            plt.tight_layout()
-            safe_path = "".join(x for x in path if x.isalnum())[:30]
-            self._save_fig_safely(fig, output_dir / f'path_metrics_{safe_path}.png')
-            
-        except Exception as e:
-            logger.error(f"Error creating path time series: {str(e)}")
-            plt.close('all')
-
-    def _create_cache_visualizations(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
-        """Create cache-specific visualizations with dynamic time scaling."""
-        try:
-            time_unit, time_label = self._determine_time_scale(df)
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
             
             # 1. Cache Hit Ratio Over Time
-            fig, ax = plt.subplots(figsize=(14, 7))
+            df_time = df.set_index('timestamp')
+            df_time['cache_hit'] = df_time['cache_status'].isin(['hit', 'stale', 'revalidated'])
+            hit_ratio = df_time['cache_hit'].rolling('5min').mean() * 100
             
-            # Calculate cache hits without timestamp operations
-            df.loc[:, 'cache_hit_ratio'] = (df['cache_status']
-                                          .isin(['hit', 'stale', 'revalidated'])
-                                          .astype(float) * 100)
+            ax1.plot(df_time.index, hit_ratio, color=self.colors['primary'])
+            ax1.set_title('Cache Hit Ratio Over Time')
+            ax1.set_xlabel('Time')
+            ax1.set_ylabel('Hit Ratio (%)')
+            self._setup_time_axis(ax1, df_time.index)
+
+            # 2. Cache Status Distribution
+            cache_dist = df['cache_status'].value_counts()
+            colors = plt.cm.Set3(np.linspace(0, 1, len(cache_dist)))
+            ax2.pie(cache_dist.values, labels=cache_dist.index, colors=colors, autopct='%1.1f%%')
+            ax2.set_title('Cache Status Distribution')
+
+            # 3. Cache Performance by Content Type
+            content_cache = df.groupby('content_type').agg({
+                'cache_status': lambda x: (x.isin(['hit', 'stale', 'revalidated']).mean() * 100),
+                'visits_adjusted': 'sum'
+            }).nlargest(10, 'visits_adjusted')
             
-            resampled = self._plot_time_series(
-                ax, df, 'cache_hit_ratio', time_unit,
-                'Hit Ratio', color='blue'
-            )
+            x = np.arange(len(content_cache))
+            ax3.bar(x, content_cache['cache_status'], color=self.colors['secondary'])
+            ax3.set_title('Cache Hit Ratio by Content Type')
+            ax3.set_xlabel('Content Type')
+            ax3.set_ylabel('Hit Ratio (%)')
+            ax3.set_xticks(x)
+            ax3.set_xticklabels(content_cache.index, rotation=45, ha='right')
+
+            # 4. Bandwidth Savings
+            cache_bandwidth = df.groupby('cache_status').agg({
+                'bytes_adjusted': 'sum'
+            })
+            total_bytes = cache_bandwidth['bytes_adjusted'].sum()
+            cache_bandwidth['percentage'] = cache_bandwidth['bytes_adjusted'] / total_bytes * 100
             
-            if resampled is not None:
-                # Add sampling rate indicators without timestamp operations
-                sampling_rates = self._safe_resample(df, time_unit, 'sampling_rate')
-                for i, (idx, rate) in enumerate(sampling_rates.items()):
-                    if i % 2 == 0:  # Add labels every other point
-                        ax.annotate(
-                            f'SR: {rate:.1f}%',
-                            (idx, resampled[idx]),
-                            xytext=(0, 10),
-                            textcoords='offset points',
-                            ha='center',
-                            fontsize=8
-                        )
-            
-            ax.set_title(f'Cache Hit Ratio by {time_label}')
-            ax.set_xlabel('Time')
-            ax.set_ylabel('Hit Ratio (%)')
+            colors = plt.cm.Set3(np.linspace(0, 1, len(cache_bandwidth)))
+            ax4.pie(cache_bandwidth['percentage'], 
+                   labels=cache_bandwidth.index,
+                   colors=colors,
+                   autopct='%1.1f%%')
+            ax4.set_title('Bandwidth Distribution by Cache Status')
+
             plt.tight_layout()
-            self._save_fig_safely(fig, output_dir / 'cache_hit_ratio.png')
-
-            # Create remaining visualizations...
-            if analysis.get('by_cache_status'):
-                self._create_cache_distribution_plot(analysis, output_dir)
-
-            if analysis.get('by_country'):
-                self._create_geo_cache_plot(analysis, output_dir)
-
-            if analysis.get('by_content_type'):
-                self._create_content_type_cache_plot(analysis, output_dir)
+            self._save_fig_safely(fig, output_dir / 'cache_analysis.png')
 
         except Exception as e:
-            logger.error(f"Error creating cache visualizations: {str(e)}")
+            logger.error(f"Error creating cache analysis: {str(e)}")
+            plt.close('all')
+
+    def _create_error_analysis(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
+        """Create error analysis visualizations."""
+        try:
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
+            
+            # 1. Error Rate Over Time
+            df_time = df.set_index('timestamp')
+            error_4xx = df_time['error_rate_4xx'].rolling('5min').mean() * 100
+            error_5xx = df_time['error_rate_5xx'].rolling('5min').mean() * 100
+            
+            ax1.plot(df_time.index, error_4xx, label='4xx Errors', color=self.colors['warning'])
+            ax1.plot(df_time.index, error_5xx, label='5xx Errors', color=self.colors['error'])
+            ax1.set_title('Error Rates Over Time')
+            ax1.set_xlabel('Time')
+            ax1.set_ylabel('Error Rate (%)')
+            ax1.legend()
+            self._setup_time_axis(ax1, df_time.index)
+
+            # 2. Error Status Distribution
+            error_status = df[df['status_code'] >= 400]['status_code'].astype(int).value_counts().sort_index()
+            x = range(len(error_status))
+            ax2.bar(x, error_status.values, color=self.colors['tertiary'])
+            ax2.set_title('Error Status Code Distribution')
+            ax2.set_xlabel('Status Code')
+            ax2.set_ylabel('Count')
+            ax2.set_xticks(x)
+            ax2.set_xticklabels(error_status.index, rotation=45)
+
+            # 3. Errors by Path
+            path_errors = df.groupby('path_group').agg({
+                'error_rate_4xx': 'mean',
+                'error_rate_5xx': 'mean',
+                'visits_adjusted': 'sum'
+            }).nlargest(10, 'visits_adjusted')
+            
+            x = np.arange(len(path_errors))
+            width = 0.35
+            ax3.bar(x - width/2, 
+                   path_errors['error_rate_4xx'] * 100,
+                   width,
+                   label='4xx',
+                   color=self.colors['warning'])
+            ax3.bar(x + width/2,
+                   path_errors['error_rate_5xx'] * 100,
+                   width,
+                   label='5xx',
+                   color=self.colors['error'])
+            ax3.set_title('Error Rates by Top Paths')
+            ax3.set_ylabel('Error Rate (%)')
+            ax3.set_xticks(x)
+            ax3.set_xticklabels(path_errors.index, rotation=45, ha='right')
+            ax3.legend()
+
+            # 4. Error Response Sizes
+            error_sizes = df[df['status_code'] >= 400].groupby('status_code').agg({
+                'bytes_adjusted': 'mean'
+            }) / 1024  # Convert to KB
+            
+            x = range(len(error_sizes))
+            ax4.bar(x, error_sizes['bytes_adjusted'], color=self.colors['primary'])
+            ax4.set_title('Average Error Response Size')
+            ax4.set_xlabel('Status Code')
+            ax4.set_ylabel('Size (KB)')
+            ax4.set_xticks(x)
+            ax4.set_xticklabels(error_sizes.index.astype(int), rotation=45)
+
+            plt.tight_layout()
+            self._save_fig_safely(fig, output_dir / 'error_analysis.png')
+
+        except Exception as e:
+            logger.error(f"Error creating error analysis: {str(e)}")
+            plt.close('all')
+
+    def _create_geographic_analysis(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
+        """Create geographic analysis visualizations."""
+        try:
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
+            
+            # Get top 10 countries by traffic
+            top_countries = df.groupby('country').agg({
+                'visits_adjusted': 'sum'
+            }).nlargest(10, 'visits_adjusted')
+
+            country_metrics = df[df['country'].isin(top_countries.index)].groupby('country').agg({
+                'visits_adjusted': 'sum',
+                'ttfb_avg': 'mean',
+                'bytes_adjusted': 'sum',
+                'error_rate_4xx': 'mean',
+                'error_rate_5xx': 'mean'
+            })
+
+            # 1. Traffic Distribution
+            colors = plt.cm.Set3(np.linspace(0, 1, len(country_metrics)))
+            ax1.pie(country_metrics['visits_adjusted'],
+                   labels=country_metrics.index,
+                   colors=colors,
+                   autopct='%1.1f%%')
+            ax1.set_title('Traffic Distribution by Country')
+
+            # 2. Average TTFB by Country
+            x = np.arange(len(country_metrics))  # Using numpy array instead of range
+            ax2.bar(x, country_metrics['ttfb_avg'], color=self.colors['secondary'])
+            ax2.set_title('Average TTFB by Country')
+            ax2.set_ylabel('TTFB (ms)')
+            ax2.set_xticks(x)
+            ax2.set_xticklabels(country_metrics.index, rotation=45, ha='right')
+
+            # 3. Bandwidth Usage
+            bandwidth_gb = country_metrics['bytes_adjusted'] / (1024**3)
+            ax3.bar(x, bandwidth_gb, color=self.colors['tertiary'])
+            ax3.set_title('Bandwidth Usage by Country')
+            ax3.set_ylabel('Bandwidth (GB)')
+            ax3.set_xticks(x)
+            ax3.set_xticklabels(country_metrics.index, rotation=45, ha='right')
+
+            # 4. Error Rates by Country
+            width = 0.35
+            # Convert x to numpy array for arithmetic operations
+            bar_positions_left = x - width/2
+            bar_positions_right = x + width/2
+            
+            ax4.bar(bar_positions_left,
+                   country_metrics['error_rate_4xx'] * 100,
+                   width,
+                   label='4xx',
+                   color=self.colors['warning'])
+            ax4.bar(bar_positions_right,
+                   country_metrics['error_rate_5xx'] * 100,
+                   width,
+                   label='5xx',
+                   color=self.colors['error'])
+            ax4.set_title('Error Rates by Country')
+            ax4.set_ylabel('Error Rate (%)')
+            ax4.set_xticks(x)
+            ax4.set_xticklabels(country_metrics.index, rotation=45, ha='right')
+            ax4.legend()
+
+            plt.tight_layout()
+            self._save_fig_safely(fig, output_dir / 'geographic_analysis.png')
+
+        except Exception as e:
+            logger.error(f"Error creating geographic analysis: {str(e)}")
             logger.error(traceback.format_exc())
             plt.close('all')
 
-    def _create_cache_distribution_plot(self, analysis: Dict, output_dir: Path) -> None:
-        """Create cache status distribution plot."""
+
+    def _create_time_series(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
+        """Create time series visualizations."""
         try:
-            fig, ax = plt.subplots(figsize=(12, 6))
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
             
-            status_data = pd.DataFrame.from_dict(
-                analysis['by_cache_status'],
-                orient='index'
-            )
+            df_time = df.set_index('timestamp')
             
-            if not status_data.empty and 'percentage' in status_data.columns:
-                sns.barplot(x=status_data.index, y=status_data['percentage'],
-                          ax=ax, color='blue', alpha=0.7)
-                
-                # Add value labels
-                for i, (_, row) in enumerate(status_data.iterrows()):
-                    ax.text(i, row['percentage'],
-                           f"{row['percentage']:.1f}%",
-                           ha='center', va='bottom')
-                    
-                    # Add sampling rate if available
-                    if 'avg_sampling_rate' in row:
-                        ax.text(i, row['percentage'] / 2,
-                               f"SR: {row['avg_sampling_rate']:.1f}%",
-                               ha='center', va='center',
-                               color='white', fontweight='bold')
-                
-                ax.set_title('Cache Status Distribution')
-                ax.set_xlabel('Cache Status')
-                ax.set_ylabel('Percentage of Requests (%)')
-                plt.xticks(rotation=45, ha='right')
-                plt.tight_layout()
-                self._save_fig_safely(fig, output_dir / 'cache_distribution.png')
-                
+            # 1. Request Volume Over Time
+            requests = df_time['visits_adjusted'].resample('5min').sum()
+            ax1.plot(requests.index, requests.values, color=self.colors['primary'])
+            ax1.set_title('Request Volume Over Time')
+            ax1.set_ylabel('Requests')
+            self._setup_time_axis(ax1, requests.index)
+
+            # 2. Average TTFB Over Time
+            ttfb = df_time['ttfb_avg'].resample('5min').mean()
+            ax2.plot(ttfb.index, ttfb.values, color=self.colors['secondary'])
+            ax2.set_title('Average TTFB Over Time')
+            ax2.set_ylabel('TTFB (ms)')
+            self._setup_time_axis(ax2, ttfb.index)
+
+            # 3. Bandwidth Usage Over Time
+            bandwidth = df_time['bytes_adjusted'].resample('5min').sum() / (1024**3)
+            ax3.plot(bandwidth.index, bandwidth.values, color=self.colors['tertiary'])
+            ax3.set_title('Bandwidth Usage Over Time')
+            ax3.set_ylabel('Bandwidth (GB)')
+            self._setup_time_axis(ax3, bandwidth.index)
+
+            # 4. Error Rates Over Time
+            error_4xx = df_time['error_rate_4xx'].resample('5min').mean() * 100
+            error_5xx = df_time['error_rate_5xx'].resample('5min').mean() * 100
+            
+            ax4.plot(error_4xx.index, error_4xx.values, label='4xx Errors', color=self.colors['warning'])
+            ax4.plot(error_5xx.index, error_5xx.values, label='5xx Errors', color=self.colors['error'])
+            ax4.set_title('Error Rates Over Time')
+            ax4.set_ylabel('Error Rate (%)')
+            ax4.legend()
+            self._setup_time_axis(ax4, error_4xx.index)
+
+            plt.tight_layout()
+            self._save_fig_safely(fig, output_dir / 'time_series.png')
+
         except Exception as e:
-            logger.error(f"Error creating cache distribution plot: {str(e)}")
+            logger.error(f"Error creating time series: {str(e)}")
             plt.close('all')
 
-    def _create_geo_cache_plot(self, analysis: Dict, output_dir: Path) -> None:
-        """Create geographic cache performance plot."""
+    def _create_path_analysis(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
+        """Create path-specific analysis visualizations."""
         try:
-            fig, ax = plt.subplots(figsize=(15, 8))
-            
-            country_data = pd.DataFrame.from_dict(
-                analysis['by_country'],
-                orient='index'
+            # Get top 10 paths by traffic
+            top_paths = df.groupby('path_group').agg({
+                'visits_adjusted': 'sum'
+            }).nlargest(10, 'visits_adjusted')
+
+            path_metrics = df[df['path_group'].isin(top_paths.index)].groupby('path_group').agg({
+                'visits_adjusted': 'sum',
+                'ttfb_avg': 'mean',
+                'bytes_adjusted': 'sum',
+                'error_rate_4xx': 'mean',
+                'error_rate_5xx': 'mean',
+                'cache_status': lambda x: (x.isin(['hit', 'stale', 'revalidated'])).mean() * 100
+            })
+
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
+
+            # 1. Request Distribution by Path
+            colors = plt.cm.Set3(np.linspace(0, 1, len(path_metrics)))
+            ax1.pie(path_metrics['visits_adjusted'], 
+                   labels=[p[:30] + '...' if len(p) > 30 else p for p in path_metrics.index],
+                   colors=colors,
+                   autopct='%1.1f%%')
+            ax1.set_title('Request Distribution by Path')
+
+            # 2. Average TTFB by Path
+            x = np.arange(len(path_metrics))  # Using numpy array instead of range
+            ax2.bar(x, path_metrics['ttfb_avg'], color=self.colors['secondary'])
+            ax2.set_title('Average TTFB by Path')
+            ax2.set_ylabel('TTFB (ms)')
+            ax2.set_xticks(x)
+            ax2.set_xticklabels(
+                [p[:30] + '...' if len(p) > 30 else p for p in path_metrics.index],
+                rotation=45,
+                ha='right'
             )
+
+            # 3. Cache Hit Ratio by Path
+            ax3.bar(x, path_metrics['cache_status'], color=self.colors['primary'])
+            ax3.set_title('Cache Hit Ratio by Path')
+            ax3.set_ylabel('Hit Ratio (%)')
+            ax3.set_xticks(x)
+            ax3.set_xticklabels(
+                [p[:30] + '...' if len(p) > 30 else p for p in path_metrics.index],
+                rotation=45,
+                ha='right'
+            )
+
+            # 4. Error Rates by Path
+            width = 0.35
+            # Convert x to numpy array for arithmetic operations
+            bar_positions_left = x - width/2
+            bar_positions_right = x + width/2
             
-            # Calculate percentage from cache status instead of looking for cache_hit_ratio
-            if 'requests_estimated' in country_data.columns and 'cache_status' in country_data.columns:
-                total_requests = country_data['requests_estimated'].sum()
-                country_data['hit_ratio'] = country_data.apply(
-                    lambda x: (x['requests_estimated'] if x.get('cache_status', '').lower() in 
-                             ['hit', 'stale', 'revalidated'] else 0) / total_requests * 100,
-                    axis=1
-                )
-                
-                # Sort and get top 20 countries
-                country_data = country_data.sort_values('hit_ratio', ascending=False).head(20)
-                
-                sns.barplot(
-                    x=country_data.index,
-                    y=country_data['hit_ratio'],
-                    ax=ax,
-                    color='blue',
-                    alpha=0.7
-                )
-                
-                # Add sampling rate annotations
-                for i, (_, row) in enumerate(country_data.iterrows()):
-                    if 'sampling_rate' in row:
-                        ax.text(i, row['hit_ratio'] / 2,
-                               f"SR: {row['sampling_rate']:.1f}%",
-                               ha='center', va='center',
-                               color='white', fontweight='bold')
-                
-                ax.set_title('Cache Hit Ratio by Country (Top 20)')
-                ax.set_xlabel('Country')
-                ax.set_ylabel('Cache Hit Ratio (%)')
-                plt.xticks(rotation=45, ha='right')
-                plt.tight_layout()
-                self._save_fig_safely(fig, output_dir / 'geo_cache_performance.png')
-                
+            ax4.bar(bar_positions_left,
+                   path_metrics['error_rate_4xx'] * 100,
+                   width,
+                   label='4xx Errors',
+                   color=self.colors['warning'])
+            ax4.bar(bar_positions_right,
+                   path_metrics['error_rate_5xx'] * 100,
+                   width,
+                   label='5xx Errors',
+                   color=self.colors['error'])
+            ax4.set_title('Error Rates by Path')
+            ax4.set_ylabel('Error Rate (%)')
+            ax4.set_xticks(x)
+            ax4.set_xticklabels(
+                [p[:30] + '...' if len(p) > 30 else p for p in path_metrics.index],
+                rotation=45,
+                ha='right'
+            )
+            ax4.legend()
+
+            plt.tight_layout()
+            self._save_fig_safely(fig, output_dir / 'path_analysis.png')
+
         except Exception as e:
-            logger.error(f"Error creating geographic cache plot: {str(e)}")
+            logger.error(f"Error creating path analysis: {str(e)}")
             logger.error(traceback.format_exc())
             plt.close('all')
 
-    def _create_content_type_cache_plot(self, analysis: Dict, output_dir: Path) -> None:
-        """Create content type cache performance plot."""
+    def _setup_time_axis(self, ax, timestamps):
+        """Configure time axis formatting based on data range."""
         try:
-            fig, ax = plt.subplots(figsize=(14, 7))
-            
-            content_data = pd.DataFrame.from_dict(
-                analysis['by_content_type'],
-                orient='index'
-            )
-            
-            # Calculate cache hit ratio from the data
-            if 'requests_estimated' in content_data.columns and 'cache_status' in content_data.columns:
-                total_requests = content_data['requests_estimated'].sum()
-                content_data['hit_ratio'] = content_data.apply(
-                    lambda x: (x['requests_estimated'] if x.get('cache_status', '').lower() in 
-                             ['hit', 'stale', 'revalidated'] else 0) / total_requests * 100,
-                    axis=1
-                )
-                
-                # Sort and get top 10 content types
-                content_data = content_data.sort_values('hit_ratio', ascending=False).head(10)
-                
-                sns.barplot(
-                    x=content_data.index,
-                    y=content_data['hit_ratio'],
-                    ax=ax,
-                    color='green',
-                    alpha=0.7
-                )
-                
-                # Add sampling rate annotations
-                for i, (_, row) in enumerate(content_data.iterrows()):
-                    if 'sampling_rate' in row:
-                        ax.text(i, row['hit_ratio'] / 2,
-                               f"SR: {row['sampling_rate']:.1f}%",
-                               ha='center', va='center',
-                               color='white', fontweight='bold')
-                
-                ax.set_title('Cache Hit Ratio by Content Type (Top 10)')
-                ax.set_xlabel('Content Type')
-                ax.set_ylabel('Cache Hit Ratio (%)')
-                plt.xticks(rotation=45, ha='right')
-                plt.tight_layout()
-                self._save_fig_safely(fig, output_dir / 'content_type_cache.png')
-                
-        except Exception as e:
-            logger.error(f"Error creating content type cache plot: {str(e)}")
-            logger.error(traceback.format_exc())
-            plt.close('all')
+            if len(timestamps) == 0:
+                return
 
-
-    def _create_performance_visualizations(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
-        """Create performance-specific visualizations."""
-        try:
-            time_unit, time_label = self._determine_time_scale(df)
+            time_range = timestamps.max() - timestamps.min()
+            minutes = time_range.total_seconds() / 60
             
-            # 1. Performance Trends
-            fig, ax = plt.subplots(figsize=(14, 7))
+            if minutes <= 60:  # 1 hour or less
+                ax.xaxis.set_major_formatter(DateFormatter('%H:%M'))
+                ax.xaxis.set_major_locator(MinuteLocator(interval=5))
+            elif minutes <= 1440:  # 24 hours or less
+                ax.xaxis.set_major_formatter(DateFormatter('%H:%M'))
+                ax.xaxis.set_major_locator(HourLocator(interval=2))
+            else:  # More than 24 hours
+                ax.xaxis.set_major_formatter(DateFormatter('%Y-%m-%d %H:%M'))
+                ax.xaxis.set_major_locator(AutoDateLocator())
             
-            # Plot TTFB and Origin Response Time
-            ttfb_series = self._plot_time_series(
-                ax, df, 'ttfb_avg', time_unit,
-                'Edge TTFB', color='blue'
-            )
-            origin_series = self._plot_time_series(
-                ax, df, 'origin_time_avg', time_unit,
-                'Origin Response', color='orange'
-            )
-            
-            # Add confidence bands
-            if ttfb_series is not None and origin_series is not None:
-                sampling_rates = self._safe_resample(df, time_unit, 'sampling_rate')
-                confidence = 1 - sampling_rates / 100
-                
-                for series, color, label in [(ttfb_series, 'blue', 'TTFB'),
-                                           (origin_series, 'orange', 'Origin')]:
-                    plt.fill_between(
-                        series.index,
-                        series * (1 - confidence),
-                        series * (1 + confidence),
-                        alpha=0.2,
-                        color=color,
-                        label=f'{label} Confidence'
-                    )
-            
-            ax.set_title(f'Response Time Trends by {time_label}')
-            ax.set_xlabel('Time')
-            ax.set_ylabel('Response Time (ms)')
-            ax.legend()
-            plt.tight_layout()
-            self._save_fig_safely(fig, output_dir / 'performance_trends.png')
-
-            # 2. Create Error Rate Visualization
-            self._create_error_rate_plot(df, time_unit, time_label, output_dir)
-
-            # 3. Create Performance Percentiles Plot
-            if 'percentiles' in analysis:
-                self._create_percentile_plot(analysis, output_dir)
-
-            # 4. Create Performance Distribution Plot
-            self._create_performance_distribution_plot(df, output_dir)
-
-            # 5. Create Performance Heatmap
-            self._create_performance_heatmap(df, output_dir)
-
-        except Exception as e:
-            logger.error(f"Error creating performance visualizations: {str(e)}")
-            plt.close('all')
-
-    def _create_error_rate_plot(self, df: pd.DataFrame, time_unit: str, 
-                               time_label: str, output_dir: Path) -> None:
-        """Create error rate visualization."""
-        try:
-            fig, ax = plt.subplots(figsize=(14, 7))
-            
-            # Plot error rates
-            error_4xx = self._plot_time_series(
-                ax, df, 'error_rate_4xx', time_unit,
-                '4xx Errors', color='orange'
-            )
-            error_5xx = self._plot_time_series(
-                ax, df, 'error_rate_5xx', time_unit,
-                '5xx Errors', color='red'
-            )
-            
-            if error_4xx is not None and error_5xx is not None:
-                # Add confidence bands
-                sampling_rates = self._safe_resample(df, time_unit, 'sampling_rate')
-                confidence = 1 - sampling_rates / 100
-                
-                for series, color in [(error_4xx, 'orange'), (error_5xx, 'red')]:
-                    plt.fill_between(
-                        series.index,
-                        series * (1 - confidence),
-                        series * (1 + confidence),
-                        alpha=0.2,
-                        color=color
-                    )
-            
-            ax.set_title(f'Error Rates by {time_label}')
-            ax.set_xlabel('Time')
-            ax.set_ylabel('Error Rate (%)')
-            ax.legend()
-            plt.tight_layout()
-            self._save_fig_safely(fig, output_dir / 'error_rates.png')
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
             
         except Exception as e:
-            logger.error(f"Error creating error rate plot: {str(e)}")
-            plt.close('all')
-
-    def _create_performance_distribution_plot(self, df: pd.DataFrame, output_dir: Path) -> None:
-        """Create performance distribution plot."""
-        try:
-            fig, ax = plt.subplots(figsize=(14, 7))
-            
-            # Create violin plot for TTFB distribution
-            sns.violinplot(y=df['ttfb_avg'], ax=ax, color='blue', alpha=0.7)
-            
-            # Add percentile lines
-            percentiles = np.percentile(df['ttfb_avg'], [50, 95, 99])
-            colors = ['green', 'orange', 'red']
-            labels = ['P50', 'P95', 'P99']
-            
-            for p, c, l in zip(percentiles, colors, labels):
-                ax.axhline(y=p, color=c, linestyle='--', alpha=0.7, label=f'{l}: {p:.1f}ms')
-            
-            ax.set_title('TTFB Distribution')
-            ax.set_ylabel('TTFB (ms)')
-            ax.legend()
-            plt.tight_layout()
-            self._save_fig_safely(fig, output_dir / 'performance_distribution.png')
-            
-        except Exception as e:
-            logger.error(f"Error creating performance distribution plot: {str(e)}")
-            plt.close('all')
-
-    def _create_performance_heatmap(self, df: pd.DataFrame, output_dir: Path) -> None:
-        """Create performance heatmap by hour and day."""
-        try:
-            fig, ax = plt.subplots(figsize=(15, 8))
-            
-            # Create pivot table for heatmap
-            df_copy = df.copy()
-            df_copy['hour'] = df_copy['timestamp'].dt.hour
-            df_copy['day'] = df_copy['timestamp'].dt.date
-            
-            perf_matrix = df_copy.pivot_table(
-                values='ttfb_avg',
-                index='day',
-                columns='hour',
-                aggfunc='mean'
-            )
-            
-            # Create heatmap
-            sns.heatmap(
-                perf_matrix,
-                cmap='YlOrRd',
-                cbar_kws={'label': 'TTFB (ms)'},
-                ax=ax
-            )
-            
-            ax.set_title('Performance Heatmap (TTFB by Hour and Day)')
-            ax.set_xlabel('Hour of Day')
-            ax.set_ylabel('Date')
-            plt.tight_layout()
-            self._save_fig_safely(fig, output_dir / 'performance_heatmap.png')
-            
-        except Exception as e:
-            logger.error(f"Error creating performance heatmap: {str(e)}")
-            plt.close('all')
-
-    def _create_percentile_plot(self, analysis: Dict, output_dir: Path) -> None:
-        """Create response time percentiles plot."""
-        try:
-            fig, ax = plt.subplots(figsize=(14, 7))
-            percentiles = analysis['percentiles'].get('ttfb', {})
-            
-            if percentiles:
-                percentile_data = {
-                    'P50': percentiles.get('p50', 0),
-                    'P95': percentiles.get('p95', 0),
-                    'P99': percentiles.get('p99', 0)
-                }
-                
-                # Create bar plot
-                bars = ax.bar(
-                    percentile_data.keys(),
-                    percentile_data.values(),
-                    color=['#2ecc71', '#f1c40f', '#e74c3c'],
-                    alpha=0.7
-                )
-                
-                # Add value labels
-                for bar in bars:
-                    height = bar.get_height()
-                    ax.text(
-                        bar.get_x() + bar.get_width()/2.,
-                        height,
-                        f'{height:.1f}ms',
-                        ha='center',
-                        va='bottom'
-                    )
-                
-                ax.set_title('TTFB Response Time Percentiles')
-                ax.set_ylabel('Response Time (ms)')
-                ax.grid(True, alpha=0.3)
-                plt.tight_layout()
-                self._save_fig_safely(fig, output_dir / 'response_time_percentiles.png')
-                
-        except Exception as e:
-            logger.error(f"Error creating percentile plot: {str(e)}")
-            plt.close('all')
+            logger.error(f"Error setting up time axis: {str(e)}")
 
     def _save_fig_safely(self, fig: plt.Figure, filepath: Path, close: bool = True) -> None:
         """Safely save figure with error handling."""
         try:
+            filepath.parent.mkdir(parents=True, exist_ok=True)
             fig.savefig(filepath, bbox_inches='tight', dpi=300)
+            logger.info(f"Saved figure to {filepath}")
             if close:
                 plt.close(fig)
         except Exception as e:
             logger.error(f"Error saving figure to {filepath}: {str(e)}")
             if close:
                 plt.close(fig)
+
+    def _create_colormap(self, values, cmap_name='YlOrRd'):
+        """Create a colormap for the given values."""
+        try:
+            if len(values) == 0:
+                return []
+            normalized = (values - values.min()) / (values.max() - values.min())
+            cmap = plt.cm.get_cmap(cmap_name)
+            return [cmap(x) for x in normalized]
+        except Exception as e:
+            logger.error(f"Error creating colormap: {str(e)}")
+            return [self.colors['primary']] * len(values)
