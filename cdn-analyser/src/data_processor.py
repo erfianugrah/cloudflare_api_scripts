@@ -4,6 +4,7 @@ import numpy as np
 from typing import Dict, Optional
 import logging
 from datetime import datetime
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ class DataProcessor:
         }
 
     def process_zone_metrics(self, raw_data: Dict) -> Optional[pd.DataFrame]:
-        """Process raw zone metrics."""
+        """Process raw zone metrics with path information."""
         try:
             if raw_data is None:
                 logger.error("Raw data is None")
@@ -50,6 +51,8 @@ class DataProcessor:
                 return None
 
             df = pd.DataFrame(metrics)
+            
+            # Process timestamps
             df['timestamp'] = pd.to_datetime(df['datetime'])
             
             # Calculate adjusted metrics
@@ -66,6 +69,12 @@ class DataProcessor:
 
             # Calculate confidence scores
             df['confidence_score'] = self._calculate_confidence_scores(df)
+            
+            # Process paths
+            df['path_group'] = df['clientRequestPath'].apply(self._normalize_path)
+            
+            # Add path-specific metrics
+            df = self._add_path_metrics(df)
 
             return df
 
@@ -74,7 +83,7 @@ class DataProcessor:
             return None
 
     def _process_metric_group(self, group: Dict) -> Optional[Dict]:
-        """Process individual metric group."""
+        """Process individual metric group with path information."""
         try:
             dimensions = group['dimensions']
             avg_metrics = group['avg']
@@ -97,7 +106,6 @@ class DataProcessor:
             return {
                 # Temporal dimensions
                 'datetime': dimensions['datetime'],
-                'timestamp': pd.to_datetime(dimensions['datetime']),
                 
                 # Request metadata
                 'country': dimensions.get('clientCountryName', 'Unknown'),
@@ -105,6 +113,8 @@ class DataProcessor:
                 'protocol': dimensions.get('clientRequestHTTPProtocol', 'Unknown'),
                 'content_type': dimensions.get('edgeResponseContentTypeName', 'Unknown'),
                 'colo': dimensions.get('coloCode', 'Unknown'),
+                'clientRequestPath': dimensions.get('clientRequestPath', '/'),
+                'clientRequestMethod': dimensions.get('clientRequestHTTPMethodName', 'GET'),
                 
                 # Cache information
                 'cache_status': cache_status,
@@ -140,6 +150,66 @@ class DataProcessor:
         except Exception as e:
             logger.warning(f"Error processing individual metric: {str(e)}")
             return None
+
+    def _normalize_path(self, path: str) -> str:
+        """Normalize path for grouping similar paths."""
+        try:
+            if not path or path == '/':
+                return '/'
+                
+            # Remove query parameters
+            path = path.split('?')[0]
+            
+            # Remove trailing slash
+            path = path.rstrip('/')
+            
+            # Remove numeric IDs
+            parts = path.split('/')
+            normalized_parts = []
+            for part in parts:
+                # If part is purely numeric, replace with {id}
+                if part.isdigit():
+                    normalized_parts.append('{id}')
+                # If part contains UUID pattern, replace with {id}
+                elif len(part) == 36 and '-' in part:
+                    normalized_parts.append('{id}')
+                else:
+                    normalized_parts.append(part)
+                    
+            normalized_path = '/'.join(normalized_parts)
+            return normalized_path or '/'
+            
+        except Exception as e:
+            logger.warning(f"Error normalizing path {path}: {str(e)}")
+            return '/'
+
+    def _add_path_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add path-specific metrics to the dataframe."""
+        try:
+            # Calculate path-level metrics
+            path_metrics = df.groupby('path_group').agg({
+                'visits': 'sum',
+                'visits_adjusted': 'sum',
+                'ttfb_avg': 'mean',
+                'cache_status': lambda x: (x.isin(['hit', 'stale', 'revalidated']).mean() * 100),
+                'sampling_rate': 'mean',
+                'confidence_score': 'mean'
+            }).reset_index()
+            
+            path_metrics.columns = [
+                'path_group', 'path_visits', 'path_visits_adjusted',
+                'path_ttfb_avg', 'path_cache_hit_ratio', 'path_sampling_rate',
+                'path_confidence_score'
+            ]
+            
+            # Merge back to original dataframe
+            df = df.merge(path_metrics, on='path_group', how='left')
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error adding path metrics: {str(e)}")
+            return df
 
     def _calculate_confidence_scores(self, df: pd.DataFrame) -> pd.Series:
         """Calculate confidence scores based on sampling rate and sample size."""
