@@ -1,9 +1,26 @@
+# Core data processing
 pandas>=2.0.0
 numpy>=1.24.0
+scipy>=1.10.0
+
+# API and networking
 requests>=2.28.0
+python-dotenv>=1.0.0
+
+# Visualization
 matplotlib>=3.7.0
 seaborn>=0.12.0
-python-dotenv>=1.0.0
-typing-extensions>=4.5.0
 plotly>=5.13.0
-scipy>=1.10.0
+
+# Utility
+typing-extensions>=4.5.0
+prettytable>=3.0.0
+concurrent-log-handler>=0.9.20
+
+# Development dependencies
+black>=22.3.0  # Code formatting
+isort>=5.10.1  # Import sorting
+pytest>=7.0.0  # Testing
+pytest-cov>=3.0.0  # Test coverage
+mypy>=0.950  # Type checking
+flake8>=4.0.1  # Linting

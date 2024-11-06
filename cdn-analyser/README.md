@@ -1,42 +1,51 @@
 # Cloudflare Analytics Tool
 
-An advanced analytics tool for analyzing Cloudflare zone performance metrics, providing detailed insights into cache efficiency, response times, and overall performance with sampling rate considerations.
+An advanced analytics tool for analyzing Cloudflare zone performance metrics with emphasis on cache efficiency, response times, and comprehensive performance analysis. The tool handles sampling rate considerations and provides detailed insights through various visualization methods.
 
-## Features
+## Key Features
 
-### Cache Performance Analysis
-- Cache hit ratio tracking over time with sampling rate indicators
-- Detailed cache status distribution analysis
-- Content type-specific caching patterns
-- Geographic cache performance analysis
-- Temporal pattern analysis with confidence scoring
+### Cache Performance Analytics
+- Detailed cache hit ratio tracking with sampling rate awareness
+- Cache status distribution analysis across content types
+- Geographic cache performance patterns
+- Temporal cache efficiency analysis
+- Content-type specific caching patterns
 
 ### Performance Metrics
 - Time to First Byte (TTFB) analysis
 - Origin response time tracking
 - Performance percentiles (p50, p95, p99)
 - Geographic performance distribution
-- Device type impact analysis
+- Protocol and device type impact analysis
 
-### Advanced Features
+### Error Analytics
+- Status code distribution tracking
+- Error rate patterns by endpoint
+- Geographic error distribution
+- Temporal error analysis
+- Error correlation with performance metrics
+
+### Advanced Analysis Features
 - Automatic sampling rate adjustment
-- Confidence score calculation
-- Progressive time slice handling
+- Confidence score calculation for metrics
+- Progressive time slice analysis
 - Rate limit management
-- Detailed error tracking and logging
+- Comprehensive error tracking
+- Origin server performance analysis
 
-### Visualization
-- Cache hit ratio graphs with sampling rate indicators
-- Performance heatmaps
-- Geographic distribution visualizations
+### Visualization Capabilities
+- Interactive performance dashboards
+- Cache hit ratio visualization
+- Geographic distribution heatmaps
 - Temporal trend analysis
-- Error rate visualizations
+- Error rate visualization
+- Protocol performance comparison
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clonehttps://github.com/erfianugrah/cloudflare_api_scripts.git 
+git clone https://github.com/erfianugrah/cloudflare_api_scripts.git
 cd cloudflare-api-scripts
 ```
 
@@ -51,7 +60,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-4. Copy and configure environment variables:
+4. Set up environment variables:
 ```bash
 cp .env.example .env
 ```
@@ -73,34 +82,46 @@ CLOUDFLARE_EMAIL=your_email
 python -m src.main
 ```
 
-### Analysis with Custom Parameters
+### Custom Analysis Parameters
 ```bash
 python -m src.main --start-time "2024-01-01T00:00:00Z" --end-time "2024-01-02T00:00:00Z" --sample-interval 10
 ```
 
+### Interactive Mode
 The tool will:
-1. Fetch available zones from your Cloudflare account
-2. Allow zone selection for analysis
-3. Process metrics with sampling rate consideration
-4. Generate detailed reports and visualizations
+1. Display available zones
+2. Allow zone selection
+3. Configure analysis parameters
+4. Process and analyze metrics
+5. Generate comprehensive reports
 
 ## Understanding Results
 
-### Sampling Rates (SR)
-- SR indicators show the percentage of traffic sampled for each data point
-- Higher SR values (e.g., 100%) indicate complete data
-- Lower SR values (e.g., 1%) indicate sampled data
-- Confidence scores are provided based on sampling rates
+### Sampling Rate Analysis
+- Each metric includes sampling rate indicators
+- Confidence scores based on sampling rates
+- Adjusted metrics accounting for sampling
 
 ### Cache Analysis
-- Hit ratio calculations account for sampling rates
-- Cache status distribution shows actual vs. sampled requests
-- Performance metrics are weighted by sampling rates
+The tool provides:
+- Overall cache hit ratios
+- Content-type specific analysis
+- Geographic cache performance
+- Temporal cache patterns
 
 ### Performance Metrics
-- Response times are analyzed with confidence intervals
-- Geographic performance includes sampling rate context
-- Error rates are adjusted based on sampling data
+Includes analysis of:
+- Response times with confidence intervals
+- Geographic performance patterns
+- Protocol impact analysis
+- Device type performance impact
+
+### Error Analysis
+Provides insights into:
+- Error patterns by endpoint
+- Geographic error distribution
+- Temporal error trends
+- Error impact on performance
 
 ## Output Structure
 
@@ -124,7 +145,7 @@ reports/
     └── cloudflare_analytics.log
 ```
 
-## Development
+## Development Guide
 
 ### Project Structure
 ```
@@ -132,28 +153,29 @@ src/
 ├── __init__.py
 ├── main.py             # Main execution script
 ├── config.py           # Configuration management
-├── types.py            # Type definitions
+├── types.py           # Type definitions
 ├── api_client.py       # Cloudflare API interaction
 ├── data_processor.py   # Data processing
 ├── analyzer.py         # Metrics analysis
 ├── visualizer.py       # Visualization generation
-├── reporter.py         # Report generation
-└── ui.py              # User interface
+├── origin_analyzer.py  # Origin server analysis
+├── origin_reporter.py  # Origin performance reporting
+└── reporter.py         # Report generation
 ```
 
 ### Adding New Features
 
-1. Metric Analysis:
+1. Analysis Components:
    - Add types in `types.py`
    - Implement processing in `data_processor.py`
    - Add analysis methods in `analyzer.py`
 
 2. Visualizations:
-   - Add methods to `visualizer.py`
+   - Add visualization methods in `visualizer.py`
    - Update report templates in `reporter.py`
 
 ### Error Handling
-The tool includes comprehensive error handling for:
+The tool implements comprehensive error handling for:
 - API rate limiting
 - Sampling rate variations
 - Data validation
@@ -165,6 +187,11 @@ The tool includes comprehensive error handling for:
 Run the test suite:
 ```bash
 python -m pytest tests/
+```
+
+For coverage report:
+```bash
+python -m pytest --cov=src tests/
 ```
 
 ## Contributing
@@ -188,7 +215,7 @@ When contributing, ensure proper handling of:
 ## Logging
 
 The tool provides detailed logging with:
-- Request/response details
+- Request/response tracking
 - Sampling rate information
 - Error tracking
 - Performance metrics
@@ -196,7 +223,7 @@ The tool provides detailed logging with:
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
