@@ -1,7 +1,28 @@
-import json
-import numpy as np
 import pandas as pd
-from typing import Any
+import numpy as np
+import json
+from typing import Any, Union
+import logging
+
+logger = logging.getLogger(__name__)
+
+def safe_series_conversion(series_or_value: Union[pd.Series, Any], convert_type: type) -> Any:
+    """
+    Safely convert a Series or single value to specified type.
+    
+    Args:
+        series_or_value: pandas Series or single value
+        convert_type: type to convert to (float or int)
+    """
+    try:
+        if isinstance(series_or_value, pd.Series):
+            if len(series_or_value) > 0:
+                return convert_type(series_or_value.iloc[0])
+            return convert_type(0)
+        return convert_type(series_or_value)
+    except (ValueError, TypeError) as e:
+        logger.warning(f"Error converting value {series_or_value}: {str(e)}")
+        return convert_type(0)
 
 class NumpyJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for numpy types."""

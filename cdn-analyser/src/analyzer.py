@@ -108,7 +108,7 @@ class Analyzer:
                 for _, row in status_counts.iterrows()
             }
             
-            # Content type analysis
+            # Content type analysis - fix deprecated float() on Series
             content_metrics = df.groupby('content_type').agg({
                 'cache_status': lambda x: x.isin(self.cache_categories['HIT']).mean() * 100,
                 'visits_adjusted': 'sum',
@@ -118,7 +118,7 @@ class Analyzer:
             
             content_type_dict = {
                 str(row['content_type']): {
-                    'hit_ratio': float(row['cache_status'].iloc[0] if isinstance(row['cache_status'], pd.Series) else row['cache_status']),
+                    'hit_ratio': float(row['cache_status']),  # Safe since we reset_index
                     'requests': int(row['visits_adjusted']),
                     'bytes_gb': float(row['bytes_adjusted'] / (1024 ** 3)),
                     'avg_ttfb': float(row['ttfb_avg'])
