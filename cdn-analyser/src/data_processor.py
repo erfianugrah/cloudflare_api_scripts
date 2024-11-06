@@ -5,7 +5,7 @@ from typing import Dict, Optional
 import logging
 from datetime import datetime
 import hashlib
-import traceback  # Add this import
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ class DataProcessor:
         }
 
     def process_zone_metrics(self, raw_data: Dict) -> Optional[pd.DataFrame]:
-        """Process raw zone metrics with path information."""
+        """Process raw zone metrics with endpoint information."""
         try:
             if raw_data is None:
                 logger.error("Raw data is None")
@@ -39,7 +39,6 @@ class DataProcessor:
                 logger.error("No HTTP requests data found in response")
                 return None
 
-            # Process each metric group
             metrics = [
                 self._process_metric_group(group)
                 for group in http_requests
@@ -78,11 +77,17 @@ class DataProcessor:
             # Calculate confidence scores
             df['confidence_score'] = self._calculate_confidence_scores(df)
             
-            # Process paths
-            df['path_group'] = df['clientRequestPath'].apply(self._normalize_path)
+            # Create endpoint identifier combining host and path
+            df['endpoint'] = df.apply(
+                lambda row: self._create_endpoint_identifier(
+                    row['clientRequestPath'],
+                    row['clientRequestHTTPHost']
+                ),
+                axis=1
+            )
             
-            # Add path-specific metrics
-            df = self._add_path_metrics(df)
+            # Add endpoint-specific metrics
+            df = self._add_endpoint_metrics(df)
 
             # Log DataFrame info for debugging
             logger.debug(f"Processed DataFrame columns: {df.columns.tolist()}")
@@ -96,7 +101,7 @@ class DataProcessor:
             return None
 
     def _process_metric_group(self, group: Dict) -> Optional[Dict]:
-        """Process individual metric group with path information."""
+        """Process individual metric group with endpoint information."""
         try:
             dimensions = group['dimensions']
             avg_metrics = group['avg']
@@ -116,9 +121,6 @@ class DataProcessor:
                 'UNKNOWN'
             )
 
-            # Ensure proper handling of status code
-            edge_response_status = int(dimensions.get('edgeResponseStatus', 0))
-
             return {
                 # Temporal dimensions
                 'datetime': dimensions['datetime'],
@@ -131,8 +133,8 @@ class DataProcessor:
                 'colo': dimensions.get('coloCode', 'Unknown'),
                 'clientRequestPath': dimensions.get('clientRequestPath', '/'),
                 'clientRequestMethod': dimensions.get('clientRequestHTTPMethodName', 'GET'),
-                'edgeResponseStatus': edge_response_status,
-                'status_code': edge_response_status,  # Add explicit status_code field
+                'clientRequestHTTPHost': dimensions.get('clientRequestHTTPHost', 'unknown'),
+                'edgeResponseStatus': dimensions.get('edgeResponseStatus', 0),
                 
                 # Cache information
                 'cache_status': cache_status,
@@ -169,7 +171,6 @@ class DataProcessor:
             logger.warning(f"Error processing individual metric: {str(e)}")
             return None
 
-
     def _normalize_path(self, path: str) -> str:
         """Normalize path for grouping similar paths."""
         try:
@@ -202,11 +203,16 @@ class DataProcessor:
             logger.warning(f"Error normalizing path {path}: {str(e)}")
             return '/'
 
-    def _add_path_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Add path-specific metrics to the dataframe."""
+    def _create_endpoint_identifier(self, path: str, host: str) -> str:
+        """Create a unique endpoint identifier from host and path."""
+        normalized_path = self._normalize_path(path)
+        return f"{host}{normalized_path}"
+
+    def _add_endpoint_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add endpoint-specific metrics to the dataframe."""
         try:
-            # Calculate path-level metrics
-            path_metrics = df.groupby('path_group').agg({
+            # Calculate endpoint-level metrics
+            endpoint_metrics = df.groupby('endpoint').agg({
                 'visits': 'sum',
                 'visits_adjusted': 'sum',
                 'ttfb_avg': 'mean',
@@ -215,19 +221,19 @@ class DataProcessor:
                 'confidence_score': 'mean'
             }).reset_index()
             
-            path_metrics.columns = [
-                'path_group', 'path_visits', 'path_visits_adjusted',
-                'path_ttfb_avg', 'path_cache_hit_ratio', 'path_sampling_rate',
-                'path_confidence_score'
+            endpoint_metrics.columns = [
+                'endpoint', 'endpoint_visits', 'endpoint_visits_adjusted',
+                'endpoint_ttfb_avg', 'endpoint_cache_hit_ratio', 'endpoint_sampling_rate',
+                'endpoint_confidence_score'
             ]
             
             # Merge back to original dataframe
-            df = df.merge(path_metrics, on='path_group', how='left')
+            df = df.merge(endpoint_metrics, on='endpoint', how='left')
             
             return df
             
         except Exception as e:
-            logger.error(f"Error adding path metrics: {str(e)}")
+            logger.error(f"Error adding endpoint metrics: {str(e)}")
             return df
 
     def _calculate_confidence_scores(self, df: pd.DataFrame) -> pd.Series:

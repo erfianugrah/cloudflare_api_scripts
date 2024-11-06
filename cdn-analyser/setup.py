@@ -1,4 +1,3 @@
-# setup.py
 from setuptools import setup, find_packages
 
 setup(
@@ -13,6 +12,8 @@ setup(
         'seaborn>=0.12.0',
         'python-dotenv>=1.0.0',
         'typing-extensions>=4.5.0',
+        'plotly>=5.13.0',  # Added for interactive visualizations
+        'scipy>=1.10.0',   # Added for statistical calculations
     ],
     entry_points={
         'console_scripts': [
