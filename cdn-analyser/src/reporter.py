@@ -11,11 +11,17 @@ import traceback
 
 logger = logging.getLogger(__name__)
 
+from .origin_reporter import OriginReporter
 class Reporter:
+    """Comprehensive reporter for Cloudflare analytics."""
+    
     def __init__(self, config):
         self.config = config
         self.report_dir = self.config.reports_dir
         self.report_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize specialized reporters
+        self.origin_reporter = OriginReporter(config)
 
     def generate_summary(self, results: List[Dict], start_time: datetime) -> Optional[str]:
         """Generate overall analysis summary."""
@@ -35,7 +41,7 @@ class Reporter:
             cache_metrics = self._calculate_cache_metrics(successful_zones)
             error_metrics = self._calculate_error_metrics(successful_zones)
             
-            # Generate detailed summary
+            # Generate main summary
             summary = self._format_detailed_summary(
                 duration=duration,
                 total_metrics=total_metrics,
@@ -44,6 +50,18 @@ class Reporter:
                 error_metrics=error_metrics,
                 zones=successful_zones
             )
+
+            # Add origin analysis summary if available
+            for result in successful_zones:
+                if 'origin_analysis' in result and 'raw_data' in result:
+                    origin_report = self.origin_reporter.generate_origin_report(
+                        df=result['raw_data'],
+                        analysis_results=result['origin_analysis'],
+                        zone_name=result['zone_name']
+                    )
+                    if origin_report:
+                        summary += "\n\nOrigin Performance Summary\n" + "=" * 25 + "\n"
+                        summary += origin_report
 
             # Save summary to file
             self._save_summary(summary)
@@ -295,12 +313,12 @@ Zone Details
     def _format_empty_summary(self) -> str:
         """Format summary for failed analysis."""
         return """
-                Analysis Summary
-                ===============
-                No successful zone analysis completed.
-                
-                Please check the logs for error details and try again.
-                """
+Cloudflare Analytics Summary
+==========================
+No successful zone analysis completed.
+
+Please check the logs for error details and try again.
+"""
 
     def _save_summary(self, summary: str) -> None:
         """Save summary to file."""
@@ -310,6 +328,10 @@ Zone Details
             
             filepath.write_text(summary)
             logger.info(f"Summary saved to {filepath}")
+            
+            # Also save as markdown for better formatting
+            md_filepath = filepath.with_suffix('.md')
+            md_filepath.write_text(summary)
             
         except Exception as e:
             logger.error(f"Error saving summary: {str(e)}")

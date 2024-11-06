@@ -62,7 +62,7 @@ class CloudflareAnalytics:
             futures = []
             for zone in selected_zones:
                 future = self.thread_pool.submit(
-                    self._process_zone,
+                    self.process_zone,
                     api_client,
                     zone,
                     start_time,
@@ -134,7 +134,7 @@ class CloudflareAnalytics:
         finally:
             self.cleanup()
 
-    def _process_zone(
+    def process_zone(
         self,
         api_client: CloudflareAPIClient,
         zone: Dict,
@@ -178,6 +178,9 @@ class CloudflareAnalytics:
                 logger.warning(f"Analysis failed for zone {zone_name}")
                 return None
             
+            # Store the DataFrame for origin analysis
+            analysis_result['raw_data'] = df
+            
             # Generate visualizations if analysis was successful
             try:
                 self.visualizer.create_visualizations(
@@ -187,7 +190,6 @@ class CloudflareAnalytics:
                 )
             except Exception as viz_error:
                 logger.error(f"Error creating visualizations: {str(viz_error)}")
-                # Continue even if visualization fails
             
             return analysis_result
             

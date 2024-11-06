@@ -59,13 +59,13 @@ class Visualizer:
             plt.close('all')
 
     def _create_endpoint_analysis(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
-        """Create endpoint-specific analysis visualizations."""
+        """Create endpoint-specific analysis visualizations with improved readability."""
         try:
             # Get top 10 endpoints by traffic
             top_endpoints = df.groupby('endpoint').agg({
                 'visits_adjusted': 'sum',
-                'clientRequestPath': 'first',  # Keep the path information
-                'clientRequestHTTPHost': 'first'  # Keep the host information
+                'clientRequestPath': 'first',
+                'clientRequestHTTPHost': 'first'
             }).nlargest(10, 'visits_adjusted')
 
             endpoint_metrics = df[df['endpoint'].isin(top_endpoints.index)].groupby('endpoint').agg({
@@ -79,47 +79,99 @@ class Visualizer:
                 'clientRequestHTTPHost': 'first'
             })
 
-            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
+            # Create better formatted endpoint labels
+            def format_endpoint_label(host, path):
+                if path == '/':
+                    return host
+                # Remove trailing slashes and clean up path
+                path = path.rstrip('/')
+                # Split into parts for better formatting
+                return f"{host}\n{path}"
 
-            # Create complete endpoint labels with both host and path
-            endpoint_labels = [f"{row['clientRequestHTTPHost']}{row['clientRequestPath']}"
+            endpoint_labels = [format_endpoint_label(row['clientRequestHTTPHost'], row['clientRequestPath'])
                              for _, row in endpoint_metrics.iterrows()]
-            # Truncate if too long
-            shortened_labels = [f"{label[:60]}..." if len(label) > 60 else label 
-                              for label in endpoint_labels]
 
-            # 1. Traffic Distribution by Endpoint
-            ax1.pie(endpoint_metrics['visits_adjusted'], 
-                   labels=shortened_labels, 
-                   autopct='%1.1f%%')
-            ax1.set_title('Traffic Distribution by Endpoint')
+            # Create figure with adjusted size and spacing
+            fig = plt.figure(figsize=(24, 18))
+            gs = plt.GridSpec(2, 2, figure=fig, hspace=0.4, wspace=0.3)
 
-            # 2. Average TTFB by Endpoint
-            ax2.bar(range(len(endpoint_metrics)), endpoint_metrics['ttfb_avg'])
-            ax2.set_title('Average TTFB by Endpoint')
-            ax2.set_ylabel('TTFB (ms)')
+            # 1. Traffic Distribution (upper left)
+            ax1 = fig.add_subplot(gs[0, 0])
+            wedges, texts, autotexts = ax1.pie(endpoint_metrics['visits_adjusted'], 
+                                             labels=endpoint_labels,
+                                             autopct='%1.1f%%',
+                                             labeldistance=1.1,
+                                             pctdistance=0.8)
+            # Enhance pie chart appearance
+            plt.setp(autotexts, size=9, weight="bold")
+            plt.setp(texts, size=8)
+            ax1.set_title('Traffic Distribution by Endpoint', pad=20, size=12, weight='bold')
+
+            # 2. Average TTFB (upper right)
+            ax2 = fig.add_subplot(gs[0, 1])
+            bars = ax2.bar(range(len(endpoint_metrics)), endpoint_metrics['ttfb_avg'],
+                          color=plt.cm.Set3(np.linspace(0, 1, len(endpoint_metrics))))
+            ax2.set_title('Average TTFB by Endpoint', pad=20, size=12, weight='bold')
+            ax2.set_ylabel('TTFB (ms)', size=10)
             ax2.set_xticks(range(len(endpoint_metrics)))
-            ax2.set_xticklabels(shortened_labels, rotation=45, ha='right')
+            ax2.set_xticklabels(endpoint_labels, rotation=45, ha='right', va='top')
+            ax2.grid(True, axis='y', alpha=0.3)
+            
+            # Add value labels on bars
+            for bar in bars:
+                height = bar.get_height()
+                ax2.text(bar.get_x() + bar.get_width()/2., height,
+                        f'{int(height)}ms',
+                        ha='center', va='bottom', size=8)
 
-            # 3. Cache Hit Ratio by Endpoint
-            ax3.bar(range(len(endpoint_metrics)), endpoint_metrics['cache_status'] * 100)
-            ax3.set_title('Cache Hit Ratio by Endpoint')
-            ax3.set_ylabel('Hit Ratio (%)')
+            # 3. Cache Hit Ratio (lower left)
+            ax3 = fig.add_subplot(gs[1, 0])
+            bars = ax3.bar(range(len(endpoint_metrics)), endpoint_metrics['cache_status'] * 100,
+                          color=plt.cm.Set3(np.linspace(0, 1, len(endpoint_metrics))))
+            ax3.set_title('Cache Hit Ratio by Endpoint', pad=20, size=12, weight='bold')
+            ax3.set_ylabel('Hit Ratio (%)', size=10)
             ax3.set_xticks(range(len(endpoint_metrics)))
-            ax3.set_xticklabels(shortened_labels, rotation=45, ha='right')
+            ax3.set_xticklabels(endpoint_labels, rotation=45, ha='right', va='top')
+            ax3.grid(True, axis='y', alpha=0.3)
+            
+            # Add value labels on bars
+            for bar in bars:
+                height = bar.get_height()
+                ax3.text(bar.get_x() + bar.get_width()/2., height,
+                        f'{height:.1f}%',
+                        ha='center', va='bottom', size=8)
 
-            # 4. Error Rates by Endpoint
-            width = 0.35
+            # 4. Error Rates (lower right)
+            ax4 = fig.add_subplot(gs[1, 1])
             x = np.arange(len(endpoint_metrics))
-            ax4.bar(x - width/2, endpoint_metrics['error_rate_4xx'] * 100, width, label='4xx Errors')
-            ax4.bar(x + width/2, endpoint_metrics['error_rate_5xx'] * 100, width, label='5xx Errors')
-            ax4.set_title('Error Rates by Endpoint')
-            ax4.set_ylabel('Error Rate (%)')
-            ax4.set_xticks(x)
-            ax4.set_xticklabels(shortened_labels, rotation=45, ha='right')
-            ax4.legend()
+            width = 0.35
 
-            # Adjust layout to prevent label cutoff
+            # Create bars with different colors for 4xx and 5xx
+            bars1 = ax4.bar(x - width/2, endpoint_metrics['error_rate_4xx'] * 100, width, 
+                           label='4xx Errors', color='#ff9999')
+            bars2 = ax4.bar(x + width/2, endpoint_metrics['error_rate_5xx'] * 100, width, 
+                           label='5xx Errors', color='#ff4d4d')
+
+            ax4.set_title('Error Rates by Endpoint', pad=20, size=12, weight='bold')
+            ax4.set_ylabel('Error Rate (%)', size=10)
+            ax4.set_xticks(x)
+            ax4.set_xticklabels(endpoint_labels, rotation=45, ha='right', va='top')
+            ax4.legend(loc='upper right')
+            ax4.grid(True, axis='y', alpha=0.3)
+
+            # Add value labels on bars
+            def add_value_labels(bars):
+                for bar in bars:
+                    height = bar.get_height()
+                    if height > 0:  # Only show non-zero values
+                        ax4.text(bar.get_x() + bar.get_width()/2., height,
+                                f'{height:.1f}%',
+                                ha='center', va='bottom', size=8)
+
+            add_value_labels(bars1)
+            add_value_labels(bars2)
+
+            # Final adjustments
             plt.tight_layout()
             self._save_fig_safely(fig, output_dir / 'endpoint_analysis.png')
 
