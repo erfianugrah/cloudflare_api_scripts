@@ -63,27 +63,34 @@ class Visualizer:
         try:
             # Get top 10 endpoints by traffic
             top_endpoints = df.groupby('endpoint').agg({
-                'visits_adjusted': 'sum'
-            }).nlargest(10, 'visits_adjusted').index
+                'visits_adjusted': 'sum',
+                'clientRequestPath': 'first',  # Keep the path information
+                'clientRequestHTTPHost': 'first'  # Keep the host information
+            }).nlargest(10, 'visits_adjusted')
 
-            endpoint_metrics = df[df['endpoint'].isin(top_endpoints)].groupby('endpoint').agg({
+            endpoint_metrics = df[df['endpoint'].isin(top_endpoints.index)].groupby('endpoint').agg({
                 'visits_adjusted': 'sum',
                 'ttfb_avg': 'mean',
                 'bytes_adjusted': 'sum',
                 'error_rate_4xx': 'mean',
                 'error_rate_5xx': 'mean',
-                'cache_status': lambda x: (x == 'hit').mean()
+                'cache_status': lambda x: (x == 'hit').mean(),
+                'clientRequestPath': 'first',
+                'clientRequestHTTPHost': 'first'
             })
 
             fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
 
-            # Prepare endpoint labels (these are already host + path)
-            endpoint_labels = [endpoint[:50] + '...' if len(endpoint) > 50 else endpoint 
-                             for endpoint in endpoint_metrics.index]
+            # Create complete endpoint labels with both host and path
+            endpoint_labels = [f"{row['clientRequestHTTPHost']}{row['clientRequestPath']}"
+                             for _, row in endpoint_metrics.iterrows()]
+            # Truncate if too long
+            shortened_labels = [f"{label[:60]}..." if len(label) > 60 else label 
+                              for label in endpoint_labels]
 
             # 1. Traffic Distribution by Endpoint
             ax1.pie(endpoint_metrics['visits_adjusted'], 
-                   labels=endpoint_labels, 
+                   labels=shortened_labels, 
                    autopct='%1.1f%%')
             ax1.set_title('Traffic Distribution by Endpoint')
 
@@ -92,14 +99,14 @@ class Visualizer:
             ax2.set_title('Average TTFB by Endpoint')
             ax2.set_ylabel('TTFB (ms)')
             ax2.set_xticks(range(len(endpoint_metrics)))
-            ax2.set_xticklabels(endpoint_labels, rotation=45, ha='right')
+            ax2.set_xticklabels(shortened_labels, rotation=45, ha='right')
 
             # 3. Cache Hit Ratio by Endpoint
             ax3.bar(range(len(endpoint_metrics)), endpoint_metrics['cache_status'] * 100)
             ax3.set_title('Cache Hit Ratio by Endpoint')
             ax3.set_ylabel('Hit Ratio (%)')
             ax3.set_xticks(range(len(endpoint_metrics)))
-            ax3.set_xticklabels(endpoint_labels, rotation=45, ha='right')
+            ax3.set_xticklabels(shortened_labels, rotation=45, ha='right')
 
             # 4. Error Rates by Endpoint
             width = 0.35
@@ -109,14 +116,16 @@ class Visualizer:
             ax4.set_title('Error Rates by Endpoint')
             ax4.set_ylabel('Error Rate (%)')
             ax4.set_xticks(x)
-            ax4.set_xticklabels(endpoint_labels, rotation=45, ha='right')
+            ax4.set_xticklabels(shortened_labels, rotation=45, ha='right')
             ax4.legend()
 
+            # Adjust layout to prevent label cutoff
             plt.tight_layout()
             self._save_fig_safely(fig, output_dir / 'endpoint_analysis.png')
 
         except Exception as e:
             logger.error(f"Error creating endpoint analysis: {str(e)}")
+            logger.error(traceback.format_exc())
             plt.close('all')
 
     def _create_host_analysis(self, df: pd.DataFrame, output_dir: Path) -> None:
