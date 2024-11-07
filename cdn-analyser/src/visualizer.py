@@ -58,220 +58,67 @@ class Visualizer:
             logger.error(traceback.format_exc())
             plt.close('all')
 
-    def _create_endpoint_analysis(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
-        """Create endpoint-specific analysis visualizations with improved readability."""
-        try:
-            # Get top 10 endpoints by traffic
-            top_endpoints = df.groupby('endpoint').agg({
-                'visits_adjusted': 'sum',
-                'clientRequestPath': 'first',
-                'clientRequestHTTPHost': 'first'
-            }).nlargest(10, 'visits_adjusted')
-
-            endpoint_metrics = df[df['endpoint'].isin(top_endpoints.index)].groupby('endpoint').agg({
-                'visits_adjusted': 'sum',
-                'ttfb_avg': 'mean',
-                'bytes_adjusted': 'sum',
-                'error_rate_4xx': 'mean',
-                'error_rate_5xx': 'mean',
-                'cache_status': lambda x: (x == 'hit').mean(),
-                'clientRequestPath': 'first',
-                'clientRequestHTTPHost': 'first'
-            })
-
-            # Create better formatted endpoint labels
-            def format_endpoint_label(host, path):
-                if path == '/':
-                    return host
-                # Remove trailing slashes and clean up path
-                path = path.rstrip('/')
-                # Split into parts for better formatting
-                return f"{host}\n{path}"
-
-            endpoint_labels = [format_endpoint_label(row['clientRequestHTTPHost'], row['clientRequestPath'])
-                             for _, row in endpoint_metrics.iterrows()]
-
-            # Create figure with adjusted size and spacing
-            fig = plt.figure(figsize=(24, 18))
-            gs = plt.GridSpec(2, 2, figure=fig, hspace=0.4, wspace=0.3)
-
-            # 1. Traffic Distribution (upper left)
-            ax1 = fig.add_subplot(gs[0, 0])
-            wedges, texts, autotexts = ax1.pie(endpoint_metrics['visits_adjusted'], 
-                                             labels=endpoint_labels,
-                                             autopct='%1.1f%%',
-                                             labeldistance=1.1,
-                                             pctdistance=0.8)
-            # Enhance pie chart appearance
-            plt.setp(autotexts, size=9, weight="bold")
-            plt.setp(texts, size=8)
-            ax1.set_title('Traffic Distribution by Endpoint', pad=20, size=12, weight='bold')
-
-            # 2. Average TTFB (upper right)
-            ax2 = fig.add_subplot(gs[0, 1])
-            bars = ax2.bar(range(len(endpoint_metrics)), endpoint_metrics['ttfb_avg'],
-                          color=plt.cm.Set3(np.linspace(0, 1, len(endpoint_metrics))))
-            ax2.set_title('Average TTFB by Endpoint', pad=20, size=12, weight='bold')
-            ax2.set_ylabel('TTFB (ms)', size=10)
-            ax2.set_xticks(range(len(endpoint_metrics)))
-            ax2.set_xticklabels(endpoint_labels, rotation=45, ha='right', va='top')
-            ax2.grid(True, axis='y', alpha=0.3)
-            
-            # Add value labels on bars
-            for bar in bars:
-                height = bar.get_height()
-                ax2.text(bar.get_x() + bar.get_width()/2., height,
-                        f'{int(height)}ms',
-                        ha='center', va='bottom', size=8)
-
-            # 3. Cache Hit Ratio (lower left)
-            ax3 = fig.add_subplot(gs[1, 0])
-            bars = ax3.bar(range(len(endpoint_metrics)), endpoint_metrics['cache_status'] * 100,
-                          color=plt.cm.Set3(np.linspace(0, 1, len(endpoint_metrics))))
-            ax3.set_title('Cache Hit Ratio by Endpoint', pad=20, size=12, weight='bold')
-            ax3.set_ylabel('Hit Ratio (%)', size=10)
-            ax3.set_xticks(range(len(endpoint_metrics)))
-            ax3.set_xticklabels(endpoint_labels, rotation=45, ha='right', va='top')
-            ax3.grid(True, axis='y', alpha=0.3)
-            
-            # Add value labels on bars
-            for bar in bars:
-                height = bar.get_height()
-                ax3.text(bar.get_x() + bar.get_width()/2., height,
-                        f'{height:.1f}%',
-                        ha='center', va='bottom', size=8)
-
-            # 4. Error Rates (lower right)
-            ax4 = fig.add_subplot(gs[1, 1])
-            x = np.arange(len(endpoint_metrics))
-            width = 0.35
-
-            # Create bars with different colors for 4xx and 5xx
-            bars1 = ax4.bar(x - width/2, endpoint_metrics['error_rate_4xx'] * 100, width, 
-                           label='4xx Errors', color='#ff9999')
-            bars2 = ax4.bar(x + width/2, endpoint_metrics['error_rate_5xx'] * 100, width, 
-                           label='5xx Errors', color='#ff4d4d')
-
-            ax4.set_title('Error Rates by Endpoint', pad=20, size=12, weight='bold')
-            ax4.set_ylabel('Error Rate (%)', size=10)
-            ax4.set_xticks(x)
-            ax4.set_xticklabels(endpoint_labels, rotation=45, ha='right', va='top')
-            ax4.legend(loc='upper right')
-            ax4.grid(True, axis='y', alpha=0.3)
-
-            # Add value labels on bars
-            def add_value_labels(bars):
-                for bar in bars:
-                    height = bar.get_height()
-                    if height > 0:  # Only show non-zero values
-                        ax4.text(bar.get_x() + bar.get_width()/2., height,
-                                f'{height:.1f}%',
-                                ha='center', va='bottom', size=8)
-
-            add_value_labels(bars1)
-            add_value_labels(bars2)
-
-            # Final adjustments
-            plt.tight_layout()
-            self._save_fig_safely(fig, output_dir / 'endpoint_analysis.png')
-
-        except Exception as e:
-            logger.error(f"Error creating endpoint analysis: {str(e)}")
-            logger.error(traceback.format_exc())
-            plt.close('all')
-
-    def _create_host_analysis(self, df: pd.DataFrame, output_dir: Path) -> None:
-        """Create host-specific analysis visualizations."""
-        try:
-            # Group by host (separate from endpoint analysis)
-            host_metrics = df.groupby('clientRequestHTTPHost').agg({
-                'visits_adjusted': 'sum',
-                'ttfb_avg': 'mean',
-                'bytes_adjusted': 'sum',
-                'error_rate_4xx': 'mean',
-                'error_rate_5xx': 'mean',
-                'cache_status': lambda x: (x == 'hit').mean()
-            }).nlargest(10, 'visits_adjusted')
-
-            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
-
-            # 1. Traffic Distribution by Host
-            ax1.pie(host_metrics['visits_adjusted'], 
-                   labels=host_metrics.index, 
-                   autopct='%1.1f%%')
-            ax1.set_title('Traffic Distribution by Host')
-
-            # 2. Performance by Host
-            ax2.bar(range(len(host_metrics)), host_metrics['ttfb_avg'])
-            ax2.set_title('Average TTFB by Host')
-            ax2.set_ylabel('TTFB (ms)')
-            ax2.set_xticks(range(len(host_metrics)))
-            ax2.set_xticklabels(host_metrics.index, rotation=45, ha='right')
-
-            # 3. Cache Performance by Host
-            ax3.bar(range(len(host_metrics)), host_metrics['cache_status'] * 100)
-            ax3.set_title('Cache Hit Ratio by Host')
-            ax3.set_ylabel('Hit Ratio (%)')
-            ax3.set_xticks(range(len(host_metrics)))
-            ax3.set_xticklabels(host_metrics.index, rotation=45, ha='right')
-
-            # 4. Error Rates by Host
-            width = 0.35
-            x = np.arange(len(host_metrics))
-            ax4.bar(x - width/2, host_metrics['error_rate_4xx'] * 100, width, label='4xx Errors')
-            ax4.bar(x + width/2, host_metrics['error_rate_5xx'] * 100, width, label='5xx Errors')
-            ax4.set_title('Error Rates by Host')
-            ax4.set_ylabel('Error Rate (%)')
-            ax4.set_xticks(x)
-            ax4.set_xticklabels(host_metrics.index, rotation=45, ha='right')
-            ax4.legend()
-
-            plt.tight_layout()
-            self._save_fig_safely(fig, output_dir / 'host_analysis.png')
-
-        except Exception as e:
-            logger.error(f"Error creating host analysis: {str(e)}")
-            plt.close('all')
-
     def _create_performance_overview(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
-        """Create performance overview visualizations."""
+        """Create performance overview visualizations with request and visit metrics."""
         try:
             fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
             
             # 1. TTFB Distribution
             ttfb_data = df['ttfb_avg'].dropna()
             sns.histplot(data=ttfb_data, ax=ax1, bins=30, color='#2ecc71')
-            ax1.set_title('TTFB Distribution')
+            ax1.set_title('TTFB Distribution (All Requests)')
             ax1.set_xlabel('TTFB (ms)')
             ax1.set_ylabel('Count')
 
-            # 2. Performance by Cache Status
+            # 2. Performance by Cache Status (with request/visit split)
             cache_perf = df.groupby('cache_status').agg({
                 'ttfb_avg': 'mean',
+                'requests_adjusted': 'sum',
                 'visits_adjusted': 'sum'
             }).reset_index()
             
             ax2.bar(cache_perf['cache_status'], cache_perf['ttfb_avg'], color='#3498db')
-            ax2.set_title('Average TTFB by Cache Status')
+            for i, row in cache_perf.iterrows():
+                ax2.text(i, row['ttfb_avg'], 
+                        f'R:{int(row["requests_adjusted"]):,}\nV:{int(row["visits_adjusted"]):,}', 
+                        ha='center', va='bottom')
+            ax2.set_title('Average TTFB by Cache Status\nwith Request (R) and Visit (V) Counts')
             ax2.set_xlabel('Cache Status')
             ax2.set_ylabel('TTFB (ms)')
             plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
-            # 3. Status Code Distribution
-            status_counts = df['status'].value_counts().sort_index()
-            ax3.bar(status_counts.index.astype(str), status_counts.values, color='#9b59b6')
-            ax3.set_title('Status Code Distribution')
+            # 3. Status Code Distribution (Request vs Visit)
+            status_counts = df.groupby('status').agg({
+                'requests_adjusted': 'sum',
+                'visits_adjusted': 'sum'
+            }).reset_index()
+            
+            x = np.arange(len(status_counts))
+            width = 0.35
+            ax3.bar(x - width/2, status_counts['requests_adjusted'], width, 
+                   label='Requests', color='#9b59b6')
+            ax3.bar(x + width/2, status_counts['visits_adjusted'], width, 
+                   label='Visits', color='#e74c3c')
+            ax3.set_title('Status Code Distribution\nRequests vs Visits')
             ax3.set_xlabel('Status Code')
             ax3.set_ylabel('Count')
+            ax3.legend()
+            ax3.set_xticks(x)
+            ax3.set_xticklabels(status_counts['status'])
             
-            # 4. Performance by HTTP Protocol
+            # 4. Performance by HTTP Protocol (with request/visit annotation)
             protocol_perf = df.groupby('protocol').agg({
                 'ttfb_avg': 'mean',
+                'requests_adjusted': 'sum',
                 'visits_adjusted': 'sum'
             }).reset_index()
             
             ax4.bar(protocol_perf['protocol'], protocol_perf['ttfb_avg'], color='#e74c3c')
-            ax4.set_title('Average TTFB by HTTP Protocol')
+            for i, row in protocol_perf.iterrows():
+                ax4.text(i, row['ttfb_avg'], 
+                        f'R:{int(row["requests_adjusted"]):,}\nV:{int(row["visits_adjusted"]):,}', 
+                        ha='center', va='bottom')
+            ax4.set_title('Average TTFB by HTTP Protocol\nwith Request (R) and Visit (V) Counts')
             ax4.set_xlabel('Protocol')
             ax4.set_ylabel('TTFB (ms)')
             plt.setp(ax4.xaxis.get_majorticklabels(), rotation=45, ha='right')
@@ -284,40 +131,58 @@ class Visualizer:
             plt.close('all')
 
     def _create_cache_analysis(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
-        """Create cache analysis visualizations."""
+        """Create cache analysis visualizations with request and visit metrics."""
         try:
             fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
             
-            # 1. Cache Hit Ratio Over Time
+            # 1. Cache Hit Ratio Over Time (Requests)
             df_time = df.set_index('timestamp')
-            # Create cache_hit column here
             df_time['cache_hit'] = df_time['cache_status'].isin(['hit', 'stale', 'revalidated'])
-            hit_ratio = df_time['cache_hit'].rolling('5min').mean() * 100  # Changed from '5T' to '5min'
+            hit_ratio = df_time['cache_hit'].rolling('5min').mean() * 100
             
             ax1.plot(hit_ratio.index, hit_ratio.values, color='#2ecc71')
-            ax1.set_title('Cache Hit Ratio Over Time')
+            ax1.set_title('Cache Hit Ratio Over Time\n(Based on Requests)')
             ax1.set_xlabel('Time')
             ax1.set_ylabel('Hit Ratio (%)')
-            self._setup_time_axis(ax1, df_time.index)
+            self._setup_time_axis(ax1, hit_ratio.index)
 
-            # 2. Cache Status Distribution
-            cache_dist = df['cache_status'].value_counts()
-            ax2.pie(cache_dist.values, labels=cache_dist.index, autopct='%1.1f%%')
-            ax2.set_title('Cache Status Distribution')
+            # 2. Cache Status Distribution (Requests vs Visits)
+            cache_dist = df.groupby('cache_status').agg({
+                'requests_adjusted': 'sum',
+                'visits_adjusted': 'sum'
+            }).reset_index()
+            
+            x = np.arange(len(cache_dist))
+            width = 0.35
+            ax2.bar(x - width/2, cache_dist['requests_adjusted'], width, 
+                   label='Requests', color='#3498db')
+            ax2.bar(x + width/2, cache_dist['visits_adjusted'], width, 
+                   label='Visits', color='#2ecc71')
+            ax2.set_title('Cache Status Distribution\nRequests vs Visits')
+            ax2.set_xlabel('Cache Status')
+            ax2.set_ylabel('Count')
+            ax2.legend()
+            ax2.set_xticks(x)
+            ax2.set_xticklabels(cache_dist['cache_status'], rotation=45, ha='right')
 
             # 3. Cache Performance by Content Type
             content_cache = df.groupby('content_type').agg({
-                'cache_status': lambda x: x.isin(['hit', 'stale', 'revalidated']).mean(),
+                'cache_status': lambda x: x.isin(['hit', 'stale', 'revalidated']).mean() * 100,
+                'requests_adjusted': 'sum',
                 'visits_adjusted': 'sum'
-            }).nlargest(10, 'visits_adjusted')
+            }).nlargest(10, 'requests_adjusted')
             
-            ax3.bar(content_cache.index, content_cache['cache_status'] * 100)
-            ax3.set_title('Cache Hit Ratio by Content Type')
+            ax3.bar(content_cache.index, content_cache['cache_status'])
+            for i, row in content_cache.iterrows():
+                ax3.text(i, row['cache_status'], 
+                        f'R:{int(row["requests_adjusted"]):,}\nV:{int(row["visits_adjusted"]):,}', 
+                        ha='center', va='bottom')
+            ax3.set_title('Cache Hit Ratio by Content Type\nwith Request (R) and Visit (V) Counts')
             ax3.set_xlabel('Content Type')
             ax3.set_ylabel('Hit Ratio (%)')
             plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
-            # 4. Bandwidth Savings
+            # 4. Bandwidth Savings by Cache Status
             cache_bandwidth = df.groupby('cache_status').agg({
                 'bytes_adjusted': 'sum'
             })
@@ -325,7 +190,8 @@ class Visualizer:
             cache_bandwidth['percentage'] = cache_bandwidth['bytes_adjusted'] / total_bytes * 100
             
             ax4.pie(cache_bandwidth['percentage'], 
-                   labels=cache_bandwidth.index, 
+                   labels=[f"{status}\n({pct:.1f}%)" for status, pct in 
+                          zip(cache_bandwidth.index, cache_bandwidth['percentage'])],
                    autopct='%1.1f%%')
             ax4.set_title('Bandwidth Distribution by Cache Status')
 
@@ -337,49 +203,60 @@ class Visualizer:
             plt.close('all')
 
     def _create_error_analysis(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
-        """Create error analysis visualizations."""
+        """Create error analysis visualizations with request and visit metrics."""
         try:
             fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
             
-            # 1. Error Rate Over Time
+            # 1. Error Rate Over Time (Requests vs Visits)
             df_time = df.set_index('timestamp')
-            error_4xx = df_time['error_rate_4xx'].rolling('5min').mean() * 100  # Changed from '5T' to '5min'
-            error_5xx = df_time['error_rate_5xx'].rolling('5min').mean() * 100  # Changed from '5T' to '5min'
+            error_req = df_time[df_time['status'] >= 400]['requests_adjusted'].rolling('5min').sum() / \
+                       df_time['requests_adjusted'].rolling('5min').sum() * 100
+            error_vis = df_time[df_time['status'] >= 400]['visits_adjusted'].rolling('5min').sum() / \
+                       df_time['visits_adjusted'].rolling('5min').sum() * 100
             
-            ax1.plot(error_4xx.index, error_4xx.values, label='4xx Errors', color='#f1c40f')
-            ax1.plot(error_5xx.index, error_5xx.values, label='5xx Errors', color='#e74c3c')
-            ax1.set_title('Error Rates Over Time')
+            ax1.plot(error_req.index, error_req.values, label='Request Errors', color='#e74c3c')
+            ax1.plot(error_vis.index, error_vis.values, label='Visit Errors', color='#f1c40f')
+            ax1.set_title('Error Rates Over Time\nRequests vs Visits')
             ax1.set_xlabel('Time')
             ax1.set_ylabel('Error Rate (%)')
             ax1.legend()
-            self._setup_time_axis(ax1, df_time.index)
+            self._setup_time_axis(ax1, error_req.index)
 
-            # 2. Error Status Distribution
-            error_status = df[df['status'] >= 400]['status'].value_counts().sort_index()
-            ax2.bar(error_status.index.astype(str), error_status.values)
-            ax2.set_title('Error Status Code Distribution')
+            # 2. Error Status Distribution (Requests vs Visits)
+            error_status = df[df['status'] >= 400].groupby('status').agg({
+                'requests_adjusted': 'sum',
+                'visits_adjusted': 'sum'
+            }).reset_index()
+            
+            x = np.arange(len(error_status))
+            width = 0.35
+            ax2.bar(x - width/2, error_status['requests_adjusted'], width, 
+                   label='Requests', color='#3498db')
+            ax2.bar(x + width/2, error_status['visits_adjusted'], width, 
+                   label='Visits', color='#2ecc71')
+            ax2.set_title('Error Status Distribution\nRequests vs Visits')
             ax2.set_xlabel('Status Code')
             ax2.set_ylabel('Count')
+            ax2.legend()
+            ax2.set_xticks(x)
+            ax2.set_xticklabels(error_status['status'])
 
-            # 3. Errors by Endpoint
+            # 3. Errors by Endpoint (Top 10 by request errors)
             endpoint_errors = df.groupby('endpoint').agg({
+                'requests_adjusted': 'sum',
+                'visits_adjusted': 'sum',
                 'error_rate_4xx': 'mean',
-                'error_rate_5xx': 'mean',
-                'visits_adjusted': 'sum'
-            }).nlargest(10, 'visits_adjusted')
+                'error_rate_5xx': 'mean'
+            }).nlargest(10, 'requests_adjusted')
             
-            width = 0.35
-            ax3.bar(np.arange(len(endpoint_errors)) - width/2, 
-                   endpoint_errors['error_rate_4xx'] * 100, 
-                   width, 
-                   label='4xx')
-            ax3.bar(np.arange(len(endpoint_errors)) + width/2, 
-                   endpoint_errors['error_rate_5xx'] * 100, 
-                   width, 
-                   label='5xx')
+            x = np.arange(len(endpoint_errors))
+            ax3.bar(x - width/2, endpoint_errors['error_rate_4xx'] * 100, width, 
+                   label='4xx Errors', color='#f1c40f')
+            ax3.bar(x + width/2, endpoint_errors['error_rate_5xx'] * 100, width, 
+                   label='5xx Errors', color='#e74c3c')
             ax3.set_title('Error Rates by Top Endpoints')
             ax3.set_ylabel('Error Rate (%)')
-            ax3.set_xticks(np.arange(len(endpoint_errors)))
+            ax3.set_xticks(x)
             ax3.set_xticklabels(endpoint_errors.index, rotation=45, ha='right')
             ax3.legend()
 
@@ -401,16 +278,17 @@ class Visualizer:
             plt.close('all')
 
     def _create_geographic_analysis(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
-        """Create geographic analysis visualizations."""
+        """Create geographic analysis visualizations with request and visit metrics."""
         try:
             fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
             
-            # Get top 10 countries by traffic
+            # Get top 10 countries by requests
             top_countries = df.groupby('country').agg({
-                'visits_adjusted': 'sum'
-            }).nlargest(10, 'visits_adjusted').index
+                'requests_adjusted': 'sum'
+            }).nlargest(10, 'requests_adjusted').index
 
             country_metrics = df[df['country'].isin(top_countries)].groupby('country').agg({
+                'requests_adjusted': 'sum',
                 'visits_adjusted': 'sum',
                 'ttfb_avg': 'mean',
                 'bytes_adjusted': 'sum',
@@ -418,19 +296,34 @@ class Visualizer:
                 'error_rate_5xx': 'mean'
             })
 
-            # 1. Traffic Distribution
-            ax1.pie(country_metrics['visits_adjusted'], 
-                   labels=country_metrics.index, 
-                   autopct='%1.1f%%')
-            ax1.set_title('Traffic Distribution by Country')
+            # 1. Traffic Distribution (Requests vs Visits)
+            total_requests = country_metrics['requests_adjusted'].sum()
+            total_visits = country_metrics['visits_adjusted'].sum()
+            
+            request_pcts = country_metrics['requests_adjusted'] / total_requests * 100
+            visit_pcts = country_metrics['visits_adjusted'] / total_visits * 100
+            
+            x = np.arange(len(country_metrics))
+            width = 0.35
+            ax1.bar(x - width/2, request_pcts, width, label='Requests', color='#3498db')
+            ax1.bar(x + width/2, visit_pcts, width, label='Visits', color='#2ecc71')
+            ax1.set_title('Traffic Distribution by Country\nRequests vs Visits')
+            ax1.set_ylabel('Percentage (%)')
+            ax1.set_xticks(x)
+            ax1.set_xticklabels(country_metrics.index, rotation=45, ha='right')
+            ax1.legend()
 
             # 2. Average TTFB by Country
             ax2.bar(country_metrics.index, country_metrics['ttfb_avg'])
-            ax2.set_title('Average TTFB by Country')
+            for i, (idx, row) in enumerate(country_metrics.iterrows()):
+                ax2.text(i, row['ttfb_avg'], 
+                        f'R:{int(row["requests_adjusted"]):,}\nV:{int(row["visits_adjusted"]):,}', 
+                        ha='center', va='bottom')
+            ax2.set_title('Average TTFB by Country\nwith Request (R) and Visit (V) Counts')
             ax2.set_ylabel('TTFB (ms)')
             plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
-            # 3. Bandwidth Usage
+            # 3. Bandwidth Usage by Country
             bandwidth_gb = country_metrics['bytes_adjusted'] / (1024**3)
             ax3.bar(country_metrics.index, bandwidth_gb)
             ax3.set_title('Bandwidth Usage by Country')
@@ -438,18 +331,18 @@ class Visualizer:
             plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
             # 4. Error Rates by Country
-            width = 0.35
-            ax4.bar(np.arange(len(country_metrics)) - width/2, 
+            x = np.arange(len(country_metrics))
+            ax4.bar(x - width/2, 
                    country_metrics['error_rate_4xx'] * 100, 
                    width, 
                    label='4xx')
-            ax4.bar(np.arange(len(country_metrics)) + width/2, 
+            ax4.bar(x + width/2, 
                    country_metrics['error_rate_5xx'] * 100, 
                    width, 
                    label='5xx')
             ax4.set_title('Error Rates by Country')
             ax4.set_ylabel('Error Rate (%)')
-            ax4.set_xticks(np.arange(len(country_metrics)))
+            ax4.set_xticks(x)
             ax4.set_xticklabels(country_metrics.index, rotation=45, ha='right')
             ax4.legend()
 
@@ -461,49 +354,124 @@ class Visualizer:
             plt.close('all')
 
     def _create_time_series(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
-        """Create time series visualizations."""
+        """Create time series visualizations with request and visit metrics."""
         try:
             fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
             
             df_time = df.set_index('timestamp')
             
-            # 1. Request Volume Over Time
-            requests = df_time['visits_adjusted'].resample('5min').sum()  # Changed from '5T' to '5min'
-            ax1.plot(requests.index, requests.values, color='#2ecc71')
-            ax1.set_title('Request Volume Over Time')
-            ax1.set_ylabel('Requests')
+            # 1. Traffic Volume Over Time (Requests vs Visits)
+            requests = df_time['requests_adjusted'].resample('5min').sum()
+            visits = df_time['visits_adjusted'].resample('5min').sum()
+            
+            ax1.plot(requests.index, requests.values, color='#3498db', label='Requests')
+            ax1.plot(visits.index, visits.values, color='#2ecc71', label='Visits')
+            ax1.set_title('Traffic Volume Over Time\nRequests vs Visits')
+            ax1.set_ylabel('Count')
+            ax1.legend()
             self._setup_time_axis(ax1, requests.index)
 
             # 2. Average TTFB Over Time
-            ttfb = df_time['ttfb_avg'].resample('5min').mean()  # Changed from '5T' to '5min'
-            ax2.plot(ttfb.index, ttfb.values, color='#3498db')
+            ttfb = df_time['ttfb_avg'].resample('5min').mean()
+            ax2.plot(ttfb.index, ttfb.values, color='#9b59b6')
             ax2.set_title('Average TTFB Over Time')
             ax2.set_ylabel('TTFB (ms)')
             self._setup_time_axis(ax2, ttfb.index)
 
-            # 3. Bandwidth Usage Over Time
-            bandwidth = df_time['bytes_adjusted'].resample('5min').sum() / (1024**3)  # Changed from '5T' to '5min'
-            ax3.plot(bandwidth.index, bandwidth.values, color='#9b59b6')
-            ax3.set_title('Bandwidth Usage Over Time')
-            ax3.set_ylabel('Bandwidth (GB)')
-            self._setup_time_axis(ax3, bandwidth.index)
-
-            # 4. Error Rates Over Time
-            error_4xx = df_time['error_rate_4xx'].resample('5min').mean() * 100  # Changed from '5T' to '5min'
-            error_5xx = df_time['error_rate_5xx'].resample('5min').mean() * 100  # Changed from '5T' to '5min'
+            # 3. Error Rates Over Time
+            error_requests = df_time[df_time['status'] >= 400]['requests_adjusted'].resample('5min').sum() / \
+                           df_time['requests_adjusted'].resample('5min').sum() * 100
+            error_visits = df_time[df_time['status'] >= 400]['visits_adjusted'].resample('5min').sum() / \
+                          df_time['visits_adjusted'].resample('5min').sum() * 100
             
-            ax4.plot(error_4xx.index, error_4xx.values, label='4xx Errors', color='#f1c40f')
-            ax4.plot(error_5xx.index, error_5xx.values, label='5xx Errors', color='#e74c3c')
-            ax4.set_title('Error Rates Over Time')
-            ax4.set_ylabel('Error Rate (%)')
-            ax4.legend()
-            self._setup_time_axis(ax4, error_4xx.index)
+            ax3.plot(error_requests.index, error_requests.values, 
+                    label='Request Errors', color='#e74c3c')
+            ax3.plot(error_visits.index, error_visits.values, 
+                    label='Visit Errors', color='#f1c40f')
+            ax3.set_title('Error Rates Over Time\nRequests vs Visits')
+            ax3.set_ylabel('Error Rate (%)')
+            ax3.legend()
+            self._setup_time_axis(ax3, error_requests.index)
+
+            # 4. Cache Hit Ratio Over Time
+            cache_hit_ratio = df_time['cache_status'].isin(['hit', 'stale', 'revalidated']) \
+                            .resample('5min').mean() * 100
+            ax4.plot(cache_hit_ratio.index, cache_hit_ratio.values, color='#16a085')
+            ax4.set_title('Cache Hit Ratio Over Time\n(Based on Requests)')
+            ax4.set_ylabel('Hit Ratio (%)')
+            self._setup_time_axis(ax4, cache_hit_ratio.index)
 
             plt.tight_layout()
             self._save_fig_safely(fig, output_dir / 'time_series.png')
 
         except Exception as e:
             logger.error(f"Error creating time series: {str(e)}")
+            plt.close('all')
+
+    def _create_endpoint_analysis(self, df: pd.DataFrame, analysis: Dict, output_dir: Path) -> None:
+        """Create endpoint analysis visualizations with request and visit metrics."""
+        try:
+            # Get top 10 endpoints by requests
+            top_endpoints = df.groupby('endpoint').agg({
+                'requests_adjusted': 'sum',
+                'visits_adjusted': 'sum',
+                'ttfb_avg': 'mean',
+                'bytes_adjusted': 'sum',
+                'error_rate_4xx': 'mean',
+                'error_rate_5xx': 'mean'
+            }).nlargest(10, 'requests_adjusted')
+
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
+
+            # 1. Traffic Volume (Requests vs Visits)
+            x = np.arange(len(top_endpoints))
+            width = 0.35
+            
+            ax1.bar(x - width/2, top_endpoints['requests_adjusted'], width, 
+                   label='Requests', color='#3498db')
+            ax1.bar(x + width/2, top_endpoints['visits_adjusted'], width, 
+                   label='Visits', color='#2ecc71')
+            ax1.set_title('Traffic Volume by Top Endpoints\nRequests vs Visits')
+            ax1.set_ylabel('Count')
+            ax1.set_xticks(x)
+            ax1.set_xticklabels(top_endpoints.index, rotation=45, ha='right')
+            ax1.legend()
+
+            # 2. Response Time by Endpoint
+            ax2.bar(range(len(top_endpoints)), top_endpoints['ttfb_avg'], color='#9b59b6')
+            for i, v in enumerate(top_endpoints['ttfb_avg']):
+                ax2.text(i, v, f'{v:.0f}ms', ha='center', va='bottom')
+            ax2.set_title('Average Response Time by Endpoint')
+            ax2.set_ylabel('TTFB (ms)')
+            ax2.set_xticks(range(len(top_endpoints)))
+            ax2.set_xticklabels(top_endpoints.index, rotation=45, ha='right')
+
+            # 3. Error Rates (4xx vs 5xx)
+            x = np.arange(len(top_endpoints))
+            ax3.bar(x - width/2, top_endpoints['error_rate_4xx'] * 100, width, 
+                   label='4xx Errors', color='#f1c40f')
+            ax3.bar(x + width/2, top_endpoints['error_rate_5xx'] * 100, width, 
+                   label='5xx Errors', color='#e74c3c')
+            ax3.set_title('Error Rates by Top Endpoints')
+            ax3.set_ylabel('Error Rate (%)')
+            ax3.set_xticks(x)
+            ax3.set_xticklabels(top_endpoints.index, rotation=45, ha='right')
+            ax3.legend()
+
+            # 4. Requests per Visit Ratio
+            req_visit_ratio = top_endpoints['requests_adjusted'] / \
+                            top_endpoints['visits_adjusted'].replace(0, float('nan'))
+            ax4.bar(range(len(req_visit_ratio)), req_visit_ratio.fillna(0), color='#16a085')
+            ax4.set_title('Requests per Visit by Endpoint')
+            ax4.set_ylabel('Requests/Visit Ratio')
+            ax4.set_xticks(range(len(req_visit_ratio)))
+            ax4.set_xticklabels(req_visit_ratio.index, rotation=45, ha='right')
+
+            plt.tight_layout()
+            self._save_fig_safely(fig, output_dir / 'endpoint_analysis.png')
+
+        except Exception as e:
+            logger.error(f"Error creating endpoint analysis: {str(e)}")
             plt.close('all')
 
     def _setup_time_axis(self, ax, timestamps):

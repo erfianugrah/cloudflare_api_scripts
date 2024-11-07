@@ -3,9 +3,10 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Optional
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import traceback
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ class DataProcessor:
         }
 
     def process_zone_metrics(self, raw_data: Dict) -> Optional[pd.DataFrame]:
-        """Process raw zone metrics with endpoint information."""
+        """Process raw zone metrics with enhanced error handling."""
         try:
             if raw_data is None:
                 logger.error("Raw data is None")
@@ -39,34 +40,43 @@ class DataProcessor:
                 logger.error("No HTTP requests data found in response")
                 return None
 
-            metrics = [
-                self._process_metric_group(group)
-                for group in http_requests
-                if group is not None
-            ]
+            # Process metrics and filter out None values
+            metrics = []
+            for group in http_requests:
+                if group is not None:
+                    metric = self._process_metric_group(group)
+                    if metric is not None:
+                        metrics.append(metric)
 
-            metrics = [m for m in metrics if m is not None]
             if not metrics:
                 logger.warning("No valid metrics processed")
                 return None
 
+            # Create DataFrame
             df = pd.DataFrame(metrics)
             
-            # Process timestamps
+            # Convert timestamp column
             df['timestamp'] = pd.to_datetime(df['datetime'])
             
             # Ensure status column exists and is properly formatted
-            df['status'] = df['edgeResponseStatus'].astype(int)
+            df['status'] = pd.to_numeric(df['edgeResponseStatus'], errors='coerce').fillna(0).astype(int)
             
             # Calculate adjusted metrics
-            df['visits_adjusted'] = df.apply(
-                lambda row: row['visits'] / row['sampling_rate'] 
-                if row['sampling_rate'] > 0 else 0,
+            df['requests_adjusted'] = df.apply(
+                lambda row: row['requests'] / row['sampling_rate'] 
+                if row['sampling_rate'] > 0 else row['requests'],
                 axis=1
             )
+            
+            df['visits_adjusted'] = df.apply(
+                lambda row: row['visits'] / row['sampling_rate'] 
+                if row['sampling_rate'] > 0 else row['visits'],
+                axis=1
+            )
+            
             df['bytes_adjusted'] = df.apply(
                 lambda row: row['bytes'] / row['sampling_rate']
-                if row['sampling_rate'] > 0 else 0,
+                if row['sampling_rate'] > 0 else row['bytes'],
                 axis=1
             )
 
@@ -74,10 +84,20 @@ class DataProcessor:
             df['error_rate_4xx'] = df['status'].between(400, 499).astype(float)
             df['error_rate_5xx'] = df['status'].between(500, 599).astype(float)
 
-            # Calculate confidence scores
-            df['confidence_score'] = self._calculate_confidence_scores(df)
-            
-            # Create endpoint identifier combining host and path
+            # Log metrics summary
+            logger.info(f"""
+Metrics Summary:
+-------------
+Total Records: {len(df)}
+Total Requests (Raw): {df['requests'].sum():,}
+Total Requests (Adjusted): {df['requests_adjusted'].sum():,}
+Total Visits (Raw): {df['visits'].sum():,}
+Total Visits (Adjusted): {df['visits_adjusted'].sum():,}
+Time Range: {df['timestamp'].min()} to {df['timestamp'].max()}
+Error Rates: 4xx={df['error_rate_4xx'].mean()*100:.2f}%, 5xx={df['error_rate_5xx'].mean()*100:.2f}%
+""")
+
+            # Create endpoint identifier and add endpoint metrics
             df['endpoint'] = df.apply(
                 lambda row: self._create_endpoint_identifier(
                     row['clientRequestPath'],
@@ -86,32 +106,72 @@ class DataProcessor:
                 axis=1
             )
             
-            # Add endpoint-specific metrics
+            # Add endpoint metrics
             df = self._add_endpoint_metrics(df)
 
-            # Log DataFrame info for debugging
-            logger.debug(f"Processed DataFrame columns: {df.columns.tolist()}")
+            # Calculate confidence scores
+            df['confidence_score'] = self._calculate_confidence_scores(df)
+
+            # Log final DataFrame info
             logger.debug(f"Processed DataFrame shape: {df.shape}")
+            logger.debug(f"Processed DataFrame columns: {df.columns.tolist()}")
 
             return df
 
         except Exception as e:
             logger.error(f"Error processing zone metrics: {str(e)}")
-            logger.error(f"Stack trace: {traceback.format_exc()}")
+            logger.error(traceback.format_exc())
             return None
 
     def _process_metric_group(self, group: Dict) -> Optional[Dict]:
         """Process individual metric group with endpoint information."""
         try:
-            dimensions = group['dimensions']
-            avg_metrics = group['avg']
+            dimensions = group.get('dimensions', {})
+            if not dimensions:
+                logger.warning("Missing dimensions in metric group")
+                return None
+
+            # Get and validate datetime
+            datetime_str = dimensions.get('datetimeMinute')
+            if not datetime_str:
+                logger.warning("Missing datetimeMinute in dimensions")
+                return None
+
+            try:
+                metric_datetime = datetime.strptime(
+                    datetime_str, 
+                    "%Y-%m-%dT%H:%M:%SZ"
+                ).replace(tzinfo=timezone.utc)
+            except ValueError as e:
+                logger.warning(f"Invalid datetime format in metric: {datetime_str} - {str(e)}")
+                return None
+
+            avg_metrics = group.get('avg', {})
             quantiles = group.get('quantiles', {})
-            sums = group['sum']
+            sums = group.get('sum', {})
             ratios = group.get('ratio', {})
 
-            # Calculate sampling rate from interval
+            # Count both requests and visits
+            requests = group.get('count', 0)  # Total request count
+            visits = sums.get('visits', 0)    # Unique visitor count
+
+            # Calculate sampling rate
             sample_interval = avg_metrics.get('sampleInterval', 1)
             sampling_rate = 1 / sample_interval if sample_interval > 0 else 1
+
+            # Log raw metrics for debugging
+            logger.debug(f"""
+Raw Metric Data:
+-------------
+Timestamp: {datetime_str}
+Requests: {requests}
+Visits: {visits}
+Sample Interval: {sample_interval}
+Sampling Rate: {sampling_rate}
+Status: {dimensions.get('edgeResponseStatus')}
+Cache: {dimensions.get('cacheStatus')}
+Path: {dimensions.get('clientRequestPath')}
+""")
 
             # Categorize cache status
             cache_status = dimensions.get('cacheStatus', 'unknown').lower()
@@ -123,7 +183,7 @@ class DataProcessor:
 
             return {
                 # Temporal dimensions
-                'datetime': dimensions['datetime'],
+                'datetime': metric_datetime.isoformat(),
                 
                 # Request metadata
                 'country': dimensions.get('clientCountryName', 'Unknown'),
@@ -145,9 +205,10 @@ class DataProcessor:
                 'origin_time_avg': avg_metrics.get('originResponseDurationMs', 0),
                 'dns_time_avg': avg_metrics.get('edgeDnsResponseTimeMs', 0),
                 
-                # Error rates
-                'error_rate_4xx': ratios.get('status4xx', 0),
-                'error_rate_5xx': ratios.get('status5xx', 0),
+                # Request and visit counts
+                'requests': requests,
+                'visits': visits,
+                'bytes': sums.get('edgeResponseBytes', 0),
                 
                 # Percentile metrics
                 'ttfb_p50': quantiles.get('edgeTimeToFirstByteMsP50', 0),
@@ -157,18 +218,18 @@ class DataProcessor:
                 'origin_p95': quantiles.get('originResponseDurationMsP95', 0),
                 'origin_p99': quantiles.get('originResponseDurationMsP99', 0),
                 
-                # Volume metrics
-                'visits': sums.get('visits', 0),
-                'bytes': sums.get('edgeResponseBytes', 0),
+                # Error rates
+                'error_rate_4xx': ratios.get('status4xx', 0),
+                'error_rate_5xx': ratios.get('status5xx', 0),
                 
                 # Sampling metadata
                 'sampling_rate': sampling_rate,
-                'sample_interval': sample_interval,
-                'sample_count': group.get('count', 0)
+                'sample_interval': sample_interval
             }
 
         except Exception as e:
-            logger.warning(f"Error processing individual metric: {str(e)}")
+            logger.error(f"Error processing metric group: {str(e)}")
+            logger.error(f"Group data: {json.dumps(group, indent=2)}")
             return None
 
     def _normalize_path(self, path: str) -> str:
@@ -205,54 +266,99 @@ class DataProcessor:
 
     def _create_endpoint_identifier(self, path: str, host: str) -> str:
         """Create a unique endpoint identifier from host and path."""
-        normalized_path = self._normalize_path(path)
-        return f"{host}{normalized_path}"
+        try:
+            normalized_path = self._normalize_path(path)
+            return f"{host}{normalized_path}"
+        except Exception as e:
+            logger.warning(f"Error creating endpoint identifier: {str(e)}")
+            return "unknown"
 
     def _add_endpoint_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
         """Add endpoint-specific metrics to the dataframe."""
         try:
             # Calculate endpoint-level metrics
             endpoint_metrics = df.groupby('endpoint').agg({
+                'requests': 'sum',
+                'requests_adjusted': 'sum',
                 'visits': 'sum',
                 'visits_adjusted': 'sum',
                 'ttfb_avg': 'mean',
                 'cache_status': lambda x: (x.isin(['hit', 'stale', 'revalidated']).mean() * 100),
-                'sampling_rate': 'mean',
-                'confidence_score': 'mean'
+                'sampling_rate': 'mean'
             }).reset_index()
             
             endpoint_metrics.columns = [
-                'endpoint', 'endpoint_visits', 'endpoint_visits_adjusted',
-                'endpoint_ttfb_avg', 'endpoint_cache_hit_ratio', 'endpoint_sampling_rate',
-                'endpoint_confidence_score'
+                'endpoint', 'endpoint_requests', 'endpoint_requests_adjusted',
+                'endpoint_visits', 'endpoint_visits_adjusted',
+                'endpoint_ttfb_avg', 'endpoint_cache_hit_ratio', 
+                'endpoint_sampling_rate'
             ]
             
+            # Calculate endpoint confidence scores
+            endpoint_metrics['endpoint_confidence_score'] = endpoint_metrics.apply(
+                lambda row: self._calculate_confidence_score(
+                    row['endpoint_sampling_rate'],
+                    row['endpoint_requests']
+                ),
+                axis=1
+            )
+            
+            # Log endpoint metrics
+            logger.info(f"""
+Endpoint Metrics Summary:
+---------------------
+Total Endpoints: {len(endpoint_metrics)}
+Top Endpoints by Requests:
+{endpoint_metrics.nlargest(5, 'endpoint_requests_adjusted')[['endpoint', 'endpoint_requests_adjusted', 'endpoint_visits_adjusted']].to_string()}
+""")
+            
             # Merge back to original dataframe
-            df = df.merge(endpoint_metrics, on='endpoint', how='left')
-            
-            return df
-            
+            return df.merge(endpoint_metrics, on='endpoint', how='left')
+                
         except Exception as e:
             logger.error(f"Error adding endpoint metrics: {str(e)}")
             return df
 
     def _calculate_confidence_scores(self, df: pd.DataFrame) -> pd.Series:
-        """Calculate confidence scores based on sampling rate and sample size."""
+        """Calculate confidence scores based on sampling rate and request count."""
         def get_confidence(row):
-            rate = row['sampling_rate']
-            sample_size = row['visits']
-            
-            if rate >= 0.5:  # 50% or more sampling
-                base_confidence = 0.99
-            elif rate >= 0.1:  # 10% or more sampling
-                base_confidence = 0.95 if sample_size >= 1000 else 0.90
-            elif rate >= 0.01:  # 1% or more sampling
-                base_confidence = 0.90 if sample_size >= 10000 else 0.85
-            else:
-                base_confidence = 0.80 if sample_size >= 100000 else 0.75
-            
-            # Adjust for sample size
-            size_factor = min(1.0, np.log10(sample_size + 1) / 6)
-            return base_confidence * size_factor
+            try:
+                rate = row['sampling_rate']
+                request_count = row['requests']
+                
+                if rate >= 0.5:  # 50% or more sampling
+                    base_confidence = 0.99
+                elif rate >= 0.1:  # 10% or more sampling
+                    base_confidence = 0.95 if request_count >= 1000 else 0.90
+                elif rate >= 0.01:  # 1% or more sampling
+                    base_confidence = 0.90 if request_count >= 10000 else 0.85
+                else:
+                    base_confidence = 0.80 if request_count >= 100000 else 0.75
+                
+                # Adjust for sample size
+                size_factor = min(1.0, np.log10(request_count + 1) / 6)
+                return base_confidence * size_factor
+            except Exception as e:
+                logger.warning(f"Error calculating confidence score: {str(e)}")
+                return 0.0
 
         return df.apply(get_confidence, axis=1)
+
+    def _calculate_confidence_score(self, sampling_rate: float, request_count: int) -> float:
+        """Calculate single confidence score."""
+        try:
+            if sampling_rate >= 0.5:
+                base_confidence = 0.99
+            elif sampling_rate >= 0.1:
+                base_confidence = 0.95 if request_count >= 1000 else 0.90
+            elif sampling_rate >= 0.01:
+                base_confidence = 0.90 if request_count >= 10000 else 0.85
+            else:
+                base_confidence = 0.80 if request_count >= 100000 else 0.75
+            
+            size_factor = min(1.0, np.log10(request_count + 1) / 6)
+            return base_confidence * size_factor
+            
+        except Exception as e:
+            logger.warning(f"Error calculating confidence score: {str(e)}")
+            return 0.0

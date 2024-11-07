@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 # GraphQL API Limits and Constants
 MAX_QUERIES_PER_5_MIN = 300
 MIN_SLICE_MINUTES = 5
-INITIAL_SLICE_MINUTES = 30
+INITIAL_SLICE_MINUTES = 60
 RATE_WINDOW_MINUTES = 5
 MAX_TIME_RANGE_DAYS = 365
 MIN_TIME_RANGE_MINUTES = 5
@@ -19,6 +19,83 @@ class TimeSlice:
     start: datetime
     end: datetime
     size_minutes: int
+
+# Basic metrics query with essential fields
+ZONE_METRICS_BASIC_QUERY = """
+query ZoneMetricsBasic($zoneTag: String!, $filter: ZoneHttpRequestsAdaptiveGroupsFilter!) {
+  viewer {
+    zones(filter: { zoneTag: $zoneTag }) {
+      httpRequestsAdaptiveGroups(
+        limit: 5000
+        filter: $filter
+        orderBy: [datetimeMinute_DESC]
+      ) {
+        dimensions {
+          datetimeMinute
+          clientCountryName
+          clientDeviceType
+          clientRequestHTTPProtocol
+          edgeResponseContentTypeName
+          edgeResponseStatus
+          cacheStatus
+          coloCode
+        }
+        avg {
+          sampleInterval
+          edgeTimeToFirstByteMs
+          originResponseDurationMs
+        }
+        sum {
+          visits
+          edgeResponseBytes
+        }
+        count
+        ratio {
+          status4xx
+          status5xx
+        }
+      }
+    }
+  }
+}
+"""
+
+# Detailed metrics query with additional fields
+ZONE_METRICS_DETAILED_QUERY = """
+query ZoneMetricsDetailed($zoneTag: String!, $filter: ZoneHttpRequestsAdaptiveGroupsFilter!) {
+  viewer {
+    zones(filter: { zoneTag: $zoneTag }) {
+      httpRequestsAdaptiveGroups(
+        limit: 5000
+        filter: $filter
+        orderBy: [datetimeMinute_DESC]
+      ) {
+        dimensions {
+          datetimeMinute
+          clientAsn
+          clientIP
+          clientRefererHost
+          clientRequestHTTPHost
+          clientRequestPath
+          clientRequestHTTPMethodName
+        }
+        quantiles {
+          edgeTimeToFirstByteMsP50
+          edgeTimeToFirstByteMsP95
+          edgeTimeToFirstByteMsP99
+          originResponseDurationMsP50
+          originResponseDurationMsP95
+          originResponseDurationMsP99
+        }
+        sum {
+          edgeTimeToFirstByteMs
+          originResponseDurationMs
+        }
+      }
+    }
+  }
+}
+"""
 
 def validate_time_range(start_time: datetime, end_time: datetime) -> bool:
     """
@@ -68,20 +145,11 @@ def generate_time_slices(
     end_time: datetime,
     slice_minutes: int = INITIAL_SLICE_MINUTES
 ) -> List[TimeSlice]:
-    """
-    Generate time slices for paginated data fetching with validation.
-    
-    Args:
-        start_time: Start of the overall time range
-        end_time: End of the overall time range
-        slice_minutes: Size of each time slice in minutes
-        
-    Returns:
-        List[TimeSlice]: List of time slices
-    """
+    """Generate time slices for paginated data fetching."""
     try:
         slices = []
-        current = start_time
+        current = start_time.replace(second=0, microsecond=0)
+        end = end_time.replace(second=0, microsecond=0)
 
         # Validate inputs
         if not validate_time_range(start_time, end_time):
@@ -92,8 +160,8 @@ def generate_time_slices(
             return []
 
         # Generate slices
-        while current < end_time:
-            slice_end = min(current + timedelta(minutes=slice_minutes), end_time)
+        while current < end:
+            slice_end = min(current + timedelta(minutes=slice_minutes), end)
             slices.append(TimeSlice(current, slice_end, slice_minutes))
             current = slice_end
 
@@ -102,9 +170,6 @@ def generate_time_slices(
             return []
 
         logger.info(f"Generated {len(slices)} time slices of {slice_minutes} minutes each")
-        logger.info(f"First slice: {slices[0].start.isoformat()} to {slices[0].end.isoformat()}")
-        logger.info(f"Last slice: {slices[-1].start.isoformat()} to {slices[-1].end.isoformat()}")
-
         return slices
 
     except Exception as e:
@@ -112,15 +177,7 @@ def generate_time_slices(
         return []
 
 def reduce_slice_size(current_minutes: int) -> int:
-    """
-    Calculate reduced slice size with validation.
-    
-    Args:
-        current_minutes: Current slice size in minutes
-        
-    Returns:
-        int: New slice size in minutes
-    """
+    """Calculate reduced slice size with validation."""
     try:
         if current_minutes <= MIN_SLICE_MINUTES:
             logger.warning(f"Cannot reduce slice size below minimum ({MIN_SLICE_MINUTES} minutes)")
@@ -134,73 +191,8 @@ def reduce_slice_size(current_minutes: int) -> int:
         logger.error(f"Error reducing slice size: {str(e)}")
         return MIN_SLICE_MINUTES
 
-# GraphQL Query with all required fields and documentation
-ZONE_METRICS_QUERY = """
-query ZoneMetrics($zoneTag: String!, $filter: ZoneHttpRequestsAdaptiveGroupsFilter!) {
-  viewer {
-    zones(filter: { zoneTag: $zoneTag }) {
-      httpRequestsAdaptiveGroups(
-        limit: 1000
-        filter: $filter
-        orderBy: [datetime_ASC]
-      ) {
-        dimensions {
-          datetime
-          clientCountryName
-          clientDeviceType
-          clientRequestHTTPProtocol
-          edgeResponseContentTypeName
-          edgeResponseStatus
-          cacheStatus
-          coloCode
-          clientAsn
-          clientIP
-          clientRefererHost
-          clientRequestHTTPHost
-          clientRequestPath
-          clientRequestHTTPMethodName
-        }
-        avg {
-          sampleInterval
-          edgeTimeToFirstByteMs
-          originResponseDurationMs
-          edgeDnsResponseTimeMs
-        }
-        quantiles {
-          edgeTimeToFirstByteMsP50
-          edgeTimeToFirstByteMsP95
-          edgeTimeToFirstByteMsP99
-          originResponseDurationMsP50
-          originResponseDurationMsP95
-          originResponseDurationMsP99
-        }
-        sum {
-          visits
-          edgeResponseBytes
-          edgeTimeToFirstByteMs
-          originResponseDurationMs
-        }
-        count
-        ratio {
-          status4xx
-          status5xx
-        }
-      }
-    }
-  }
-}
-"""
-
 def validate_graphql_response(response_data: Dict) -> Tuple[bool, str]:
-    """
-    Validate GraphQL response structure.
-    
-    Args:
-        response_data: GraphQL response data
-        
-    Returns:
-        Tuple[bool, str]: (is_valid, error_message)
-    """
+    """Validate GraphQL response structure."""
     try:
         if not isinstance(response_data, dict):
             return False, "Response is not a dictionary"
@@ -234,24 +226,18 @@ def create_metrics_filter(
     end_time: datetime,
     sample_interval: Optional[int] = None
 ) -> Dict:
-    """
-    Create a validated GraphQL metrics filter.
-    
-    Args:
-        start_time: Start of the time range
-        end_time: End of the time range
-        sample_interval: Optional sampling interval
-        
-    Returns:
-        Dict: GraphQL filter object
-    """
+    """Create metrics filter for GraphQL query."""
     try:
         if not validate_time_range(start_time, end_time):
             raise ValueError("Invalid time range")
 
+        # Format datetime without microseconds
+        start_str = start_time.replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_str = end_time.replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+        
         filter_obj = {
-            "datetime_geq": start_time.isoformat(),
-            "datetime_leq": end_time.isoformat()
+            "datetimeMinute_gt": start_str,
+            "datetimeMinute_lt": end_str
         }
 
         if sample_interval is not None:
@@ -263,7 +249,8 @@ def create_metrics_filter(
 
     except Exception as e:
         logger.error(f"Error creating metrics filter: {str(e)}")
+        # Return safe defaults with proper datetime format
         return {
-            "datetime_geq": start_time.isoformat(),
-            "datetime_leq": end_time.isoformat()
+            "datetimeMinute_gt": start_time.replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "datetimeMinute_lt": end_time.replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
         }
