@@ -869,7 +869,7 @@ class Visualizer:
             
             # Create time series for each top country
             for country in top_countries['country']:
-                country_data = df_time[df_time['country'] == country].resample('1H').agg({
+                country_data = df_time[df_time['country'] == country].resample('1h').agg({
                     'visits_adjusted': 'sum'
                 })
                 
