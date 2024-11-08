@@ -2,7 +2,7 @@
 import requests
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
 import traceback
 from pathlib import Path
@@ -33,17 +33,21 @@ class CloudflareAPIClient:
         self.headers = {
             'X-Auth-Email': config.email,
             'X-Auth-Key': config.api_key,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            'Content-Type': 'application/json'
         }
         self.rate_limit_lock = Lock()
         self.query_count = 0
         self.last_query_time = datetime.now(timezone.utc)
         self.metrics_queue = Queue()
         self.max_retries = 3
-        self.min_retry_wait = 1  # seconds
-        self.request_timeout = 30  # seconds
-        self.debug_mode = True  # Enable detailed logging
+        self.min_retry_wait = 1
+        self.request_timeout = 30
+        self.debug_mode = True
+        
+        # Concurrent processing settings
+        self.max_workers = 5
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers)
+        self.query_timestamps = []
 
     def fetch_zone_metrics(
         self,
@@ -52,7 +56,7 @@ class CloudflareAPIClient:
         end_time: Optional[datetime] = None,
         sample_interval: Optional[int] = None
     ) -> Optional[Dict]:
-        """Fetch zone metrics with enhanced debugging and validation."""
+        """Main entry point for fetching zone metrics with concurrent processing."""
         try:
             # Validate and normalize time range
             end = end_time or datetime.now(timezone.utc)
@@ -63,7 +67,6 @@ class CloudflareAPIClient:
             if end.tzinfo is None:
                 end = end.replace(tzinfo=timezone.utc)
 
-            # Enhanced debugging information
             logger.info(f"""
 Fetching metrics with parameters:
 -------------------------------
@@ -71,62 +74,71 @@ Zone ID: {zone_id}
 Time Range: {start.isoformat()} to {end.isoformat()}
 Duration: {end - start}
 Sample Interval: {sample_interval}
-Current Time: {datetime.now(timezone.utc).isoformat()}
-UTC Offset: {datetime.now(timezone.utc).utcoffset()}
-Time Window: {INITIAL_SLICE_MINUTES} minutes
-Rate Limit Status: {self.query_count}/{MAX_QUERIES_PER_5_MIN} queries used
 """)
 
             if not validate_time_range(start, end):
                 return None
 
-            # Process metrics in time slices
-            all_metrics = []
-            current_start = start
-            current_slice_minutes = INITIAL_SLICE_MINUTES
-
-            while current_start < end and current_slice_minutes >= MIN_SLICE_MINUTES:
-                slice_end = min(current_start + timedelta(minutes=current_slice_minutes), end)
-                logger.info(f"""
-Processing time slice:
--------------------
-Start: {current_start.isoformat()}
-End: {slice_end.isoformat()}
-Duration: {slice_end - current_start}
-Slice Size: {current_slice_minutes} minutes
-""")
-
-                # Fetch both basic and detailed metrics
-                metrics = self._fetch_combined_metrics(
-                    zone_id,
-                    current_start,
-                    slice_end,
-                    sample_interval
-                )
-
-                if metrics is not None:
-                    logger.info(f"Successfully fetched {len(metrics)} metrics for slice")
-                    all_metrics.extend(metrics)
-                    current_start = slice_end
-                    current_slice_minutes = min(current_slice_minutes * 2, INITIAL_SLICE_MINUTES)
-                else:
-                    current_slice_minutes = reduce_slice_size(current_slice_minutes)
-                    logger.warning(f"Reducing slice size to {current_slice_minutes} minutes")
-                    if current_slice_minutes < MIN_SLICE_MINUTES:
-                        logger.error("Slice size below minimum, aborting")
-                        break
-
-                time.sleep(self.min_retry_wait)
-
-            if not all_metrics:
-                logger.error("No metrics data found in any time slice")
+            # Generate time slices for concurrent processing
+            time_slices = generate_time_slices(start, end, INITIAL_SLICE_MINUTES)
+            if not time_slices:
                 return None
 
+            all_metrics = []
+            failed_slices = []
+
+            # Process slices concurrently
+            futures = {}
+            for time_slice in time_slices:
+                future = self.executor.submit(
+                    self._fetch_slice_metrics,
+                    zone_id,
+                    time_slice.start,
+                    time_slice.end,
+                    sample_interval
+                )
+                futures[future] = time_slice
+
+            # Collect results as they complete
+            for future in concurrent.futures.as_completed(futures):
+                time_slice = futures[future]
+                try:
+                    metrics = future.result()
+                    if metrics:
+                        all_metrics.extend(metrics)
+                    else:
+                        failed_slices.append(time_slice)
+                except Exception as e:
+                    logger.error(f"Error processing slice {time_slice}: {str(e)}")
+                    failed_slices.append(time_slice)
+
+            # Retry failed slices with reduced time windows
+            if failed_slices:
+                logger.info(f"Retrying {len(failed_slices)} failed slices")
+                for failed_slice in failed_slices:
+                    reduced_slices = generate_time_slices(
+                        failed_slice.start,
+                        failed_slice.end,
+                        reduce_slice_size(failed_slice.size_minutes)
+                    )
+                    
+                    for reduced_slice in reduced_slices:
+                        retry_metrics = self._fetch_slice_metrics(
+                            zone_id,
+                            reduced_slice.start,
+                            reduced_slice.end,
+                            sample_interval
+                        )
+                        if retry_metrics:
+                            all_metrics.extend(retry_metrics)
+
+            if not all_metrics:
+                logger.error("No metrics collected from any time slice")
+                return None
+
+            # Deduplicate and create response structure
             unique_metrics = self._deduplicate_metrics(all_metrics)
             
-            # Log metrics summary
-            self._log_metrics_summary(unique_metrics, start, end)
-
             response_data = {
                 'data': {
                     'viewer': {
@@ -145,16 +157,19 @@ Slice Size: {current_slice_minutes} minutes
             logger.error(traceback.format_exc())
             return None
 
-    def _fetch_combined_metrics(
+    def _fetch_slice_metrics(
         self,
         zone_id: str,
         start_time: datetime,
         end_time: datetime,
         sample_interval: Optional[int]
     ) -> Optional[List[Dict]]:
-        """Fetch and combine both basic and detailed metrics."""
+        """Fetch metrics for a single time slice with rate limiting."""
         try:
-            # Fetch basic metrics first
+            with self.rate_limit_lock:
+                self._enforce_rate_limit()
+
+            # Fetch basic metrics
             basic_metrics = self._fetch_slice_with_retry(
                 zone_id,
                 start_time,
@@ -165,10 +180,12 @@ Slice Size: {current_slice_minutes} minutes
             )
 
             if not basic_metrics:
-                logger.error("Failed to fetch basic metrics")
                 return None
 
             # Fetch detailed metrics
+            with self.rate_limit_lock:
+                self._enforce_rate_limit()
+                
             detailed_metrics = self._fetch_slice_with_retry(
                 zone_id,
                 start_time,
@@ -178,16 +195,14 @@ Slice Size: {current_slice_minutes} minutes
                 'detailed'
             )
 
-            if not detailed_metrics:
-                logger.warning("Failed to fetch detailed metrics, continuing with basic metrics only")
-                return basic_metrics
+            # Merge metrics if both queries successful
+            if basic_metrics and detailed_metrics:
+                return self._merge_metrics(basic_metrics, detailed_metrics)
 
-            # Merge metrics based on datetimeMinute
-            return self._merge_metrics(basic_metrics, detailed_metrics)
+            return basic_metrics
 
         except Exception as e:
-            logger.error(f"Error in fetch_combined_metrics: {str(e)}")
-            logger.error(traceback.format_exc())
+            logger.error(f"Error fetching slice metrics: {str(e)}")
             return None
 
     def _fetch_slice_with_retry(
@@ -217,18 +232,6 @@ Slice Size: {current_slice_minutes} minutes
                 if sample_interval is not None:
                     variables["filter"]["sampleInterval"] = sample_interval
 
-                logger.info(f"""
-    Fetch attempt {attempt + 1}/{self.max_retries}:
-    ------------------------------------------
-    Query Type: {query_type}
-    Time Range: {start_str} to {end_str}
-    Sample Interval: {sample_interval}
-    Variables: {json.dumps(variables, indent=2)}
-    """)
-
-                with self.rate_limit_lock:
-                    self._handle_rate_limiting()
-
                 response = requests.post(
                     f"{self.base_url}/graphql",
                     headers=self.headers,
@@ -238,6 +241,12 @@ Slice Size: {current_slice_minutes} minutes
                     },
                     timeout=self.request_timeout
                 )
+
+                if response.status_code == 429:  # Rate limit hit
+                    wait_time = int(response.headers.get('Retry-After', 60))
+                    logger.warning(f"Rate limit hit, waiting {wait_time} seconds")
+                    time.sleep(wait_time)
+                    continue
 
                 # Parse response
                 try:
@@ -252,25 +261,25 @@ Slice Size: {current_slice_minutes} minutes
                 # Check for HTTP errors
                 if response.status_code != 200:
                     logger.error(f"""
-    HTTP Error ({query_type}):
-    ----------
-    Status Code: {response.status_code}
-    Response Headers: {dict(response.headers)}
-    Response Body: {response.text[:2000]}
-    """)
+HTTP Error ({query_type}):
+----------
+Status Code: {response.status_code}
+Response Headers: {dict(response.headers)}
+Response Body: {response.text[:2000]}
+""")
                     if attempt < self.max_retries - 1:
                         time.sleep(2 ** attempt)
                         continue
                     return None
 
                 # Check for explicit GraphQL errors
-                if 'errors' in data and data['errors']:  # Only consider non-empty errors
+                if 'errors' in data and data['errors']:
                     logger.error(f"""
-    GraphQL Errors:
-    -------------
-    {json.dumps(data.get('errors', []), indent=2)}
-    Query Variables: {json.dumps(variables, indent=2)}
-    """)
+GraphQL Errors:
+-------------
+{json.dumps(data.get('errors', []), indent=2)}
+Query Variables: {json.dumps(variables, indent=2)}
+""")
                     if attempt < self.max_retries - 1:
                         time.sleep(2 ** attempt)
                         continue
@@ -282,36 +291,35 @@ Slice Size: {current_slice_minutes} minutes
                          .get('zones', [{}])[0]
                          .get('httpRequestsAdaptiveGroups', []))
 
-                if metrics:
-                    logger.info(f"""
-    Success:
-    -------
-    Retrieved {len(metrics)} metrics
-    First Timestamp: {metrics[0]['dimensions']['datetimeMinute'] if metrics else 'N/A'}
-    Last Timestamp: {metrics[-1]['dimensions']['datetimeMinute'] if metrics else 'N/A'}
-    """)
-                    return metrics
-                else:
-                    logger.warning(f"""
-    No metrics found in response:
-    -------------------------
-    Response Data: {json.dumps(data.get('data', {}), indent=2)}
-    """)
-                    return []
+                return metrics
 
             except Exception as e:
-                logger.error(f"""
-    Error in fetch attempt {attempt + 1}:
-    Type: {type(e).__name__}
-    Message: {str(e)}
-    Stack Trace:
-    {traceback.format_exc()}
-    """)
+                logger.error(f"Error in fetch attempt {attempt + 1}: {str(e)}")
                 if attempt < self.max_retries - 1:
                     time.sleep(2 ** attempt)
                     continue
 
         return None
+
+    def _enforce_rate_limit(self) -> None:
+        """Enhanced rate limiting with sliding window."""
+        current_time = time.time()
+        
+        # Remove timestamps outside the window
+        self.query_timestamps = [
+            t for t in self.query_timestamps 
+            if current_time - t <= RATE_WINDOW_MINUTES * 60
+        ]
+        
+        # If at rate limit, wait until oldest query expires
+        if len(self.query_timestamps) >= MAX_QUERIES_PER_5_MIN:
+            wait_time = (self.query_timestamps[0] + RATE_WINDOW_MINUTES * 60) - current_time
+            if wait_time > 0:
+                logger.info(f"Rate limit reached, waiting {wait_time:.2f} seconds")
+                time.sleep(wait_time)
+        
+        # Add current query timestamp
+        self.query_timestamps.append(current_time)
 
     def _merge_metrics(self, basic_metrics: List[Dict], detailed_metrics: List[Dict]) -> List[Dict]:
         """Merge basic and detailed metrics based on datetimeMinute."""
@@ -338,7 +346,7 @@ Slice Size: {current_slice_minutes} minutes
                     'avg': {**basic_metric['avg']},
                     'sum': {**basic_metric['sum']},
                     'count': basic_metric['count'],
-                    'ratio': basic_metric['ratio']
+                    'ratio': basic_metric.get('ratio', {})
                 }
 
                 # Add detailed metrics if available
@@ -352,170 +360,12 @@ Slice Size: {current_slice_minutes} minutes
 
                 merged_metrics.append(merged_metric)
 
-            logger.info(f"""
-Metrics Merge Results:
--------------------
-Basic Metrics: {len(basic_metrics)}
-Detailed Metrics: {len(detailed_metrics)}
-Merged Metrics: {len(merged_metrics)}
-""")
-
             return merged_metrics
 
         except Exception as e:
             logger.error(f"Error merging metrics: {str(e)}")
-            logger.error(traceback.format_exc())
             # Return basic metrics if merge fails
             return basic_metrics
-
-    def _log_graphql_error(self, error_data: Any, query_variables: Dict, query_type: str) -> None:
-        """Log detailed information about GraphQL errors."""
-        try:
-            logger.error(f"""
-GraphQL Query Failed ({query_type})
-==================""")
-            
-            # Log complete error data in debug mode
-            if self.debug_mode:
-                logger.debug(f"Complete error data: {json.dumps(error_data, indent=2)}")
-
-            # Extract and log errors
-            if isinstance(error_data, dict):
-                if 'errors' in error_data and isinstance(error_data['errors'], list):
-                    errors = error_data['errors']
-                    for idx, error in enumerate(errors, 1):
-                        logger.error(f"""
-Error {idx}:
-----------
-Message: {error.get('message', 'No message')}
-Path: {' -> '.join(str(p) for p in error.get('path', []))}
-Extensions: {json.dumps(error.get('extensions', {}), indent=2)}
-""")
-
-                # Log response data structure if present
-                if 'data' in error_data:
-                    logger.debug(f"Response data structure: {json.dumps(error_data['data'], indent=2)}")
-
-            # Log query details
-            logger.error(f"""
-Query Details:
-------------
-Zone ID: {query_variables.get('zoneTag')}
-Time Range: {query_variables['filter'].get('datetimeMinute_gt')} to {query_variables['filter'].get('datetimeMinute_lt')}
-Sample Interval: {query_variables['filter'].get('sampleInterval', 'Not specified')}
-Query Type: {query_type}
-""")
-
-            # Log request context
-            logger.error(f"""
-Request Context:
---------------
-Timestamp: {datetime.now(timezone.utc).isoformat()}
-Rate Limit Status: {self.query_count}/{MAX_QUERIES_PER_5_MIN}
-Time Since Last Query: {(datetime.now(timezone.utc) - self.last_query_time).total_seconds():.2f}s
-""")
-
-        except Exception as e:
-            logger.error(f"Error while logging GraphQL error: {str(e)}")
-            logger.error(traceback.format_exc())
-
-    def _handle_rate_limiting(self) -> None:
-        """Handle rate limiting with enhanced logging."""
-        current_time = datetime.now(timezone.utc)
-        time_since_last = (current_time - self.last_query_time).total_seconds()
-        
-        logger.debug(f"""
-Rate Limit Check:
---------------
-Current Time: {current_time.isoformat()}
-Time Since Last Query: {time_since_last:.2f}s
-Query Count: {self.query_count}/{MAX_QUERIES_PER_5_MIN}
-Window Size: {RATE_WINDOW_MINUTES} minutes
-""")
-        
-        if time_since_last < RATE_WINDOW_MINUTES * 60:
-            if self.query_count >= MAX_QUERIES_PER_5_MIN:
-                wait_time = (RATE_WINDOW_MINUTES * 60) - time_since_last + 5
-                logger.info(f"Rate limit reached, waiting {wait_time:.2f} seconds")
-                time.sleep(wait_time)
-                self.query_count = 0
-                self.last_query_time = current_time
-            else:
-                time.sleep(self.min_retry_wait)
-        else:
-            self.query_count = 0
-            self.last_query_time = current_time
-
-        self.query_count += 1
-        logger.debug(f"New query count: {self.query_count}")
-
-    def _log_metrics_summary(self, metrics: List[Dict], start: datetime, end: datetime) -> None:
-        """Log summary of collected metrics."""
-        try:
-            if not metrics:
-                logger.warning("No metrics to summarize")
-                return
-
-            # Extract timestamps and sort them
-            timestamps = sorted(m['dimensions']['datetimeMinute'] for m in metrics)
-            first_metric = timestamps[0]
-            last_metric = timestamps[-1]
-            
-            # Calculate time coverage
-            total_duration = end - start
-            covered_duration = datetime.fromisoformat(last_metric) - datetime.fromisoformat(first_metric)
-            coverage_percent = (covered_duration.total_seconds() / total_duration.total_seconds()) * 100
-
-            logger.info(f"""
-Metrics Summary:
--------------
-Total Metrics: {len(metrics)}
-Time Range Requested: {start.isoformat()} to {end.isoformat()}
-First Metric: {first_metric}
-Last Metric: {last_metric}
-Time Coverage: {coverage_percent:.1f}%
-Average Interval: {covered_duration.total_seconds() / max(len(metrics)-1, 1):.1f} seconds
-""")
-
-            # Analyze gaps
-            if len(timestamps) > 1:
-                gaps = self._analyze_time_gaps(timestamps)
-                if gaps:
-                    logger.warning(f"""
-Time Gaps Detected:
-----------------
-{json.dumps(gaps, indent=2)}
-""")
-
-        except Exception as e:
-            logger.error(f"Error generating metrics summary: {str(e)}")
-            logger.error(traceback.format_exc())
-
-    def _analyze_time_gaps(self, timestamps: List[str]) -> List[Dict]:
-        """Analyze gaps in time series data."""
-        try:
-            gaps = []
-            prev_time = datetime.fromisoformat(timestamps[0])
-            
-            for timestamp in timestamps[1:]:
-                current_time = datetime.fromisoformat(timestamp)
-                gap = current_time - prev_time
-                
-                # Consider gaps longer than 5 minutes significant
-                if gap > timedelta(minutes=5):
-                    gaps.append({
-                        'start': prev_time.isoformat(),
-                        'end': current_time.isoformat(),
-                        'duration_minutes': gap.total_seconds() / 60
-                    })
-                
-                prev_time = current_time
-            
-            return gaps
-
-        except Exception as e:
-            logger.error(f"Error analyzing time gaps: {str(e)}")
-            return []
 
     def _deduplicate_metrics(self, metrics: List[Dict]) -> List[Dict]:
         """Deduplicate metrics with enhanced validation."""
@@ -551,7 +401,8 @@ Time Gaps Detected:
                 key=lambda x: x['dimensions']['datetimeMinute']
             )
             
-            logger.info(f"""
+            if sorted_metrics:
+                logger.info(f"""
 Deduplication Results:
 -------------------
 Original metrics: {len(metrics)}
@@ -579,15 +430,6 @@ Time range: {sorted_metrics[0]['dimensions']['datetimeMinute']} to {sorted_metri
                     timeout=self.request_timeout
                 )
             
-            # Log response details in debug mode
-            if self.debug_mode:
-                logger.debug(f"""
-Zone Request Response:
--------------------
-Status Code: {response.status_code}
-Headers: {dict(response.headers)}
-""")
-            
             if response.status_code == 429:
                 retry_after = int(response.headers.get('Retry-After', 300))
                 logger.warning(f"Rate limit hit on zones request, retrying after {retry_after} seconds")
@@ -611,7 +453,6 @@ Response: {response.text}
 
             zones = data.get('result', [])
             
-            # Log detailed zone information
             logger.info(f"""
 Zones Retrieved:
 --------------
@@ -635,8 +476,14 @@ Development Mode: {sum(1 for z in zones if z.get('development_mode', 0) == 1)}
             logger.error(traceback.format_exc())
             return []
 
-    def _save_raw_response(self, response_data: Dict, zone_id: str, sample_interval: Optional[int],
-                          start_time: datetime, end_time: datetime) -> None:
+    def _save_raw_response(
+        self,
+        response_data: Dict,
+        zone_id: str,
+        sample_interval: Optional[int],
+        start_time: datetime,
+        end_time: datetime
+    ) -> None:
         """Save raw response data for debugging."""
         try:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -647,7 +494,9 @@ Development Mode: {sum(1 for z in zones if z.get('development_mode', 0) == 1)}
                 'sample_interval': sample_interval,
                 'start_time': start_time.isoformat(),
                 'end_time': end_time.isoformat(),
-                'timestamp': timestamp
+                'timestamp': timestamp,
+                'query_count': len(self.query_timestamps),
+                'processing_time': (datetime.now(timezone.utc) - start_time).total_seconds()
             }
             
             data_to_save = {
@@ -664,3 +513,20 @@ Development Mode: {sum(1 for z in zones if z.get('development_mode', 0) == 1)}
         except Exception as e:
             logger.error(f"Error saving raw response: {str(e)}")
             logger.error(traceback.format_exc())
+
+    def cleanup(self):
+        """Cleanup resources."""
+        try:
+            if self.executor:
+                self.executor.shutdown(wait=True)
+            logger.info("API client resources cleaned up successfully")
+        except Exception as e:
+            logger.error(f"Error during cleanup: {str(e)}")
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.cleanup()
