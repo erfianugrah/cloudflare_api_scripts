@@ -1,4 +1,3 @@
-# graphql_queries.py
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timedelta, timezone
 import logging

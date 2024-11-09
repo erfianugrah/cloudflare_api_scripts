@@ -1,4 +1,3 @@
-# api_client.py
 import requests
 import json
 import logging
@@ -36,18 +35,44 @@ class CloudflareAPIClient:
             'Content-Type': 'application/json'
         }
         self.rate_limit_lock = Lock()
-        self.query_count = 0
-        self.last_query_time = datetime.now(timezone.utc)
-        self.metrics_queue = Queue()
+        self.query_timestamps = []
         self.max_retries = 3
-        self.min_retry_wait = 1
         self.request_timeout = 30
-        self.debug_mode = True
         
         # Concurrent processing settings
         self.max_workers = 5
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers)
-        self.query_timestamps = []
+
+    def _calculate_batch_size(self, duration: timedelta, total_slices: int) -> int:
+        """Calculate optimal batch size based on time range."""
+        minutes = duration.total_seconds() / 60
+        
+        if minutes <= 60:  # 1 hour or less
+            return min(30, total_slices)
+        elif minutes <= 1440:  # 24 hours or less
+            return min(20, total_slices)
+        else:
+            return min(10, total_slices)
+
+    def _enforce_rate_limit(self) -> None:
+        """Enhanced rate limiting with sliding window."""
+        current_time = time.time()
+        
+        # Remove timestamps outside the window
+        self.query_timestamps = [
+            t for t in self.query_timestamps 
+            if current_time - t <= RATE_WINDOW_MINUTES * 60
+        ]
+        
+        # If at rate limit, wait until oldest query expires
+        if len(self.query_timestamps) >= MAX_QUERIES_PER_5_MIN:
+            wait_time = (self.query_timestamps[0] + RATE_WINDOW_MINUTES * 60) - current_time
+            if wait_time > 0:
+                logger.info(f"Rate limit reached, waiting {wait_time:.2f} seconds")
+                time.sleep(wait_time)
+        
+        # Add current query timestamp
+        self.query_timestamps.append(current_time)
 
     def fetch_zone_metrics(
         self,
@@ -67,12 +92,14 @@ class CloudflareAPIClient:
             if end.tzinfo is None:
                 end = end.replace(tzinfo=timezone.utc)
 
+            duration = end - start
+
             logger.info(f"""
 Fetching metrics with parameters:
 -------------------------------
 Zone ID: {zone_id}
 Time Range: {start.isoformat()} to {end.isoformat()}
-Duration: {end - start}
+Duration: {duration}
 Sample Interval: {sample_interval}
 """)
 
@@ -84,38 +111,57 @@ Sample Interval: {sample_interval}
             if not time_slices:
                 return None
 
+            # Calculate optimal batch size based on time range
+            batch_size = self._calculate_batch_size(duration, len(time_slices))
+            total_slices = len(time_slices)
+            
+            logger.info(f"Processing {total_slices} slices in batches of {batch_size}")
+
             all_metrics = []
             failed_slices = []
 
-            # Process slices concurrently
-            futures = {}
-            for time_slice in time_slices:
-                future = self.executor.submit(
-                    self._fetch_slice_metrics,
-                    zone_id,
-                    time_slice.start,
-                    time_slice.end,
-                    sample_interval
-                )
-                futures[future] = time_slice
+            # Process slices in batches
+            for batch_start in range(0, total_slices, batch_size):
+                batch_end = min(batch_start + batch_size, total_slices)
+                current_batch = time_slices[batch_start:batch_end]
+                
+                futures = {}
+                for time_slice in current_batch:
+                    future = self.executor.submit(
+                        self._fetch_slice_metrics,
+                        zone_id,
+                        time_slice.start,
+                        time_slice.end,
+                        sample_interval
+                    )
+                    futures[future] = time_slice
 
-            # Collect results as they complete
-            for future in concurrent.futures.as_completed(futures):
-                time_slice = futures[future]
-                try:
-                    metrics = future.result()
-                    if metrics:
-                        all_metrics.extend(metrics)
-                    else:
+                # Collect batch results
+                for future in concurrent.futures.as_completed(futures):
+                    time_slice = futures[future]
+                    try:
+                        metrics = future.result()
+                        if metrics:
+                            all_metrics.extend(metrics)
+                        else:
+                            failed_slices.append(time_slice)
+                    except Exception as e:
+                        logger.error(f"Error processing slice {time_slice}: {str(e)}")
                         failed_slices.append(time_slice)
-                except Exception as e:
-                    logger.error(f"Error processing slice {time_slice}: {str(e)}")
-                    failed_slices.append(time_slice)
 
-            # Retry failed slices with reduced time windows
+                # Log progress after each batch
+                progress = (batch_end / total_slices) * 100
+                logger.info(f"Processed {batch_end}/{total_slices} slices ({progress:.1f}%)")
+
+                # Pause between batches if not the last batch
+                if batch_end < total_slices:
+                    time.sleep(5)
+
+            # Handle failed slices with reduced time windows
             if failed_slices:
                 logger.info(f"Retrying {len(failed_slices)} failed slices")
                 for failed_slice in failed_slices:
+                    time.sleep(5)  # Wait between retries
                     reduced_slices = generate_time_slices(
                         failed_slice.start,
                         failed_slice.end,
@@ -301,26 +347,6 @@ Query Variables: {json.dumps(variables, indent=2)}
 
         return None
 
-    def _enforce_rate_limit(self) -> None:
-        """Enhanced rate limiting with sliding window."""
-        current_time = time.time()
-        
-        # Remove timestamps outside the window
-        self.query_timestamps = [
-            t for t in self.query_timestamps 
-            if current_time - t <= RATE_WINDOW_MINUTES * 60
-        ]
-        
-        # If at rate limit, wait until oldest query expires
-        if len(self.query_timestamps) >= MAX_QUERIES_PER_5_MIN:
-            wait_time = (self.query_timestamps[0] + RATE_WINDOW_MINUTES * 60) - current_time
-            if wait_time > 0:
-                logger.info(f"Rate limit reached, waiting {wait_time:.2f} seconds")
-                time.sleep(wait_time)
-        
-        # Add current query timestamp
-        self.query_timestamps.append(current_time)
-
     def _merge_metrics(self, basic_metrics: List[Dict], detailed_metrics: List[Dict]) -> List[Dict]:
         """Merge basic and detailed metrics based on datetimeMinute."""
         try:
@@ -364,7 +390,6 @@ Query Variables: {json.dumps(variables, indent=2)}
 
         except Exception as e:
             logger.error(f"Error merging metrics: {str(e)}")
-            # Return basic metrics if merge fails
             return basic_metrics
 
     def _deduplicate_metrics(self, metrics: List[Dict]) -> List[Dict]:
