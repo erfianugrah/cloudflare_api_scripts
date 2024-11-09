@@ -50,8 +50,13 @@ class Visualizer:
             ]
         }
 
-    def create_visualizations(self, df: pd.DataFrame, analysis: Dict, zone_name: str) -> None:
-        """Create all visualizations for the analysis results."""
+    def create_visualizations(
+        self, 
+        df: pd.DataFrame, 
+        analysis: Dict, 
+        zone_name: str
+    ) -> None:
+        """Create comprehensive visualizations."""
         try:
             if df is None or df.empty or not analysis:
                 logger.error("No data available for visualization")
@@ -60,28 +65,25 @@ class Visualizer:
             output_dir = self.config.images_dir / zone_name
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Create main performance dashboard
+            # Create visualization groups
             logger.info("Generating performance dashboard...")
             perf_dashboard = self._create_performance_dashboard(df, analysis)
             perf_dashboard.write_html(str(output_dir / 'performance_dashboard.html'))
             perf_dashboard.write_image(str(output_dir / 'performance_dashboard.png'), 
                                      width=1920, height=1080, scale=2)
 
-            # Create cache analysis dashboard
             logger.info("Generating cache dashboard...")
             cache_dashboard = self._create_cache_dashboard(df, analysis)
             cache_dashboard.write_html(str(output_dir / 'cache_dashboard.html'))
             cache_dashboard.write_image(str(output_dir / 'cache_dashboard.png'), 
                                       width=1920, height=1080, scale=2)
 
-            # Create error analysis dashboard
             logger.info("Generating error dashboard...")
             error_dashboard = self._create_error_dashboard(df, analysis)
             error_dashboard.write_html(str(output_dir / 'error_dashboard.html'))
             error_dashboard.write_image(str(output_dir / 'error_dashboard.png'), 
                                       width=1920, height=1080, scale=2)
 
-            # Create geographic analysis dashboard
             logger.info("Generating geographic dashboard...")
             geo_dashboard = self._create_geographic_dashboard(df, analysis)
             geo_dashboard.write_html(str(output_dir / 'geographic_dashboard.html'))
@@ -93,6 +95,7 @@ class Visualizer:
         except Exception as e:
             logger.error(f"Error creating visualizations: {str(e)}")
             logger.error(traceback.format_exc())
+            return None
 
     def _create_time_range_buttons(self, df_time: pd.DataFrame) -> list:
         """Create time range selection buttons."""
@@ -124,10 +127,71 @@ class Visualizer:
             )
         ]
 
+    def _update_layout_common(self, fig: go.Figure, title: str) -> None:
+        """Apply common layout updates to all dashboards."""
+        fig.update_layout(
+            height=1600,
+            width=1800,
+            title_text=title,
+            title_x=0.5,
+            title_y=0.98,
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1,
+                bgcolor='rgba(255,255,255,0.9)',
+                bordercolor='rgba(0,0,0,0.2)',
+                borderwidth=1
+            ),
+            template='plotly_white',
+            hovermode='x unified',
+            font=dict(
+                family="Arial, sans-serif",
+                size=12
+            ),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            margin=dict(t=120, l=80, r=80, b=80)
+        )
+
+        # Update axes
+        fig.update_xaxes(
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(128,128,128,0.2)',
+            zeroline=False,
+            showspikes=True,
+            spikemode='across',
+            spikesnap='cursor',
+            showline=True,
+            linewidth=1,
+            linecolor='rgba(128,128,128,0.2)',
+            tickangle=45,
+            title_standoff=15
+        )
+
+        fig.update_yaxes(
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(128,128,128,0.2)',
+            zeroline=False,
+            showspikes=True,
+            spikesnap='cursor',
+            showline=True,
+            linewidth=1,
+            linecolor='rgba(128,128,128,0.2)',
+            title_standoff=15
+        )
+
+        # Update subplot titles
+        fig.update_annotations(font_size=14)
+
     def _create_performance_dashboard(self, df: pd.DataFrame, analysis: Dict) -> go.Figure:
-        """Create main performance dashboard with synchronized time-series charts."""
+        """Create main performance dashboard with improved layout."""
         try:
-            # Create figure with subplots
             fig = make_subplots(
                 rows=3, cols=2,
                 subplot_titles=(
@@ -143,11 +207,10 @@ class Visualizer:
                     [{"type": "xy"}, {"type": "xy"}],
                     [{"type": "xy"}, {"type": "xy"}]
                 ],
-                vertical_spacing=0.22,
-                horizontal_spacing=0.15
+                vertical_spacing=0.25,
+                horizontal_spacing=0.20
             )
 
-            # Process time-series data
             df_time = df.set_index('timestamp').sort_index()
             rolling_window = '5min'
             edge_time = df_time['ttfb_avg'].rolling(rolling_window).mean()
@@ -187,7 +250,7 @@ class Visualizer:
                     y=volume['requests_adjusted'],
                     name='Requests',
                     line=dict(color=self.colors['primary'], width=2),
-                    hovertemplate='%{y:,.0f}'
+                    hovertemplate='%{y:,.0f} requests'
                 ),
                 row=1, col=2
             )
@@ -197,7 +260,7 @@ class Visualizer:
                     y=volume['visits_adjusted'],
                     name='Unique Visitors',
                     line=dict(color=self.colors['secondary'], width=2),
-                    hovertemplate='%{y:,.0f}'
+                    hovertemplate='%{y:,.0f} visitors'
                 ),
                 row=1, col=2
             )
@@ -214,7 +277,8 @@ class Visualizer:
                     y=protocol_perf['ttfb_avg'],
                     name='Protocol Performance',
                     marker_color=self.colors['edge'],
-                    hovertemplate='%{y:.1f}ms'
+                    hovertemplate='%{y:.1f}ms',
+                    width=0.6
                 ),
                 row=2, col=1
             )
@@ -231,7 +295,8 @@ class Visualizer:
                     y=top_endpoints['requests_adjusted'],
                     name='Top Endpoints',
                     marker_color=self.colors['primary'],
-                    hovertemplate='%{y:,.0f} requests'
+                    hovertemplate='%{y:,.0f} requests',
+                    width=0.6
                 ),
                 row=2, col=2
             )
@@ -242,7 +307,7 @@ class Visualizer:
                     x=df['ttfb_avg'],
                     name='TTFB Distribution',
                     marker_color=self.colors['edge'],
-                    nbinsx=50,
+                    nbinsx=30,
                     hovertemplate='%{y:,.0f} samples<br>%{x:.1f}ms'
                 ),
                 row=3, col=1
@@ -266,93 +331,21 @@ class Visualizer:
                 row=3, col=2
             )
 
-            # Update figure layout
-            fig.update_layout(
-                height=1400,
-                width=1600,
-                title_text="Performance Dashboard",
-                title_x=0.5,
-                title_y=0.98,
-                showlegend=True,
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1,
-                    bgcolor='rgba(255,255,255,0.8)'
-                ),
-                template='plotly_white',
-                hovermode='x unified'
-            )
+            # Update layout and axes
+            self._update_layout_common(fig, "Performance Dashboard")
 
-            # Update axes
-            fig.update_xaxes(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='rgba(128,128,128,0.2)',
-                zeroline=False,
-                showspikes=True,
-                spikemode='across',
-                spikesnap='cursor',
-                showline=True,
-                linewidth=1,
-                linecolor='rgba(128,128,128,0.2)'
-            )
-
-            fig.update_yaxes(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='rgba(128,128,128,0.2)',
-                zeroline=False,
-                showspikes=True,
-                spikesnap='cursor',
-                showline=True,
-                linewidth=1,
-                linecolor='rgba(128,128,128,0.2)'
-            )
-
-            # Link x-axes for time series plots
-            fig.update_xaxes(matches='x', row=1, col=2)
-
-            # Add rangeslider to first time series plot
-            fig.update_xaxes(rangeslider=dict(visible=True, thickness=0.05), row=1, col=1)
-
-            # Add buttons for time range selection
+            # Add time range buttons
             fig.update_layout(
                 updatemenus=[dict(
                     type="buttons",
                     direction="right",
                     x=0.1,
                     y=1.05,
+                    xanchor="left",
+                    yanchor="top",
+                    pad={"r": 10, "t": 10},
                     showactive=True,
-                    buttons=list([
-                        dict(
-                            label="1h",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[-1] - pd.Timedelta(hours=1), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="6h",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[-1] - pd.Timedelta(hours=6), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="12h",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[-1] - pd.Timedelta(hours=12), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="24h",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[-1] - pd.Timedelta(hours=24), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="All",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[0], df_time.index[-1]]}]
-                        )
-                    ])
+                    buttons=self._create_time_range_buttons(df_time)
                 )]
             )
 
@@ -364,7 +357,7 @@ class Visualizer:
             raise
 
     def _create_cache_dashboard(self, df: pd.DataFrame, analysis: Dict) -> go.Figure:
-        """Create cache analysis dashboard with synchronized charts."""
+        """Create cache analysis dashboard with improved layout."""
         try:
             fig = make_subplots(
                 rows=2, cols=2,
@@ -378,16 +371,17 @@ class Visualizer:
                     [{"type": "xy", "secondary_y": True}, {"type": "domain"}],
                     [{"type": "xy"}, {"type": "domain"}]
                 ],
-                vertical_spacing=0.22,
-                horizontal_spacing=0.15
+                vertical_spacing=0.25,
+                horizontal_spacing=0.20
             )
 
-            # Cache Hit Ratio Over Time
             df_time = df.set_index('timestamp').sort_index()
             cache_ratio = df_time.resample('5min').agg({
-                'cache_status': lambda x: x.isin(['hit', 'stale', 'revalidated']).mean() * 100
+                'cache_status': lambda x: x.isin(['hit', 'stale', 'revalidated']).mean() * 100,
+                'requests_adjusted': 'sum'
             })
-            
+
+            # Cache Hit Ratio Over Time
             fig.add_trace(
                 go.Scatter(
                     x=cache_ratio.index,
@@ -400,15 +394,11 @@ class Visualizer:
                 row=1, col=1
             )
 
-            # Add corresponding request volume on secondary y-axis
-            volume = df_time.resample('5min').agg({
-                'requests_adjusted': 'sum'
-            })
-            
+            # Add request volume on secondary y-axis
             fig.add_trace(
                 go.Scatter(
-                    x=volume.index,
-                    y=volume['requests_adjusted'],
+                    x=cache_ratio.index,
+                    y=cache_ratio['requests_adjusted'],
                     name='Request Volume',
                     line=dict(color=self.colors['secondary'], width=1, dash='dot'),
                     hovertemplate='%{y:,.0f} requests',
@@ -427,8 +417,10 @@ class Visualizer:
                     name='Cache Status',
                     marker_colors=self.color_sequences['cache'],
                     textinfo='label+percent',
-                    hovertemplate='%{label}<br>%{value:,} requests<br>%{percent}',
-                    hole=0.4
+                    hovertemplate='%{label}<br>%{value:,} requests<br>%{percent:.1f}%',
+                    hole=0.4,
+                    textposition='outside',
+                    textfont=dict(size=12),
                 ),
                 row=1, col=2
             )
@@ -447,7 +439,8 @@ class Visualizer:
                     marker_color=self.colors['cache_hit'],
                     hovertemplate='%{x}<br>Hit Ratio: %{y:.1f}%',
                     text=content_cache['cache_status'].round(1).astype(str) + '%',
-                    textposition='auto'
+                    textposition='auto',
+                    width=0.6
                 ),
                 row=2, col=1
             )
@@ -464,110 +457,38 @@ class Visualizer:
                     name='Bandwidth',
                     marker_colors=self.color_sequences['cache'],
                     textinfo='label+percent',
-                    hovertemplate='%{label}<br>%{value:,} bytes<br>%{percent}',
-                    hole=0.4
+                    hovertemplate='%{label}<br>%{value:.2f} GB<br>%{percent:.1f}%',
+                    hole=0.4,
+                    textposition='outside',
+                    textfont=dict(size=12)
                 ),
                 row=2, col=2
             )
 
-            # Update figure layout
-            fig.update_layout(
-                height=1200,
-                width=1600,
-                title_text="Cache Analysis Dashboard",
-                title_x=0.5,
-                title_y=0.98,
-                showlegend=True,
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1,
-                    bgcolor='rgba(255,255,255,0.8)'
-                ),
-                template='plotly_white',
-                hovermode='x unified'
-            )
+            # Update layout and axes
+            self._update_layout_common(fig, "Cache Analysis Dashboard")
 
-            # Update axes styling
-            fig.update_xaxes(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='rgba(128,128,128,0.2)',
-                zeroline=False,
-                showspikes=True,
-                spikemode='across',
-                spikesnap='cursor',
-                showline=True,
-                linewidth=1,
-                linecolor='rgba(128,128,128,0.2)'
-            )
+            # Update axis labels
+            fig.update_yaxes(title_text="Cache Hit Ratio (%)", row=1, col=1)
+            fig.update_yaxes(title_text="Requests", row=1, col=1, secondary_y=True)
+            fig.update_yaxes(title_text="Hit Ratio (%)", row=2, col=1)
+            fig.update_xaxes(title_text="Time", row=1, col=1)
+            fig.update_xaxes(title_text="Content Type", row=2, col=1)
 
-            fig.update_yaxes(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='rgba(128,128,128,0.2)',
-                zeroline=False,
-                showspikes=True,
-                spikesnap='cursor',
-                showline=True,
-                linewidth=1,
-                linecolor='rgba(128,128,128,0.2)'
-            )
-
-            # Add rangeslider for time series
-            fig.update_xaxes(
-                rangeslider=dict(visible=True, thickness=0.05),
-                row=1, col=1
-            )
-
-            # Add time range selection buttons
+            # Add time range buttons
             fig.update_layout(
                 updatemenus=[dict(
                     type="buttons",
                     direction="right",
                     x=0.1,
                     y=1.05,
+                    xanchor="left",
+                    yanchor="top",
+                    pad={"r": 10, "t": 10},
                     showactive=True,
-                    buttons=list([
-                        dict(
-                            label="1h",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[-1] - pd.Timedelta(hours=1), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="6h",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[-1] - pd.Timedelta(hours=6), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="12h",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[-1] - pd.Timedelta(hours=12), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="24h",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[-1] - pd.Timedelta(hours=24), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="All",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[0], df_time.index[-1]]}]
-                        )
-                    ])
+                    buttons=self._create_time_range_buttons(df_time)
                 )]
             )
-
-            # Update y-axis labels
-            fig.update_yaxes(title_text="Cache Hit Ratio (%)", row=1, col=1)
-            fig.update_yaxes(title_text="Requests", row=1, col=1, secondary_y=True)
-            fig.update_yaxes(title_text="Hit Ratio (%)", row=2, col=1)
-
-            # Update x-axis labels
-            fig.update_xaxes(title_text="Time", row=1, col=1)
-            fig.update_xaxes(title_text="Content Type", row=2, col=1, tickangle=45)
 
             return fig
 
@@ -577,7 +498,7 @@ class Visualizer:
             raise
 
     def _create_error_dashboard(self, df: pd.DataFrame, analysis: Dict) -> go.Figure:
-        """Create error analysis dashboard with synchronized charts."""
+        """Create error analysis dashboard with improved layout."""
         try:
             fig = make_subplots(
                 rows=2, cols=2,
@@ -591,11 +512,10 @@ class Visualizer:
                     [{"type": "xy", "secondary_y": True}, {"type": "xy"}],
                     [{"type": "xy"}, {"type": "xy"}]
                 ],
-                vertical_spacing=0.22,
-                horizontal_spacing=0.15
+                vertical_spacing=0.25,
+                horizontal_spacing=0.20
             )
 
-            # Error Rate Over Time
             df_time = df.set_index('timestamp').sort_index()
             error_rates = df_time.resample('5min').agg({
                 'error_rate_4xx': 'mean',
@@ -603,6 +523,7 @@ class Visualizer:
                 'requests_adjusted': 'sum'
             })
             
+            # Error Rate Over Time
             fig.add_trace(
                 go.Scatter(
                     x=error_rates.index,
@@ -651,7 +572,8 @@ class Visualizer:
                     marker_color=colors,
                     hovertemplate='Status %{x}<br>Count: %{y:,}',
                     text=status_dist.values,
-                    textposition='auto'
+                    textposition='auto',
+                    width=0.6
                 ),
                 row=1, col=2
             )
@@ -669,7 +591,8 @@ class Visualizer:
                     y=endpoint_errors['error_rate_4xx'] * 100,
                     name='4xx Rate',
                     marker_color=self.colors['warning'],
-                    hovertemplate='%{x}<br>4xx Rate: %{y:.2f}%'
+                    hovertemplate='%{x}<br>4xx Rate: %{y:.2f}%',
+                    width=0.6
                 ),
                 row=2, col=1
             )
@@ -679,26 +602,30 @@ class Visualizer:
                     y=endpoint_errors['error_rate_5xx'] * 100,
                     name='5xx Rate',
                     marker_color=self.colors['error'],
-                    hovertemplate='%{x}<br>5xx Rate: %{y:.2f}%'
+                    hovertemplate='%{x}<br>5xx Rate: %{y:.2f}%',
+                    width=0.6
                 ),
                 row=2, col=1
             )
 
             # Response Time by Status
             status_groups = ['2xx', '3xx', '4xx', '5xx']
+            colors = {
+                '2xx': self.colors['success'],
+                '3xx': self.colors['primary'],
+                '4xx': self.colors['warning'],
+                '5xx': self.colors['error']
+            }
+            
             for status_group in status_groups:
                 if status_group == '2xx':
                     mask = df['status'].between(200, 299)
-                    color = self.colors['success']
                 elif status_group == '3xx':
                     mask = df['status'].between(300, 399)
-                    color = self.colors['primary']
                 elif status_group == '4xx':
                     mask = df['status'].between(400, 499)
-                    color = self.colors['warning']
                 else:  # 5xx
                     mask = df['status'].between(500, 599)
-                    color = self.colors['error']
                 
                 if mask.any():
                     fig.add_trace(
@@ -706,64 +633,14 @@ class Visualizer:
                             name=status_group,
                             y=df[mask]['ttfb_avg'],
                             boxmean=True,
-                            marker_color=color,
+                            marker_color=colors[status_group],
                             hovertemplate='Status: %{x}<br>Response Time: %{y:.1f}ms'
                         ),
                         row=2, col=2
                     )
 
-            # Update figure layout
-            fig.update_layout(
-                height=1200,
-                width=1600,
-                title_text="Error Analysis Dashboard",
-                title_x=0.5,
-                title_y=0.98,
-                showlegend=True,
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1,
-                    bgcolor='rgba(255,255,255,0.8)'
-                ),
-                template='plotly_white',
-                hovermode='x unified',
-                barmode='group'
-            )
-
-            # Update axes styling
-            fig.update_xaxes(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='rgba(128,128,128,0.2)',
-                zeroline=False,
-                showspikes=True,
-                spikemode='across',
-                spikesnap='cursor',
-                showline=True,
-                linewidth=1,
-                linecolor='rgba(128,128,128,0.2)'
-            )
-
-            fig.update_yaxes(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='rgba(128,128,128,0.2)',
-                zeroline=False,
-                showspikes=True,
-                spikesnap='cursor',
-                showline=True,
-                linewidth=1,
-                linecolor='rgba(128,128,128,0.2)'
-            )
-
-            # Add rangeslider for time series
-            fig.update_xaxes(
-                rangeslider=dict(visible=True, thickness=0.05),
-                row=1, col=1
-            )
+            # Update layout and axes
+            self._update_layout_common(fig, "Error Analysis Dashboard")
 
             # Update axis labels
             fig.update_yaxes(title_text="Error Rate (%)", row=1, col=1)
@@ -773,44 +650,21 @@ class Visualizer:
 
             fig.update_xaxes(title_text="Time", row=1, col=1)
             fig.update_xaxes(title_text="Status Code", row=1, col=2)
-            fig.update_xaxes(title_text="Endpoint", row=2, col=1, tickangle=45)
+            fig.update_xaxes(title_text="Endpoint", row=2, col=1)
             fig.update_xaxes(title_text="Status Group", row=2, col=2)
 
-            # Add time range selection buttons
+            # Add time range buttons
             fig.update_layout(
                 updatemenus=[dict(
                     type="buttons",
                     direction="right",
                     x=0.1,
                     y=1.05,
+                    xanchor="left",
+                    yanchor="top",
+                    pad={"r": 10, "t": 10},
                     showactive=True,
-                    buttons=list([
-                        dict(
-                            label="1h",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[-1] - pd.Timedelta(hours=1), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="6h",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[-1] - pd.Timedelta(hours=6), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="12h",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[-1] - pd.Timedelta(hours=12), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="24h",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[-1] - pd.Timedelta(hours=24), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="All",
-                            method="relayout",
-                            args=[{"xaxis.range": [df_time.index[0], df_time.index[-1]]}]
-                        )
-                    ])
+                    buttons=self._create_time_range_buttons(df_time)
                 )]
             )
 
@@ -822,7 +676,7 @@ class Visualizer:
             raise
 
     def _create_geographic_dashboard(self, df: pd.DataFrame, analysis: Dict) -> go.Figure:
-        """Create geographic analysis dashboard with synchronized charts."""
+        """Create geographic analysis dashboard with improved layout."""
         try:
             fig = make_subplots(
                 rows=2, cols=2,
@@ -836,14 +690,14 @@ class Visualizer:
                     [{"type": "choropleth"}, {"type": "xy"}],
                     [{"type": "xy"}, {"type": "xy"}]
                 ],
-                vertical_spacing=0.22,
-                horizontal_spacing=0.15
+                vertical_spacing=0.25,
+                horizontal_spacing=0.20
             )
 
             # Calculate geographic metrics
             geo_metrics = df.groupby('country').agg({
                 'ttfb_avg': 'mean',
-                'visits_adjusted': 'sum',
+                'requests_adjusted': 'sum',
                 'error_rate_4xx': 'mean',
                 'error_rate_5xx': 'mean'
             }).reset_index()
@@ -863,20 +717,19 @@ class Visualizer:
                 row=1, col=1
             )
 
-            # Top Countries by Traffic (with time series)
-            top_countries = geo_metrics.nlargest(10, 'visits_adjusted')
+            # Top Countries by Traffic
             df_time = df.set_index('timestamp')
+            top_countries = geo_metrics.nlargest(10, 'requests_adjusted')['country'].tolist()
             
-            # Create time series for each top country
-            for country in top_countries['country']:
+            for country in top_countries:
                 country_data = df_time[df_time['country'] == country].resample('1h').agg({
-                    'visits_adjusted': 'sum'
+                    'requests_adjusted': 'sum'
                 })
                 
                 fig.add_trace(
                     go.Scatter(
                         x=country_data.index,
-                        y=country_data['visits_adjusted'],
+                        y=country_data['requests_adjusted'],
                         name=country,
                         mode='lines',
                         hovertemplate='%{x}<br>%{y:,.0f} requests<extra></extra>'
@@ -887,13 +740,14 @@ class Visualizer:
             # Response Time by Country
             fig.add_trace(
                 go.Bar(
-                    x=top_countries['country'],
-                    y=top_countries['ttfb_avg'],
+                    x=top_countries,
+                    y=geo_metrics[geo_metrics['country'].isin(top_countries)]['ttfb_avg'],
                     name='Response Time',
                     marker_color=self.colors['edge'],
-                    hovertemplate='%{x}<br>TTFB: %{y:.1f}ms<extra></extra>',
-                    text=top_countries['ttfb_avg'].round(1),
-                    textposition='auto'
+                    hovertemplate='%{x}<br>TTFB: %{y:.1f}ms',
+                    text=geo_metrics[geo_metrics['country'].isin(top_countries)]['ttfb_avg'].round(1),
+                    textposition='auto',
+                    width=0.6
                 ),
                 row=2, col=1
             )
@@ -905,35 +759,18 @@ class Visualizer:
             ]:
                 fig.add_trace(
                     go.Bar(
-                        x=top_countries['country'],
-                        y=top_countries[error_type] * 100,
+                        x=top_countries,
+                        y=geo_metrics[geo_metrics['country'].isin(top_countries)][error_type] * 100,
                         name=name,
                         marker_color=color,
-                        hovertemplate='%{x}<br>Error Rate: %{y:.2f}%<extra></extra>'
+                        hovertemplate='%{x}<br>Error Rate: %{y:.2f}%',
+                        width=0.6
                     ),
                     row=2, col=2
                 )
 
-            # Update figure layout
-            fig.update_layout(
-                height=1200,
-                width=1600,
-                title_text="Geographic Analysis Dashboard",
-                title_x=0.5,
-                title_y=0.98,
-                showlegend=True,
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1,
-                    bgcolor='rgba(255,255,255,0.8)'
-                ),
-                template='plotly_white',
-                hovermode='x unified',
-                barmode='group'
-            )
+            # Update layout and axes
+            self._update_layout_common(fig, "Geographic Analysis Dashboard")
 
             # Update geographic map settings
             fig.update_geos(
@@ -952,83 +789,39 @@ class Visualizer:
                 countrywidth=0.5
             )
 
-            # Update axes styling
-            fig.update_xaxes(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='rgba(128,128,128,0.2)',
-                zeroline=False,
-                showspikes=True,
-                spikemode='across',
-                spikesnap='cursor',
-                showline=True,
-                linewidth=1,
-                linecolor='rgba(128,128,128,0.2)'
-            )
-
-            fig.update_yaxes(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='rgba(128,128,128,0.2)',
-                zeroline=False,
-                showspikes=True,
-                spikesnap='cursor',
-                showline=True,
-                linewidth=1,
-                linecolor='rgba(128,128,128,0.2)'
-            )
-
-            # Add rangeslider for time series
-            fig.update_xaxes(
-                rangeslider=dict(visible=True, thickness=0.05),
-                row=1, col=2
-            )
-
             # Update axis labels
             fig.update_yaxes(title_text="Requests", row=1, col=2)
             fig.update_yaxes(title_text="Response Time (ms)", row=2, col=1)
             fig.update_yaxes(title_text="Error Rate (%)", row=2, col=2)
 
             fig.update_xaxes(title_text="Time", row=1, col=2)
-            fig.update_xaxes(title_text="Country", row=2, col=1, tickangle=45)
-            fig.update_xaxes(title_text="Country", row=2, col=2, tickangle=45)
+            fig.update_xaxes(title_text="Country", row=2, col=1)
+            fig.update_xaxes(title_text="Country", row=2, col=2)
 
-            # Add time range selection buttons
+            # Add time range buttons
             fig.update_layout(
                 updatemenus=[dict(
                     type="buttons",
                     direction="right",
                     x=0.1,
                     y=1.05,
+                    xanchor="left",
+                    yanchor="top",
+                    pad={"r": 10, "t": 10},
                     showactive=True,
-                    buttons=list([
-                        dict(
-                            label="1h",
-                            method="relayout",
-                            args=[{"xaxis2.range": [df_time.index[-1] - pd.Timedelta(hours=1), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="6h",
-                            method="relayout",
-                            args=[{"xaxis2.range": [df_time.index[-1] - pd.Timedelta(hours=6), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="12h",
-                            method="relayout",
-                            args=[{"xaxis2.range": [df_time.index[-1] - pd.Timedelta(hours=12), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="24h",
-                            method="relayout",
-                            args=[{"xaxis2.range": [df_time.index[-1] - pd.Timedelta(hours=24), df_time.index[-1]]}]
-                        ),
-                        dict(
-                            label="All",
-                            method="relayout",
-                            args=[{"xaxis2.range": [df_time.index[0], df_time.index[-1]]}]
-                        )
-                    ])
+                    buttons=self._create_time_range_buttons(df_time)
                 )]
+            )
+
+            # Adjust subplot heights
+            fig.update_layout(
+                height=1800,  # Increased height for geographic visualizations
+                grid=dict(
+                    rows=2,
+                    columns=2,
+                    pattern='independent',
+                    roworder='top to bottom'
+                )
             )
 
             return fig
@@ -1038,7 +831,7 @@ class Visualizer:
             logger.error(traceback.format_exc())
             raise
 
-    def _update_axis_styles(self, fig: go.Figure) -> None:
+    def _update_axes_style(self, fig: go.Figure) -> None:
         """Helper method to apply consistent axis styling across all subplots."""
         fig.update_xaxes(
             showgrid=True,
@@ -1050,7 +843,11 @@ class Visualizer:
             spikesnap='cursor',
             showline=True,
             linewidth=1,
-            linecolor='rgba(128,128,128,0.2)'
+            linecolor='rgba(128,128,128,0.2)',
+            tickangle=45,
+            title_standoff=15,
+            tickfont=dict(size=10),
+            title_font=dict(size=12)
         )
 
         fig.update_yaxes(
@@ -1062,5 +859,71 @@ class Visualizer:
             spikesnap='cursor',
             showline=True,
             linewidth=1,
-            linecolor='rgba(128,128,128,0.2)'
+            linecolor='rgba(128,128,128,0.2)',
+            title_standoff=15,
+            tickfont=dict(size=10),
+            title_font=dict(size=12)
         )
+
+    def _save_plot(self, fig: go.Figure, filepath: Path) -> None:
+        """Safely save plot with error handling and optimized settings."""
+        try:
+            # Ensure directory exists
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Save as HTML with optimized settings
+            fig.write_html(
+                str(filepath.with_suffix('.html')),
+                include_plotlyjs='cdn',
+                include_mathjax='cdn',
+                full_html=True,
+                config={
+                    'displayModeBar': True,
+                    'responsive': True,
+                    'scrollZoom': True,
+                    'showLink': False,
+                    'toImageButtonOptions': {
+                        'format': 'png',
+                        'filename': filepath.stem,
+                        'height': 1080,
+                        'width': 1920,
+                        'scale': 2
+                    }
+                }
+            )
+            
+            # Save as static image
+            fig.write_image(
+                str(filepath.with_suffix('.png')),
+                width=1920,
+                height=1080,
+                scale=2,
+                engine='kaleido'
+            )
+            
+            logger.info(f"Plot saved successfully to {filepath}")
+            
+        except Exception as e:
+            logger.error(f"Error saving plot to {filepath}: {str(e)}")
+            logger.error(traceback.format_exc())
+        finally:
+            # Clean up
+            fig.data = []
+            fig.layout = {}
+
+    def cleanup(self):
+        """Clean up resources and temporary files."""
+        try:
+            # Clean up any temporary files or resources here
+            logger.info("Visualizer cleanup completed successfully")
+        except Exception as e:
+            logger.error(f"Error during visualizer cleanup: {str(e)}")
+            logger.error(traceback.format_exc())
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.cleanup()
