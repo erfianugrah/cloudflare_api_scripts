@@ -11,8 +11,10 @@ format:
     theme: dark
     slide-number: true
     show-slide-number: print
+    preview-links: auto
     incremental: true
-    embed-resources: true
+    chalkboard:
+      chalk-width: 9
     mermaid:
       theme: forest
 ---
@@ -263,28 +265,34 @@ graph TB
 | **Regional**            | Geographic distribution  | - Add origins in more locations                                                                |
 | **Bandwidth**           | CDN                      | - Enable compression (gzip, brotli, zstd)                                                      |
 
-## Monitoring Tools 
+## Monitoring Tools
 
-::: {.panel-tabset}
+::: {.columns}
 
-### Analytics
-- Response time graphs
-- Cache hit ratios
-- Error rate tracking
-- Bandwidth usage
-- Geographic distribution
+::: {.column width="30%"}
+#### **Analytics**
+- 📈 Response time graphs
+- 🗄 Cache hit ratios
+- 🚨 Error rate tracking
+- 🌐 Bandwidth usage
+- 🗺 Geographic distribution
+:::
 
-### Diagnostics
-- Real User Monitoring
-- Traceroute analysis
-- SSL/TLS metrics
+::: {.column width="30%"}
+#### **Diagnostics**
+- 👥 Real User Monitoring
+- 🛣 Traceroute analysis
+- 🔐 SSL/TLS metrics
+:::
 
-### Alerts
-- Performance thresholds
-- Error rate spikes
-- Cache efficiency drops
-- Origin health
-- Edge status
+::: {.column width="30%"}
+#### **Alerts**
+- ⚠️ Performance thresholds
+- 📉 Error rate spikes
+- 🧩 Cache efficiency drops
+- 💻 Origin health
+- 🏢 Edge status
+:::
 
 :::
 
