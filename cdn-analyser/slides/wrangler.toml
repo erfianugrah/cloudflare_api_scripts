@@ -1,0 +1,11 @@
+name = "cdn-slides"
+compatibility_date = "2024-08-21"
+
+# This is required for Pages projects
+pages_build_output_dir = "./dist"
+
+# You might want to add these for better control over your project
+# main = "./functions/[[path]].js"  # Uncomment if you have a catch-all function
+# workers_dev = true
+[observability]
+enabled = true

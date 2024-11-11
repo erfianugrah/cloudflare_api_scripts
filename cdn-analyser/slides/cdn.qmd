@@ -1,0 +1,356 @@
+---
+title: "How to identify performance bottlenecks with Cloudflare's GraphQL Datasets" 
+author: "Erfi Anugrah" 
+format:
+  revealjs:
+    width: 1280
+    height: 720
+    margin: 0.1
+    progress: true
+    history: true
+    embed-resources: true
+    theme: dark
+    slide-number: true
+    show-slide-number: print
+    incremental: true
+---
+
+## Overview {.larger}
+
+What we'll cover:
+
+1. Understanding Performance Metrics
+2. Common Performance Issues
+3. Analysis Workflow 
+4. Demo
+
+## Key Metrics {.smaller}
+
+1. Response Times
+    - Edge TTFB (Time to First Byte - includes response from the Origin)
+    - Origin Response Time
+    - P50/P95/P99 Latencies
+
+. . .
+
+2. Cache Stats
+    - Hit Ratio
+    - Cache Status
+
+. . .
+
+3. Reliability
+    - Error Rates
+    - Geographic Distribution Data
+
+## Analysis Flow
+
+<style>
+.mermaid-container {
+  display: grid !important;
+  justify-content: center;
+  align-items: center;
+  height: 100% !important;
+}
+
+.mermaid {
+  font-size: 18px !important;
+  width: 100%;
+}
+
+.cell-output-display {
+  width: 700px;
+}
+.mermaid svg {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.reveal .slide-number {
+  font-size: 24px;
+}
+
+.reveal .slides {
+  font-size: 32px;
+}
+
+.smaller {
+  font-size: 28px;
+}
+</style>
+
+<div class="mermaid-container">
+```{mermaid}
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800',
+    'edgeLabelBackground': '#2d3436',
+    'fontSize': '20px'
+  },
+  'flowchart': {
+    'nodeSpacing': 50,
+    'rankSpacing': 100,
+    'curve': 'basis'
+  }
+}}%%
+graph TB
+    Collect[Collect Metrics] --> Analyze{Analysis}
+    Analyze --> Edge[Edge Analysis]
+    Analyze --> Origin[Origin Analysis]
+    Analyze --> Cache[Cache Analysis]
+    Edge --> TTFB[Edge TTFB]
+    Edge --> Geo[Geographic Distribution]
+    Edge --> Errors[Error Rates]
+    Origin --> Geo[Geographic Distribution]
+    Origin --> Errors[Error Rates]
+    Origin --> Response[Origin Response Time]
+    Cache --> HitRatio[Hit Ratio]
+    TTFB --> Issues{Issues}
+    Geo --> Issues
+    Response --> Issues
+    Errors --> Issues
+    HitRatio --> Issues
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:4px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:4px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:4px,color:#fff;
+    
+    class Collect,Analyze orange;
+    class Edge,Origin,Cache blue;
+    class TTFB,Geo,Response,Errors,HitRatio,Efficiency green;
+    class Issues orange;
+  ```
+</div>
+
+## Request Flow
+
+<style>
+.mermaid-container {
+  display: grid !important;
+  justify-content: center;
+  align-items: center;
+  height: 100% !important;
+}
+
+.mermaid {
+  font-size: 18px !important;
+  width: 100%;
+}
+
+.cell-output-display {
+  width: 600px;
+}
+.mermaid svg {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.reveal .slide-number {
+  font-size: 24px;
+}
+
+.reveal .slides {
+  font-size: 32px;
+}
+
+.smaller {
+  font-size: 28px;
+}
+</style>
+
+<div class="mermaid-container">
+```{mermaid}
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'actorBorder': '#ff9800',
+    'actorBackground': '#ff9800',
+    'actorTextColor': '#fff',
+    'noteBorderColor': '#006064',
+    'noteTextColor': '#fff',
+    'noteBackground': '#006064'
+  }
+}}%%
+sequenceDiagram
+    participant User
+    participant Edge
+    participant Cache
+    participant Origin
+    
+    User->>Edge: Request
+    Edge->>Cache: Check Cache
+    alt Cache Hit
+        Cache-->>Edge: Serve from Cache
+        Edge-->>User: Fast Response
+        Note over Edge,User: Typical: <50ms
+    else Cache Miss
+        Cache-->>Edge: Not Found
+        Edge->>Origin: Forward Request
+        Note over Origin: Process Request
+        Origin-->>Edge: Response
+        Edge->>Cache: Store in Cache
+        Edge-->>User: Slower Response
+        Note over Edge,User: Typical: >100ms
+    end
+```
+</div>
+
+## Common Issues {.smaller}
+
+1. High TTFB
+   - Check origin server response times
+   - Check network paths - MTRs/traceroutes
+   - Monitor backend latency - Prometheus metrics of services
+
+. . .
+
+2. Cache Problems
+   - Review Cache Rules
+   - Analyze MISS patterns
+
+. . .
+
+3. Regional Issues
+   - Check traffic patterns
+
+## Geographic Analysis
+
+<style>
+.mermaid-container {
+  display: grid !important;
+  justify-content: center;
+  align-items: center;
+  height: 100% !important;
+}
+
+.mermaid {
+  font-size: 18px !important;
+  width: 100%;
+}
+
+.cell-output-display {
+  width: 700px;
+}
+.mermaid svg {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.reveal .slide-number {
+  font-size: 24px;
+}
+
+.reveal .slides {
+  font-size: 32px;
+}
+
+.smaller {
+  font-size: 28px;
+}
+</style>
+
+<div class="mermaid-container">
+```{mermaid}
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph TB
+    A[Geographic Analysis] --> B{Performance Metrics}
+    B --> C[Response Times]
+    B --> D[Cache Performance]
+    B --> E[Error Rates]
+    C --> F[Regional TTFB]
+    C --> G[Origin Latency]
+    D --> H[Regional Cache Hits]
+    D --> I[Bandwidth Usage]
+    E --> J[Error Distribution]
+    E --> K[Timeout Patterns]
+    F --> L{Action Items}
+    G --> L
+    H --> L
+    I --> L
+    J --> L
+    K --> L
+    L --> M[Build Observability]
+    L --> N[Origin Placement]
+    L --> O[Cache Rules]
+    L --> P[Error Handling]
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+    
+    class A,B,L orange;
+    class C,D,E blue;
+    class F,G,H,I,J,K,M,N,O,P green;
+```
+</div>
+
+## Optimization Recommendations
+
+| Issue | Investigation | Solution |
+|------|-------------|---------|
+| High TTFB | Origin response times | Optimize application, horizontal/vertical scaling |
+| Low Cache | Cache rule analysis | Add more "cache everything" type rules |
+| Regional | Geographic distribution | Add origins to more locations| 
+| Bandwidth | CDN | Enable compression - gzip, brotli, zstd | 
+
+## Monitoring Tools 
+
+::: {.panel-tabset}
+
+### Analytics
+- Response time graphs
+- Cache hit ratios
+- Error rate tracking
+- Bandwidth usage
+- Geographic distribution
+
+### Diagnostics
+- Real User Monitoring
+- Traceroute analysis
+- SSL/TLS metrics
+
+### Alerts
+- Performance thresholds
+- Error rate spikes
+- Cache efficiency drops
+- Origin health
+- Edge status
+
+:::
+
+
+## Questions? {.center}
+
+
