@@ -64,7 +64,8 @@ Time Range: {df['timestamp'].min()} to {df['timestamp'].max()}
                 'time_trends': self._analyze_time_trends(df),
                 'geographic_metrics': self._analyze_geographic_metrics(df),
                 'endpoint_metrics': self._analyze_endpoint_metrics(df),
-                'sampling_metrics': self._analyze_sampling_distribution(df)
+                'sampling_metrics': self._analyze_sampling_distribution(df),
+                'tiered_cache_analysis': self._analyze_tiered_cache(df)
             }
 
             # Add origin analysis
@@ -169,6 +170,98 @@ Error Rate: {analysis_result['error_analysis']['overall']['error_rate_4xx'] + an
 
         except Exception as e:
             logger.error(f"Error analyzing cache metrics: {str(e)}")
+            logger.error(traceback.format_exc())
+            return None
+
+    def _analyze_tiered_cache(self, df: pd.DataFrame) -> Dict:
+        """Analyze tiered cache performance metrics."""
+        try:
+            # Filter for requests with tiered cache information
+            tiered_requests = df[df['upperTierColoName'].notna()]
+            direct_requests = df[df['upperTierColoName'].isna()]
+            
+            total_requests = len(df)
+            tiered_ratio = len(tiered_requests) / total_requests if total_requests > 0 else 0
+            
+            # Analyze cache performance by tier type
+            tiered_metrics = {
+                'overall': {
+                    'total_requests': int(total_requests),
+                    'tiered_requests_ratio': float(tiered_ratio * 100),
+                    'tiered_requests_count': int(len(tiered_requests)),
+                    'direct_requests_count': int(len(direct_requests))
+                },
+                'performance': {
+                    'tiered_requests': {
+                        'avg_ttfb': float(tiered_requests['ttfb_avg'].mean()),
+                        'p95_ttfb': float(tiered_requests['ttfb_p95'].mean()),
+                        'cache_hit_ratio': float(
+                            tiered_requests['cache_status']
+                            .isin(['hit', 'stale', 'revalidated'])
+                            .mean() * 100
+                        )
+                    },
+                    'direct_requests': {
+                        'avg_ttfb': float(direct_requests['ttfb_avg'].mean()),
+                        'p95_ttfb': float(direct_requests['ttfb_p95'].mean()),
+                        'cache_hit_ratio': float(
+                            direct_requests['cache_status']
+                            .isin(['hit', 'stale', 'revalidated'])
+                            .mean() * 100
+                        )
+                    }
+                }
+            }
+
+            # Analyze performance by upper tier location
+            tier_locations = tiered_requests.groupby('upperTierColoName').agg({
+                'ttfb_avg': 'mean',
+                'origin_time_avg': 'mean',
+                'requests_adjusted': 'sum',
+                'visits_adjusted': 'sum',
+                'bytes_adjusted': 'sum',
+                'cache_status': lambda x: (
+                    x.isin(['hit', 'stale', 'revalidated']).mean() * 100
+                )
+            }).reset_index()
+
+            tiered_metrics['tier_distribution'] = {
+                str(row['upperTierColoName']): {
+                    'performance': {
+                        'ttfb': float(row['ttfb_avg']),
+                        'origin_time': float(row['origin_time_avg']),
+                        'cache_hit_ratio': float(row['cache_status'])
+                    },
+                    'traffic': {
+                        'requests': int(row['requests_adjusted']),
+                        'visits': int(row['visits_adjusted']),
+                        'bandwidth_gb': float(row['bytes_adjusted'] / (1024**3))
+                    }
+                }
+                for _, row in tier_locations.iterrows()
+            }
+
+            # Analyze geographic distribution of tiered requests
+            geo_distribution = tiered_requests.groupby(['country', 'upperTierColoName']).agg({
+                'requests_adjusted': 'sum',
+                'ttfb_avg': 'mean'
+            }).reset_index()
+
+            tiered_metrics['geographic_distribution'] = {
+                country: {
+                    'primary_tier': str(
+                        country_data.nlargest(1, 'requests_adjusted')['upperTierColoName'].iloc[0]
+                    ),
+                    'avg_ttfb': float(country_data['ttfb_avg'].mean()),
+                    'request_count': int(country_data['requests_adjusted'].sum())
+                }
+                for country, country_data in geo_distribution.groupby('country')
+            }
+
+            return tiered_metrics
+
+        except Exception as e:
+            logger.error(f"Error analyzing tiered cache metrics: {str(e)}")
             logger.error(traceback.format_exc())
             return None
 

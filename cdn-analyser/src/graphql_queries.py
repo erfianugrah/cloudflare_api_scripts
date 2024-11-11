@@ -46,6 +46,7 @@ query ZoneMetricsBasic($zoneTag: String!, $filter: ZoneHttpRequestsAdaptiveGroup
           edgeResponseStatus
           cacheStatus
           coloCode
+          upperTierColoName
         }
         avg {
           sampleInterval

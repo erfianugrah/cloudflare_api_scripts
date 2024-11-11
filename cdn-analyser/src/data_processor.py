@@ -160,17 +160,18 @@ Error Rates: 4xx={df['error_rate_4xx'].mean()*100:.2f}%, 5xx={df['error_rate_5xx
 
             # Log raw metrics for debugging
             logger.debug(f"""
-Raw Metric Data:
--------------
-Timestamp: {datetime_str}
-Requests: {requests}
-Visits: {visits}
-Sample Interval: {sample_interval}
-Sampling Rate: {sampling_rate}
-Status: {dimensions.get('edgeResponseStatus')}
-Cache: {dimensions.get('cacheStatus')}
-Path: {dimensions.get('clientRequestPath')}
-""")
+    Raw Metric Data:
+    -------------
+    Timestamp: {datetime_str}
+    Requests: {requests}
+    Visits: {visits}
+    Sample Interval: {sample_interval}
+    Sampling Rate: {sampling_rate}
+    Status: {dimensions.get('edgeResponseStatus')}
+    Cache: {dimensions.get('cacheStatus')}
+    Path: {dimensions.get('clientRequestPath')}
+    Upper Tier: {dimensions.get('upperTierColoName', 'None')}
+    """)
 
             # Categorize cache status
             cache_status = dimensions.get('cacheStatus', 'unknown').lower()
@@ -195,9 +196,10 @@ Path: {dimensions.get('clientRequestPath')}
                 'clientRequestHTTPHost': dimensions.get('clientRequestHTTPHost', 'unknown'),
                 'edgeResponseStatus': dimensions.get('edgeResponseStatus', 0),
                 
-                # Cache information
+                # Cache and tier information
                 'cache_status': cache_status,
                 'cache_category': cache_category,
+                'upperTierColoName': dimensions.get('upperTierColoName'),  # Added this field
                 
                 # Performance metrics
                 'ttfb_avg': avg_metrics.get('edgeTimeToFirstByteMs', 0),

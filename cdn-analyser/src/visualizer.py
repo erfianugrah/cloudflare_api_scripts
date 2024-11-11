@@ -90,6 +90,12 @@ class Visualizer:
             geo_dashboard.write_image(str(output_dir / 'geographic_dashboard.png'), 
                                     width=1920, height=1080, scale=2)
 
+            logger.info("Generating tiered cache dashboard...")
+            tiered_dashboard = self._create_tiered_cache_dashboard(df, analysis)
+            tiered_dashboard.write_html(str(output_dir / 'tiered_cache_dashboard.html'))
+            tiered_dashboard.write_image(str(output_dir / 'tiered_cache_dashboard.png'),
+                                       width=1920, height=1080, scale=2)
+
             logger.info(f"Successfully generated all visualizations for {zone_name}")
 
         except Exception as e:
@@ -494,6 +500,151 @@ class Visualizer:
 
         except Exception as e:
             logger.error(f"Error creating cache dashboard: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise
+
+    def _create_tiered_cache_dashboard(self, df: pd.DataFrame, analysis: Dict) -> go.Figure:
+        """Create tiered cache performance dashboard."""
+        try:
+            tiered_analysis = analysis.get('tiered_cache_analysis', {})
+            if not tiered_analysis:
+                logger.warning("No tiered cache analysis data available")
+                return None
+
+            fig = make_subplots(
+                rows=2, cols=2,
+                subplot_titles=(
+                    'Tiered vs Direct Cache Performance',
+                    'Upper Tier Distribution',
+                    'Geographic Coverage',
+                    'Response Times by Upper Tier'
+                ),
+                specs=[
+                    [{"type": "xy"}, {"type": "pie"}],
+                    [{"type": "choropleth"}, {"type": "xy"}]
+                ],
+                vertical_spacing=0.25,
+                horizontal_spacing=0.20
+            )
+
+            # 1. Tiered vs Direct Performance Comparison
+            perf_metrics = tiered_analysis['performance']
+            categories = ['Tiered', 'Direct']
+            ttfb_values = [
+                perf_metrics['tiered_requests']['avg_ttfb'],
+                perf_metrics['direct_requests']['avg_ttfb']
+            ]
+            cache_hit_values = [
+                perf_metrics['tiered_requests']['cache_hit_ratio'],
+                perf_metrics['direct_requests']['cache_hit_ratio']
+            ]
+
+            fig.add_trace(
+                go.Bar(
+                    name='TTFB',
+                    x=categories,
+                    y=ttfb_values,
+                    marker_color=self.colors['edge'],
+                    text=[f"{v:.1f}ms" for v in ttfb_values],
+                    textposition='auto',
+                ),
+                row=1, col=1
+            )
+
+            fig.add_trace(
+                go.Bar(
+                    name='Cache Hit Ratio',
+                    x=categories,
+                    y=cache_hit_values,
+                    marker_color=self.colors['cache_hit'],
+                    text=[f"{v:.1f}%" for v in cache_hit_values],
+                    textposition='auto',
+                ),
+                row=1, col=1
+            )
+
+            # 2. Upper Tier Distribution Pie Chart
+            tier_dist = tiered_analysis['tier_distribution']
+            fig.add_trace(
+                go.Pie(
+                    labels=list(tier_dist.keys()),
+                    values=[d['traffic']['requests'] for d in tier_dist.values()],
+                    hole=0.4,
+                    marker_colors=self.color_sequences['main'],
+                    textinfo='label+percent',
+                    hovertemplate="<b>%{label}</b><br>" +
+                                "Requests: %{value:,.0f}<br>" +
+                                "Percentage: %{percent:.1f}%<extra></extra>"
+                ),
+                row=1, col=2
+            )
+
+            # 3. Geographic Coverage Heatmap
+            geo_dist = tiered_analysis['geographic_distribution']
+            fig.add_trace(
+                go.Choropleth(
+                    locations=list(geo_dist.keys()),
+                    z=[data['avg_ttfb'] for data in geo_dist.values()],
+                    colorscale='RdYlBu_r',
+                    colorbar_title='TTFB (ms)',
+                    locationmode='country names',
+                    hovertemplate="<b>%{location}</b><br>" +
+                                "TTFB: %{z:.1f}ms<extra></extra>"
+                ),
+                row=2, col=1
+            )
+
+            # 4. Response Times by Upper Tier
+            tier_names = list(tier_dist.keys())
+            ttfb_values = [tier_dist[tier]['performance']['ttfb'] for tier in tier_names]
+            origin_times = [tier_dist[tier]['performance']['origin_time'] for tier in tier_names]
+
+            fig.add_trace(
+                go.Bar(
+                    name='TTFB',
+                    x=tier_names,
+                    y=ttfb_values,
+                    marker_color=self.colors['edge'],
+                    text=[f"{v:.1f}ms" for v in ttfb_values],
+                    textposition='auto',
+                ),
+                row=2, col=2
+            )
+
+            fig.add_trace(
+                go.Bar(
+                    name='Origin Time',
+                    x=tier_names,
+                    y=origin_times,
+                    marker_color=self.colors['origin'],
+                    text=[f"{v:.1f}ms" for v in origin_times],
+                    textposition='auto',
+                ),
+                row=2, col=2
+            )
+
+            # Update layout
+            self._update_layout_common(fig, "Tiered Cache Performance Dashboard")
+            
+            # Add time range selector
+            fig.update_layout(
+                updatemenus=[dict(
+                    type="buttons",
+                    direction="right",
+                    x=0.1,
+                    y=1.05,
+                    xanchor="left",
+                    yanchor="top",
+                    pad={"r": 10, "t": 10},
+                    showactive=True,
+                    buttons=self._create_time_range_buttons(df.set_index('timestamp'))
+                )]
+            )
+
+            return fig
+
+        except Exception as e:
+            logger.error(f"Error creating tiered cache dashboard: {str(e)}")
             logger.error(traceback.format_exc())
             raise
 
