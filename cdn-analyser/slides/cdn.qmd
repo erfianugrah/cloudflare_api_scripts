@@ -12,6 +12,9 @@ format:
     slide-number: true
     show-slide-number: print
     incremental: true
+    embed-resources: true
+    mermaid:
+      theme: forest
 ---
 
 ## Overview {.larger}
