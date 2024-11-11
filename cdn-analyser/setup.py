@@ -16,10 +16,13 @@ setup(
         'scipy>=1.10.0',
         'prettytable>=3.0.0',  # For formatted table output
         'concurrent-log-handler>=0.9.20',  # For better logging with concurrency
+        'dash>=2.14.0',
+        'dash-bootstrap-components>=1.5.0',
     ],
     entry_points={
         'console_scripts': [
             'cloudflare-analytics=src.main:main',
+            'cloudflare-dashboard=src.dash_main:main',
         ],
     },
     python_requires='>=3.8',
