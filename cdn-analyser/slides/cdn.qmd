@@ -28,7 +28,7 @@ format:
 
 ---
 
-## Key Metrics {.smaller}
+## Key Metrics 
 
 ### 1. Response Times
 - **Edge TTFB** (Time to First Byte - includes origin response)
@@ -69,13 +69,13 @@ format:
 }
 
 #mermaid-1 {
-  width: 700px;
+  width: 720px;
 }
 #mermaid-2 {
   width: 650px;
 }
 #mermaid-3 {
-  width: 700px;
+  width: 720px;
 }
 </style>
 
@@ -182,7 +182,7 @@ sequenceDiagram
 
 ---
 
-## Common Issues {.smaller}
+## Common Issues 
 
 ### 1. High TTFB
 - Check origin server response times
@@ -253,18 +253,15 @@ graph TB
 ```
 </div>
 
----
 
-## Optimization Recommendations
+## Optimization Recommendations 
 
-| Issue        | Investigation               | Solution                                  |
-|--------------|-----------------------------|-------------------------------------------|
-| **High TTFB** | Origin response times       | Optimize application, scale horizontally/vertically |
-| **Low Cache** | Cache rule analysis         | Add "cache everything" type rules         |
-| **Regional**  | Geographic distribution     | Add origins in more locations             |
-| **Bandwidth** | CDN                         | Enable compression (gzip, brotli, zstd)   |
-
----
+| Issue                   | Investigate              | Solution                                                                                       |
+|-------------------------|--------------------------|------------------------------------------------------------------------------------------------|
+| **High TTFB**           | Origin response times    | - Optimize application logic <br> - Horizontal/vertical Scaling                                |
+| **Low Cache Hit Ratio** | Cache rule analysis      | - Add "cache everything" type rules <br> - Review TTL settings <br> - Set up custom cache keys |
+| **Regional**            | Geographic distribution  | - Add origins in more locations                                                                |
+| **Bandwidth**           | CDN                      | - Enable compression (gzip, brotli, zstd)                                                      |
 
 ## Monitoring Tools 
 
@@ -293,5 +290,5 @@ graph TB
 
 ---
 
-## Questions? {.center}
+## Demo and Q&A {.center}
 
