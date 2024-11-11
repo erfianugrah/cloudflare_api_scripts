@@ -1,5 +1,5 @@
 ---
-title: "How to identify performance bottlenecks with Cloudflare's GraphQL Datasets" 
+title: "How to Identify Performance Bottlenecks with Cloudflare's GraphQL Datasets" 
 author: "Erfi Anugrah" 
 format:
   revealjs:
@@ -8,7 +8,6 @@ format:
     margin: 0.1
     progress: true
     history: true
-    embed-resources: true
     theme: dark
     slide-number: true
     show-slide-number: print
@@ -17,65 +16,63 @@ format:
 
 ## Overview {.larger}
 
-What we'll cover:
+**What we'll cover:**
 
 1. Understanding Performance Metrics
 2. Common Performance Issues
-3. Analysis Workflow 
+3. Analysis Workflow
 4. Demo
+
+---
 
 ## Key Metrics {.smaller}
 
-1. Response Times
-    - Edge TTFB (Time to First Byte - includes response from the Origin)
-    - Origin Response Time
-    - P50/P95/P99 Latencies
+### 1. Response Times
+- **Edge TTFB** (Time to First Byte - includes origin response)
+- **Origin Response Time**
+- **P50/P95/P99 Latencies**
 
-. . .
+---
 
-2. Cache Stats
-    - Hit Ratio
-    - Cache Status
+### 2. Cache Stats
+- **Hit Ratio**
+- **Cache Status**
 
-. . .
+---
 
-3. Reliability
-    - Error Rates
-    - Geographic Distribution Data
+### 3. Reliability
+- **Error Rates**
+- **Geographic Distribution Data**
+
+---
 
 ## Analysis Flow
 
 <style>
 .mermaid-container {
-  display: grid !important;
+  display: flex;
   justify-content: center;
   align-items: center;
-  height: 100% !important;
+  height: 100%;
 }
-
-.mermaid {
-  font-size: 18px !important;
-  width: 100%;
-}
-
-.cell-output-display {
-  width: 700px;
-}
-.mermaid svg {
-  height: 100% !important;
-  width: 100% !important;
-}
-
 .reveal .slide-number {
+  font-size: 20px;
+}
+.reveal .slides {
+  font-size: 30px;
+}
+.smaller {
   font-size: 24px;
 }
 
-.reveal .slides {
-  font-size: 32px;
+#mermaid-1 {
+  width: 700px;
 }
-
-.smaller {
-  font-size: 28px;
+#mermaid-2 {
+  width: 650px;
+}
+#mermaid-3 {
+  width: 700px;
 }
 </style>
 
@@ -94,7 +91,6 @@ What we'll cover:
     'nodeBorder': '#ff9800',
     'clusterBkg': '#2d3436',
     'clusterBorder': '#ff9800',
-    'edgeLabelBackground': '#2d3436',
     'fontSize': '20px'
   },
   'flowchart': {
@@ -124,7 +120,7 @@ graph TB
     classDef orange fill:#ff9800,stroke:#fff,stroke-width:4px,color:#fff;
     classDef blue fill:#006064,stroke:#fff,stroke-width:4px,color:#fff;
     classDef green fill:#4caf50,stroke:#fff,stroke-width:4px,color:#fff;
-    
+
     class Collect,Analyze orange;
     class Edge,Origin,Cache blue;
     class TTFB,Geo,Response,Errors,HitRatio,Efficiency green;
@@ -132,41 +128,9 @@ graph TB
   ```
 </div>
 
+---
+
 ## Request Flow
-
-<style>
-.mermaid-container {
-  display: grid !important;
-  justify-content: center;
-  align-items: center;
-  height: 100% !important;
-}
-
-.mermaid {
-  font-size: 18px !important;
-  width: 100%;
-}
-
-.cell-output-display {
-  width: 600px;
-}
-.mermaid svg {
-  height: 100% !important;
-  width: 100% !important;
-}
-
-.reveal .slide-number {
-  font-size: 24px;
-}
-
-.reveal .slides {
-  font-size: 32px;
-}
-
-.smaller {
-  font-size: 28px;
-}
-</style>
 
 <div class="mermaid-container">
 ```{mermaid}
@@ -213,59 +177,29 @@ sequenceDiagram
 ```
 </div>
 
+---
+
 ## Common Issues {.smaller}
 
-1. High TTFB
-   - Check origin server response times
-   - Check network paths - MTRs/traceroutes
-   - Monitor backend latency - Prometheus metrics of services
+### 1. High TTFB
+- Check origin server response times
+- Check network paths - MTRs/traceroutes
+- Monitor backend latency - Prometheus metrics of services
 
-. . .
+---
 
-2. Cache Problems
-   - Review Cache Rules
-   - Analyze MISS patterns
+### 2. Cache Problems
+- Review Cache Rules
+- Analyze MISS patterns
 
-. . .
+---
 
-3. Regional Issues
-   - Check traffic patterns
+### 3. Regional Issues
+- Check traffic patterns
+
+---
 
 ## Geographic Analysis
-
-<style>
-.mermaid-container {
-  display: grid !important;
-  justify-content: center;
-  align-items: center;
-  height: 100% !important;
-}
-
-.mermaid {
-  font-size: 18px !important;
-  width: 100%;
-}
-
-.cell-output-display {
-  width: 700px;
-}
-.mermaid svg {
-  height: 100% !important;
-  width: 100% !important;
-}
-
-.reveal .slide-number {
-  font-size: 24px;
-}
-
-.reveal .slides {
-  font-size: 32px;
-}
-
-.smaller {
-  font-size: 28px;
-}
-</style>
 
 <div class="mermaid-container">
 ```{mermaid}
@@ -309,21 +243,25 @@ graph TB
     classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
     classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
     classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
-    
+
     class A,B,L orange;
     class C,D,E blue;
     class F,G,H,I,J,K,M,N,O,P green;
 ```
 </div>
 
+---
+
 ## Optimization Recommendations
 
-| Issue | Investigation | Solution |
-|------|-------------|---------|
-| High TTFB | Origin response times | Optimize application, horizontal/vertical scaling |
-| Low Cache | Cache rule analysis | Add more "cache everything" type rules |
-| Regional | Geographic distribution | Add origins to more locations| 
-| Bandwidth | CDN | Enable compression - gzip, brotli, zstd | 
+| Issue        | Investigation               | Solution                                  |
+|--------------|-----------------------------|-------------------------------------------|
+| **High TTFB** | Origin response times       | Optimize application, scale horizontally/vertically |
+| **Low Cache** | Cache rule analysis         | Add "cache everything" type rules         |
+| **Regional**  | Geographic distribution     | Add origins in more locations             |
+| **Bandwidth** | CDN                         | Enable compression (gzip, brotli, zstd)   |
+
+---
 
 ## Monitoring Tools 
 
@@ -350,7 +288,7 @@ graph TB
 
 :::
 
+---
 
 ## Questions? {.center}
-
 
