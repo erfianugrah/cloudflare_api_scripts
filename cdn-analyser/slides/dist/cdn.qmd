@@ -14,7 +14,8 @@ format:
     preview-links: auto
     incremental: true
     chalkboard:
-      chalk-width: 9
+      theme: whiteboard
+      boardmarker-width: 5
     mermaid:
       theme: forest
 ---

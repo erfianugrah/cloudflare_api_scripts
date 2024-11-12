@@ -1,4 +1,4 @@
-from dash import Dash, dcc, html
+from dash import Dash, dcc, html, Input, Output
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -8,6 +8,9 @@ from datetime import datetime
 import logging
 from pathlib import Path
 import traceback
+import sys
+from threading import Timer
+import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +91,8 @@ class Visualizer:
             logger.error(traceback.format_exc())
 
     def _create_performance_dashboard(self, df: pd.DataFrame, analysis: dict) -> go.Figure:
-        """Create performance dashboard with fixed subplot specifications."""
+        """Create performance dashboard with fixed choropleth specifications."""
         try:
-            # Create subplot structure with correct specs for choropleth
             fig = make_subplots(
                 rows=3, cols=2,
                 subplot_titles=(
@@ -102,9 +104,9 @@ class Visualizer:
                     'Geographic Response Times'
                 ),
                 specs=[
-                    [{"type": "xy"}, {"type": "xy"}],  # Row 1
-                    [{"type": "xy"}, {"type": "xy"}],  # Row 2
-                    [{"type": "xy"}, {"type": "choropleth"}]  # Row 3: corrected spec for choropleth
+                    [{"type": "xy"}, {"type": "xy"}],
+                    [{"type": "xy"}, {"type": "xy"}],
+                    [{"type": "xy"}, {"type": "choropleth"}]
                 ],
                 vertical_spacing=0.15,
                 horizontal_spacing=0.12
@@ -195,9 +197,10 @@ class Visualizer:
                 row=3, col=1
             )
 
-            # Geographic Response Times
+            # Geographic Performance - Fixed choropleth implementation
             geo_perf = df.groupby('country').agg({
-                'ttfb_avg': 'mean'
+                'ttfb_avg': 'mean',
+                'requests_adjusted': 'sum'
             }).reset_index()
             
             fig.add_trace(
@@ -205,8 +208,13 @@ class Visualizer:
                     locations=geo_perf['country'],
                     z=geo_perf['ttfb_avg'],
                     colorscale='Viridis',
+                    reversescale=True,
                     name='Geographic Performance',
                     colorbar_title='TTFB (ms)',
+                    locationmode='country names',
+                    showscale=True,
+                    zmin=0,
+                    zmax=geo_perf['ttfb_avg'].quantile(0.95),
                     hovertemplate='%{location}<br>TTFB: %{z:.2f}ms<extra></extra>'
                 ),
                 row=3, col=2
@@ -250,7 +258,7 @@ class Visualizer:
                 zeroline=False
             )
 
-            # Update geo layout for choropleth
+            # Update geo layout with complete configuration
             fig.update_geos(
                 showcoastlines=True,
                 coastlinecolor='#666',
@@ -259,9 +267,14 @@ class Visualizer:
                 showframe=False,
                 showocean=True,
                 oceancolor='#1e1e1e',
+                showlakes=True,
+                lakecolor='#1e1e1e',
                 showcountries=True,
                 countrycolor='#666',
-                projection_type='equirectangular'
+                projection_type='equirectangular',
+                resolution=110,
+                framecolor='#666',
+                bgcolor='#1e1e1e'
             )
 
             # Update subplot titles
@@ -273,7 +286,7 @@ class Visualizer:
         except Exception as e:
             logger.error(f"Error creating performance dashboard: {str(e)}")
             logger.error(traceback.format_exc())
-            return self._create_error_figure(f"Error generating performance dashboard: {str(e)}")
+            return self._create_error_figure("Error generating performance dashboard")
 
     def _create_cache_dashboard(self, df: pd.DataFrame, analysis: dict) -> go.Figure:
         """Create cache analysis dashboard."""
@@ -488,7 +501,7 @@ class Visualizer:
             return self._create_error_figure("Error generating cache dashboard")
 
     def _create_error_dashboard(self, df: pd.DataFrame, analysis: dict) -> go.Figure:
-        """Create error analysis dashboard."""
+        """Create error analysis dashboard with fixed choropleth."""
         try:
             fig = make_subplots(
                 rows=2, cols=2,
@@ -593,7 +606,7 @@ class Visualizer:
                 row=2, col=1
             )
 
-            # Geographic Error Distribution
+            # Geographic Error Distribution - Fixed choropleth implementation
             geo_errors = df.groupby('country').agg({
                 'error_rate_4xx': 'mean',
                 'error_rate_5xx': 'mean',
@@ -608,6 +621,11 @@ class Visualizer:
                     z=total_error_rate * 100,
                     colorscale='Reds',
                     name='Error Rate by Country',
+                    colorbar_title='Error Rate (%)',
+                    locationmode='country names',
+                    showscale=True,
+                    zmin=0,
+                    zmax=min(100, total_error_rate.max() * 100),
                     hovertemplate='%{location}<br>Error Rate: %{z:.2f}%<extra></extra>'
                 ),
                 row=2, col=2
@@ -652,20 +670,23 @@ class Visualizer:
                 zeroline=False
             )
 
-            # Update geo layout
+            # Update geo layout with complete configuration
             fig.update_geos(
                 showcoastlines=True,
                 coastlinecolor='#666',
                 showland=True,
                 landcolor='#1e1e1e',
                 showframe=False,
-                framecolor='#666',
                 showocean=True,
                 oceancolor='#1e1e1e',
                 showlakes=True,
                 lakecolor='#1e1e1e',
                 showcountries=True,
-                countrycolor='#666'
+                countrycolor='#666',
+                projection_type='equirectangular',
+                resolution=110,
+                framecolor='#666',
+                bgcolor='#1e1e1e'
             )
 
             # Update subplot titles
@@ -676,10 +697,11 @@ class Visualizer:
 
         except Exception as e:
             logger.error(f"Error creating error dashboard: {str(e)}")
+            logger.error(traceback.format_exc())
             return self._create_error_figure("Error generating error dashboard")
 
     def _create_geographic_dashboard(self, df: pd.DataFrame, analysis: dict) -> go.Figure:
-        """Create geographic analysis dashboard."""
+        """Create geographic analysis dashboard with properly configured choropleth maps."""
         try:
             fig = make_subplots(
                 rows=2, cols=2,
@@ -714,6 +736,11 @@ class Visualizer:
                     colorscale='Viridis',
                     reversescale=True,
                     name='Response Time',
+                    colorbar_title='TTFB (ms)',
+                    locationmode='country names',
+                    showscale=True,
+                    zmin=0,
+                    zmax=geo_metrics['ttfb_avg'].quantile(0.95),
                     hovertemplate='%{location}<br>TTFB: %{z:.2f}ms<extra></extra>'
                 ),
                 row=1, col=1
@@ -796,21 +823,23 @@ class Visualizer:
                 zeroline=False
             )
 
-            # Update geo layout
+            # Update geo layout with complete configuration
             fig.update_geos(
                 showcoastlines=True,
                 coastlinecolor='#666',
                 showland=True,
                 landcolor='#1e1e1e',
                 showframe=False,
-                framecolor='#666',
                 showocean=True,
                 oceancolor='#1e1e1e',
                 showlakes=True,
                 lakecolor='#1e1e1e',
                 showcountries=True,
                 countrycolor='#666',
-                projection_type='equirectangular'
+                projection_type='equirectangular',
+                resolution=110,
+                framecolor='#666',
+                bgcolor='#1e1e1e'
             )
 
             # Add axis titles
@@ -826,20 +855,29 @@ class Visualizer:
 
         except Exception as e:
             logger.error(f"Error creating geographic dashboard: {str(e)}")
+            logger.error(traceback.format_exc())
             return self._create_error_figure("Error generating geographic dashboard")
 
     def _create_dashboard(self, zone_name: str) -> None:
-        """Create the main dashboard layout with proper tab sizing."""
+        """Create the main dashboard layout with proper shutdown mechanism."""
+        from dash import Dash, dcc, html, Input, Output
+        import dash_bootstrap_components as dbc
+        import sys
+        from threading import Timer
+        import logging
+
+        logger = logging.getLogger(__name__)
+
         tab_style = {
             'backgroundColor': '#1e1e1e',
             'color': '#ffffff',
-            'padding': '6px 12px',  # Reduced padding
+            'padding': '6px 12px',
             'border': '1px solid #333',
             'borderRadius': '3px 3px 0 0',
             'marginRight': '2px',
-            'height': '32px',  # Fixed height
-            'fontSize': '13px',  # Smaller font
-            'lineHeight': '20px'  # Proper line height
+            'height': '32px',
+            'fontSize': '13px',
+            'lineHeight': '20px'
         }
         
         selected_tab_style = {
@@ -855,19 +893,34 @@ class Visualizer:
             'borderBottom': '2px solid #3498db'
         }
 
+        shutdown_button = html.Button(
+            'Shutdown Dashboard',
+            id='shutdown-button',
+            className='mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700',
+            n_clicks=0,
+            style={
+                'marginTop': '20px',
+                'padding': '8px 16px',
+                'backgroundColor': '#e53e3e',
+                'color': 'white',
+                'border': 'none',
+                'borderRadius': '4px',
+                'cursor': 'pointer'
+            }
+        )
+
         self.app.layout = html.Div([
             html.H1(
                 f"Cloudflare Analytics - {zone_name}",
                 style={
                     'textAlign': 'center',
-                    'margin': '20px 0',  # Reduced margin
+                    'margin': '20px 0',
                     'color': '#ffffff',
-                    'fontSize': '24px',  # Smaller font
+                    'fontSize': '24px',
                     'fontFamily': 'Arial, sans-serif'
                 }
             ),
             
-            # Tabs container
             html.Div([
                 dcc.Tabs([
                     dcc.Tab(
@@ -875,7 +928,7 @@ class Visualizer:
                         children=[
                             dcc.Graph(
                                 figure=self.figures.get('performance', self._create_error_figure("No performance data available")),
-                                style={'height': '85vh'}  # Viewport-relative height
+                                style={'height': '85vh'}
                             )
                         ],
                         style=tab_style,
@@ -927,22 +980,58 @@ class Visualizer:
                     )
                 ],
                 style={
-                    'height': '32px',  # Match tab height
+                    'height': '32px',
                     'marginBottom': '8px'
                 })
             ],
             style={
-                'margin': '0 12px'  # Reduced margin
+                'margin': '0 12px'
             }),
+            
+            html.Div([
+                shutdown_button
+            ], style={
+                'textAlign': 'center',
+                'marginTop': '20px',
+                'marginBottom': '20px'
+            }),
+            
+            html.Div(id='shutdown-trigger', style={'display': 'none'})
         ],
         style={
             'backgroundColor': '#121212',
             'minHeight': '100vh',
-            'padding': '12px'  # Reduced padding
+            'padding': '12px'
         })
 
+        @self.app.callback(
+            Output('shutdown-trigger', 'children'),
+            Input('shutdown-button', 'n_clicks')
+        )
+
+        def shutdown_server(n_clicks):
+            if n_clicks and n_clicks > 0:
+                logger.info("Shutdown requested via dashboard button")
+                def shutdown():
+                    try:
+                        self.cleanup()  # Call cleanup if defined
+                    finally:
+                        sys.exit(0)
+                Timer(1.0, shutdown).start()
+                return "Shutting down..."
+            return ""
+
+        # Start the server
+        self.app.run_server(
+            debug=False, 
+            port=8050, 
+            use_reloader=False,
+            dev_tools_hot_reload=False,
+            host='127.0.0.1'
+        )
+
     def _create_rps_dashboard(self, df: pd.DataFrame, analysis: dict) -> go.Figure:
-        """Create requests per second (RPS) analysis dashboard."""
+        """Create requests per second (RPS) analysis dashboard with fixed choropleth."""
         try:
             fig = make_subplots(
                 rows=2, cols=2,
@@ -1032,11 +1121,12 @@ class Visualizer:
                 row=2, col=1
             )
 
-            # Geographic RPS Distribution
+            # Geographic RPS Distribution - Fixed choropleth implementation
             geo_rps = df.groupby('country').agg({
                 'requests_adjusted': 'sum'
             }).reset_index()
-            geo_rps['rps'] = geo_rps['requests_adjusted'] / (df['timestamp'].max() - df['timestamp'].min()).total_seconds()
+            total_seconds = (df['timestamp'].max() - df['timestamp'].min()).total_seconds()
+            geo_rps['rps'] = geo_rps['requests_adjusted'] / total_seconds
 
             fig.add_trace(
                 go.Choropleth(
@@ -1044,6 +1134,11 @@ class Visualizer:
                     z=geo_rps['rps'],
                     colorscale='Viridis',
                     name='RPS by Country',
+                    colorbar_title='Requests/Second',
+                    locationmode='country names',
+                    showscale=True,
+                    zmin=0,
+                    zmax=geo_rps['rps'].quantile(0.95),
                     hovertemplate='%{location}<br>%{z:.1f} req/s<extra>RPS by Country</extra>'
                 ),
                 row=2, col=2
@@ -1094,21 +1189,23 @@ class Visualizer:
             fig.update_yaxes(title_text="Requests/Second", row=1, col=2)
             fig.update_yaxes(title_text="Requests/Second", row=2, col=1)
 
-            # Update geo layout
+            # Update geo layout with complete configuration
             fig.update_geos(
                 showcoastlines=True,
                 coastlinecolor='#666',
                 showland=True,
                 landcolor='#1e1e1e',
                 showframe=False,
-                framecolor='#666',
                 showocean=True,
                 oceancolor='#1e1e1e',
                 showlakes=True,
                 lakecolor='#1e1e1e',
                 showcountries=True,
                 countrycolor='#666',
-                projection_type='equirectangular'
+                projection_type='equirectangular',
+                resolution=110,
+                framecolor='#666',
+                bgcolor='#1e1e1e'
             )
 
             # Update subplot titles
@@ -1119,6 +1216,7 @@ class Visualizer:
 
         except Exception as e:
             logger.error(f"Error creating RPS dashboard: {str(e)}")
+            logger.error(traceback.format_exc())
             return self._create_error_figure("Error generating RPS dashboard")
 
     def _save_visualizations(self, output_dir: Path) -> None:
@@ -1167,9 +1265,30 @@ class Visualizer:
         return fig
 
     def cleanup(self):
-        """Clean up resources."""
+        """Clean up resources and shutdown dashboard properly."""
+        import matplotlib.pyplot as plt
+        
         try:
-            self.figures.clear()
+            # Clear all figures to free memory
+            if hasattr(self, 'figures'):
+                self.figures.clear()
+            
+            # Close all open matplotlib figures
+            plt.close('all')
+            
+            # Reset matplotlib settings if needed
+            plt.style.use('default')
+            
+            # Clear any cached data
+            if hasattr(self, 'app') and self.app:
+                if hasattr(self.app, 'server'):
+                    try:
+                        self.app.server.do_teardown_appcontext()
+                    except Exception as e:
+                        logger.warning(f"Error during server teardown: {str(e)}")
+                
             logger.info("Visualizer cleanup completed successfully")
+            
         except Exception as e:
             logger.error(f"Error during visualizer cleanup: {str(e)}")
+            logger.error(traceback.format_exc())
