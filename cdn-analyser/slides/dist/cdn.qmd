@@ -27,32 +27,57 @@ format:
 1. Understanding Performance Metrics
 2. Common Performance Issues
 3. Analysis Workflow
-4. Demo
+4. Performance Troubleshooting
+5. Demo
 
 ---
 
-## Key Metrics 
+## Key Metrics  {.smaller}
 
 ::: {.columns}
 
 ::: {.column width="30%"}
 ### 1. Response Times
-- **Edge TTFB** (Time to First Byte - includes origin response)
+- **Edge TTFB** (Time to First Byte)
+  - < 100ms: Excellent
+  - 100-200ms: Good
+  - > 200ms: Investigate origin
 - **Origin Response Time**
+  - < 200ms: Optimal
+  - 200-500ms: Review
+  - > 500ms: Critical investigation
 - **P50/P95/P99 Latencies**
+  - Monitor trend changes
+  - Alert on sudden spikes
 :::
 
 ::: {.column width="30%"}
 ### 2. Cache Stats
 - **Hit Ratio**
-- **Cache Status**
+  - > 90%: Excellent
+  - 80-90%: Room for optimization
+  - < 80%: Needs investigation
+- **Cache Status Distribution**
+  - Monitor MISS patterns
+  - Track BYPASS reasons
+  - Analyze EXPIRED vs UPDATING
+- **TTL Analysis**
+  - Review effectiveness
+  - Check browser cache alignment
 :::
 
 ::: {.column width="30%"}
 ### 3. Reliability
 - **Error Rates**
-- **Geographic Distribution Data**
-
+  - 4xx baseline monitoring
+  - 5xx < 0.1% target
+  - Timeout patterns
+- **Geographic Distribution**
+  - Regional latency patterns
+  - Cache efficiency by location
+- **Network Health**
+  - MTR results
+  - Packet loss rates
 :::
 
 :::
@@ -85,6 +110,15 @@ format:
   width: 650px;
 }
 #mermaid-3 {
+  width: 720px;
+}
+#mermaid-4 {
+  width: 720px;
+}
+#mermaid-5 {
+  width: 720px;
+}
+#mermaid-6 {
   width: 720px;
 }
 </style>
@@ -192,26 +226,127 @@ sequenceDiagram
 
 ---
 
-## Common Issues 
+## Performance Troubleshooting Flow
+
+<div class="mermaid-container">
+```{mermaid}
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph TB
+    Start[High Latency Detected] --> Type{Issue Type}
+    Type -->|High TTFB| Network[Network Analysis]
+    Type -->|Low Cache| Cache[Cache Analysis]
+    Type -->|High Errors| Error[Error Analysis]
+    
+    Network --> MTR[MTR Tests]
+    Network --> Routes[BGP Routes]
+    Network --> Peering[Peering Check]
+    
+    MTR --> AppCheck{App or Network?}
+    Routes --> AppCheck
+    Peering --> AppCheck
+    
+    AppCheck -->|App| Application[Application Analysis]
+    AppCheck -->|Network| NetworkFix[Network Optimization]
+    
+    Application --> Traces[Check Traces]
+    Application --> Metrics[Prometheus Metrics]
+    Application --> Database[DB Performance]
+    
+    Cache --> Rules[Cache Rules]
+    Cache --> Headers[Origin Headers]
+    Cache --> Content[Content Analysis]
+    
+    Rules --> CacheFix[Cache Optimization]
+    Headers --> CacheFix
+    Content --> CacheFix
+    
+    Error --> Origins[Origin Health]
+    Error --> Services[Service Status]
+    Error --> Resources[Resource Usage]
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+
+    class Start,Type orange;
+    class Network,Cache,Error blue;
+    class MTR,Routes,Peering,Application,Rules,Headers,Content,Origins,Services,Resources green;
+  ```
+</div>
+---
+
+## Common Issues {.smaller} 
 ::: {.columns}
 
 ::: {.column width="30%"}
 ### 1. High TTFB
-- Check origin server response times
-- Check network paths - MTRs/traceroutes
-- Monitor backend latency - Prometheus metrics of services
+**Investigation Steps:**
+1. Network Path
+   - MTR analysis
+   - Route optimization
+   - Peering review
+
+2. Application Performance
+   - Trace analysis
+   - Resource monitoring
+   - Service dependencies
+
+3. Database
+   - Query optimization
+   - Connection pooling
+   - Index efficiency
 :::
 
 ::: {.column width="30%"}
 ### 2. Cache Problems
-- Review Cache Rules
-- Analyze MISS patterns
+**Investigation Steps:**
+1. Cache Rules
+   - Key composition
+   - TTL settings
+   - Bypass conditions
+
+2. Content Analysis
+   - Status patterns
+   - URL patterns
+   - User behavior
+
+3. Origin Config
+   - Cache headers
+   - Revalidation
+   - Compression
 :::
 
 ::: {.column width="30%"}
 ### 3. Regional Issues
-- Check traffic patterns
+**Investigation Steps:**
+1. Network
+   - Local MTR results
+   - Regional routes
+   - DC connectivity
 
+2. Traffic Patterns
+   - Load distribution
+   - Request types
+   - Error patterns
+
+3. Cache Efficiency
+   - Regional hit ratios
+   - Content locality
+   - Edge performance
 :::
 
 :::
@@ -269,48 +404,124 @@ graph TB
 ```
 </div>
 
-
-## Optimization Recommendations 
-
-| Issue                   | Investigate              | Solution                                                                                       |
-|-------------------------|--------------------------|------------------------------------------------------------------------------------------------|
-| **High TTFB**           | Origin response times    | - Optimize application logic <br> - Horizontal/vertical Scaling                                |
-| **Low Cache Hit Ratio** | Cache rule analysis      | - Add "cache everything" type rules <br> - Review TTL settings <br> - Set up custom cache keys |
-| **Regional**            | Geographic distribution  | - Add origins in more locations                                                                |
-| **Bandwidth**           | CDN                      | - Enable compression (gzip, brotli, zstd)                                                      |
-
-## Monitoring Tools
-
-::: {.columns}
-
-::: {.column width="30%"}
-#### **Analytics**
-- 📈 Response time graphs
-- 🗄 Cache hit ratios
-- 🚨 Error rate tracking
-- 🌐 Bandwidth usage
-- 🗺 Geographic distribution
-:::
-
-::: {.column width="30%"}
-#### **Diagnostics**
-- 👥 Real User Monitoring
-- 🛣 Traceroute analysis
-- 🔐 SSL/TLS metrics
-:::
-
-::: {.column width="30%"}
-#### **Alerts**
-- ⚠️ Performance thresholds
-- 📉 Error rate spikes
-- 🧩 Cache efficiency drops
-- 💻 Origin health
-- 🏢 Edge status
-:::
-
-:::
-
 ---
+
+## Optimization Recommendations  {.smaller}
+
+| Issue | Investigation Steps | Solutions | Validation |
+|-------|-------------------|------------|------------|
+| **High TTFB** | 1. MTR Analysis<br>2. App Traces<br>3. Resource Monitoring | - Optimize app code<br>- Scale resources<br>- Enable Argo<br>- Tune DB queries | - Monitor p95 latency<br>- Check CPU/Memory<br>- Verify trace improvements |
+| **Low Cache Hit** | 1. Rule Analysis<br>2. Content Patterns<br>3. Header Review | - Optimize cache rules<br>- Adjust TTLs<br>- Review cache keys<br>- Set browser cache | - Track hit ratio<br>- Monitor bandwidth<br>- Verify header changes |
+| **Regional Issues** | 1. Network Path<br>2. Traffic Analysis<br>3. Edge Performance | - Add origin locations<br>- Optimize routes<br>- Review peering<br>- Adjust load balancing | - Check regional latency<br>- Monitor error rates<br>- Verify path improvements |
+| **High Errors** | 1. Error Patterns<br>2. Service Health<br>3. Resource Limits | - Scale services<br>- Add redundancy<br>- Implement retries<br>- Set rate limits | - Track error rates<br>- Monitor availability<br>- Check success rates |
+
+## Monitoring Structure
+
+<div class="mermaid-container">
+```{mermaid}
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph TB
+    Monitor[Monitoring System] --> Tools{Tool Type}
+    Tools --> Analytics[Analytics Tools]
+    Tools --> Metrics[Key Metrics]
+    Tools --> Alerts[Alert System]
+    
+    Analytics --> Grafana[Grafana]
+    Analytics --> Prometheus[Prometheus]
+    Analytics --> Traces[App Traces]
+    
+    Metrics --> Response[Response Times]
+    Metrics --> Cache[Cache Stats]
+    Metrics --> Errors[Error Rates]
+    
+    Alerts --> TTFB[TTFB > 200ms]
+    Alerts --> CacheHit[Cache < 80%]
+    Alerts --> ErrorRate[5xx > 0.1%]
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+
+    class Monitor,Tools orange;
+    class Analytics,Metrics,Alerts blue;
+    class Grafana,Prometheus,Traces,Response,Cache,Errors,TTFB,CacheHit,ErrorRate green;
+```
+</div>
+---
+
+## Alert Response Flow
+
+<div class="mermaid-container">
+```{mermaid}
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph TB
+    Alert[Alert Triggered] --> Type{Alert Type}
+    Type -->|TTFB > 200ms| TTFB[Edge TTFB Alert]
+    Type -->|Cache < 80%| Cache[Cache Alert]
+    Type -->|5xx > 1%| Error[Error Alert]
+    
+    TTFB --> ArgoCheck[Check Argo]
+    TTFB --> SSLCheck[Review SSL]
+    TTFB --> NetworkCheck[Network Path]
+    
+    Cache --> RuleCheck[Review Rules]
+    Cache --> HeaderCheck[Check Headers]
+    Cache --> PatternCheck[MISS Patterns]
+    
+    Error --> OriginHealth[Origin Health]
+    Error --> ServiceCheck[Service Status]
+    Error --> ResourceCheck[Resources]
+    
+    ArgoCheck --> Action1{Optimize?}
+    SSLCheck --> Action1
+    NetworkCheck --> Action1
+    
+    RuleCheck --> Action2{Update?}
+    HeaderCheck --> Action2
+    PatternCheck --> Action2
+    
+    OriginHealth --> Action3{Scale?}
+    ServiceCheck --> Action3
+    ResourceCheck --> Action3
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+
+    class Alert,Type orange;
+    class TTFB,Cache,Error blue;
+    class ArgoCheck,SSLCheck,NetworkCheck,RuleCheck,HeaderCheck,PatternCheck,OriginHealth,ServiceCheck,ResourceCheck green;
+  ```
+</div>
 
 ## Demo and Q&A {.center}
 
+Questions about specific performance scenarios?

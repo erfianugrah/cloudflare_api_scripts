@@ -350,30 +350,80 @@ Erfi Anugrah
 <li class="fragment">Understanding Performance Metrics</li>
 <li class="fragment">Common Performance Issues</li>
 <li class="fragment">Analysis Workflow</li>
+<li class="fragment">Performance Troubleshooting</li>
 <li class="fragment">Demo</li>
 </ol>
 </section>
-<section id="key-metrics" class="slide level2">
+<section id="key-metrics" class="slide level2 smaller">
 <h2>Key Metrics</h2>
 <div class="columns">
 <div class="column" style="width:30%;">
 <h3 id="response-times">1. Response Times</h3>
 <ul>
-<li class="fragment"><strong>Edge TTFB</strong> (Time to First Byte - includes origin response)</li>
-<li class="fragment"><strong>Origin Response Time</strong></li>
-<li class="fragment"><strong>P50/P95/P99 Latencies</strong></li>
+<li class="fragment"><strong>Edge TTFB</strong> (Time to First Byte)
+<ul>
+<li class="fragment">&lt; 100ms: Excellent</li>
+<li class="fragment">100-200ms: Good</li>
+<li class="fragment"><blockquote>
+<p>200ms: Investigate origin</p>
+</blockquote></li>
+</ul></li>
+<li class="fragment"><strong>Origin Response Time</strong>
+<ul>
+<li class="fragment">&lt; 200ms: Optimal</li>
+<li class="fragment">200-500ms: Review</li>
+<li class="fragment"><blockquote>
+<p>500ms: Critical investigation</p>
+</blockquote></li>
+</ul></li>
+<li class="fragment"><strong>P50/P95/P99 Latencies</strong>
+<ul>
+<li class="fragment">Monitor trend changes</li>
+<li class="fragment">Alert on sudden spikes</li>
+</ul></li>
 </ul>
 </div><div class="column" style="width:30%;">
 <h3 id="cache-stats">2. Cache Stats</h3>
 <ul>
-<li class="fragment"><strong>Hit Ratio</strong></li>
-<li class="fragment"><strong>Cache Status</strong></li>
+<li class="fragment"><strong>Hit Ratio</strong>
+<ul>
+<li class="fragment"><blockquote>
+<p>90%: Excellent</p>
+</blockquote></li>
+<li class="fragment">80-90%: Room for optimization</li>
+<li class="fragment">&lt; 80%: Needs investigation</li>
+</ul></li>
+<li class="fragment"><strong>Cache Status Distribution</strong>
+<ul>
+<li class="fragment">Monitor MISS patterns</li>
+<li class="fragment">Track BYPASS reasons</li>
+<li class="fragment">Analyze EXPIRED vs UPDATING</li>
+</ul></li>
+<li class="fragment"><strong>TTL Analysis</strong>
+<ul>
+<li class="fragment">Review effectiveness</li>
+<li class="fragment">Check browser cache alignment</li>
+</ul></li>
 </ul>
 </div><div class="column" style="width:30%;">
 <h3 id="reliability">3. Reliability</h3>
 <ul>
-<li class="fragment"><strong>Error Rates</strong></li>
-<li class="fragment"><strong>Geographic Distribution Data</strong></li>
+<li class="fragment"><strong>Error Rates</strong>
+<ul>
+<li class="fragment">4xx baseline monitoring</li>
+<li class="fragment">5xx &lt; 0.1% target</li>
+<li class="fragment">Timeout patterns</li>
+</ul></li>
+<li class="fragment"><strong>Geographic Distribution</strong>
+<ul>
+<li class="fragment">Regional latency patterns</li>
+<li class="fragment">Cache efficiency by location</li>
+</ul></li>
+<li class="fragment"><strong>Network Health</strong>
+<ul>
+<li class="fragment">MTR results</li>
+<li class="fragment">Packet loss rates</li>
+</ul></li>
 </ul>
 </div>
 </div>
@@ -404,6 +454,15 @@ Erfi Anugrah
   width: 650px;
 }
 #mermaid-3 {
+  width: 720px;
+}
+#mermaid-4 {
+  width: 720px;
+}
+#mermaid-5 {
+  width: 720px;
+}
+#mermaid-6 {
   width: 720px;
 }
 </style>
@@ -524,27 +583,131 @@ sequenceDiagram
 </div>
 </div>
 </section>
-<section id="common-issues" class="slide level2">
+<section id="performance-troubleshooting-flow" class="slide level2">
+<h2>Performance Troubleshooting Flow</h2>
+<div class="mermaid-container">
+<div class="cell" data-reveal="true" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class=""><p></p>
+<div>
+<pre class="mermaid mermaid-js">%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph TB
+    Start[High Latency Detected] --&gt; Type{Issue Type}
+    Type --&gt;|High TTFB| Network[Network Analysis]
+    Type --&gt;|Low Cache| Cache[Cache Analysis]
+    Type --&gt;|High Errors| Error[Error Analysis]
+    
+    Network --&gt; MTR[MTR Tests]
+    Network --&gt; Routes[BGP Routes]
+    Network --&gt; Peering[Peering Check]
+    
+    MTR --&gt; AppCheck{App or Network?}
+    Routes --&gt; AppCheck
+    Peering --&gt; AppCheck
+    
+    AppCheck --&gt;|App| Application[Application Analysis]
+    AppCheck --&gt;|Network| NetworkFix[Network Optimization]
+    
+    Application --&gt; Traces[Check Traces]
+    Application --&gt; Metrics[Prometheus Metrics]
+    Application --&gt; Database[DB Performance]
+    
+    Cache --&gt; Rules[Cache Rules]
+    Cache --&gt; Headers[Origin Headers]
+    Cache --&gt; Content[Content Analysis]
+    
+    Rules --&gt; CacheFix[Cache Optimization]
+    Headers --&gt; CacheFix
+    Content --&gt; CacheFix
+    
+    Error --&gt; Origins[Origin Health]
+    Error --&gt; Services[Service Status]
+    Error --&gt; Resources[Resource Usage]
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+
+    class Start,Type orange;
+    class Network,Cache,Error blue;
+    class MTR,Routes,Peering,Application,Rules,Headers,Content,Origins,Services,Resources green;
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="common-issues" class="slide level2 smaller">
 <h2>Common Issues</h2>
 <div class="columns">
 <div class="column" style="width:30%;">
 <h3 id="high-ttfb">1. High TTFB</h3>
+<p><strong>Investigation Steps:</strong> 1. Network Path - MTR analysis - Route optimization - Peering review</p>
+<ol start="2" type="1">
+<li class="fragment">Application Performance
 <ul>
-<li class="fragment">Check origin server response times</li>
-<li class="fragment">Check network paths - MTRs/traceroutes</li>
-<li class="fragment">Monitor backend latency - Prometheus metrics of services</li>
-</ul>
+<li class="fragment">Trace analysis</li>
+<li class="fragment">Resource monitoring</li>
+<li class="fragment">Service dependencies</li>
+</ul></li>
+<li class="fragment">Database
+<ul>
+<li class="fragment">Query optimization</li>
+<li class="fragment">Connection pooling</li>
+<li class="fragment">Index efficiency</li>
+</ul></li>
+</ol>
 </div><div class="column" style="width:30%;">
 <h3 id="cache-problems">2. Cache Problems</h3>
+<p><strong>Investigation Steps:</strong> 1. Cache Rules - Key composition - TTL settings - Bypass conditions</p>
+<ol start="2" type="1">
+<li class="fragment">Content Analysis
 <ul>
-<li class="fragment">Review Cache Rules</li>
-<li class="fragment">Analyze MISS patterns</li>
-</ul>
+<li class="fragment">Status patterns</li>
+<li class="fragment">URL patterns</li>
+<li class="fragment">User behavior</li>
+</ul></li>
+<li class="fragment">Origin Config
+<ul>
+<li class="fragment">Cache headers</li>
+<li class="fragment">Revalidation</li>
+<li class="fragment">Compression</li>
+</ul></li>
+</ol>
 </div><div class="column" style="width:30%;">
 <h3 id="regional-issues">3. Regional Issues</h3>
+<p><strong>Investigation Steps:</strong> 1. Network - Local MTR results - Regional routes - DC connectivity</p>
+<ol start="2" type="1">
+<li class="fragment">Traffic Patterns
 <ul>
-<li class="fragment">Check traffic patterns</li>
-</ul>
+<li class="fragment">Load distribution</li>
+<li class="fragment">Request types</li>
+<li class="fragment">Error patterns</li>
+</ul></li>
+<li class="fragment">Cache Efficiency
+<ul>
+<li class="fragment">Regional hit ratios</li>
+<li class="fragment">Content locality</li>
+<li class="fragment">Edge performance</li>
+</ul></li>
+</ol>
 </div>
 </div>
 </section>
@@ -608,78 +771,178 @@ graph TB
 </div>
 </div>
 </section>
-<section id="optimization-recommendations" class="slide level2">
+<section id="optimization-recommendations" class="slide level2 smaller">
 <h2>Optimization Recommendations</h2>
 <table>
 <colgroup>
-<col style="width: 17%">
-<col style="width: 17%">
-<col style="width: 65%">
+<col style="width: 14%">
+<col style="width: 38%">
+<col style="width: 24%">
+<col style="width: 24%">
 </colgroup>
 <thead>
 <tr class="header">
 <th>Issue</th>
-<th>Investigate</th>
-<th>Solution</th>
+<th>Investigation Steps</th>
+<th>Solutions</th>
+<th>Validation</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
 <td><strong>High TTFB</strong></td>
-<td>Origin response times</td>
-<td>- Optimize application logic <br> - Horizontal/vertical Scaling</td>
+<td>1. MTR Analysis<br>2. App Traces<br>3. Resource Monitoring</td>
+<td>- Optimize app code<br>- Scale resources<br>- Enable Argo<br>- Tune DB queries</td>
+<td>- Monitor p95 latency<br>- Check CPU/Memory<br>- Verify trace improvements</td>
 </tr>
 <tr class="even">
-<td><strong>Low Cache Hit Ratio</strong></td>
-<td>Cache rule analysis</td>
-<td>- Add “cache everything” type rules <br> - Review TTL settings <br> - Set up custom cache keys</td>
+<td><strong>Low Cache Hit</strong></td>
+<td>1. Rule Analysis<br>2. Content Patterns<br>3. Header Review</td>
+<td>- Optimize cache rules<br>- Adjust TTLs<br>- Review cache keys<br>- Set browser cache</td>
+<td>- Track hit ratio<br>- Monitor bandwidth<br>- Verify header changes</td>
 </tr>
 <tr class="odd">
-<td><strong>Regional</strong></td>
-<td>Geographic distribution</td>
-<td>- Add origins in more locations</td>
+<td><strong>Regional Issues</strong></td>
+<td>1. Network Path<br>2. Traffic Analysis<br>3. Edge Performance</td>
+<td>- Add origin locations<br>- Optimize routes<br>- Review peering<br>- Adjust load balancing</td>
+<td>- Check regional latency<br>- Monitor error rates<br>- Verify path improvements</td>
 </tr>
 <tr class="even">
-<td><strong>Bandwidth</strong></td>
-<td>CDN</td>
-<td>- Enable compression (gzip, brotli, zstd)</td>
+<td><strong>High Errors</strong></td>
+<td>1. Error Patterns<br>2. Service Health<br>3. Resource Limits</td>
+<td>- Scale services<br>- Add redundancy<br>- Implement retries<br>- Set rate limits</td>
+<td>- Track error rates<br>- Monitor availability<br>- Check success rates</td>
 </tr>
 </tbody>
 </table>
 </section>
-<section id="monitoring-tools" class="slide level2">
-<h2>Monitoring Tools</h2>
-<div class="columns">
-<div class="column" style="width:30%;">
-<h4 id="analytics"><strong>Analytics</strong></h4>
-<ul>
-<li class="fragment">📈 Response time graphs</li>
-<li class="fragment">🗄 Cache hit ratios</li>
-<li class="fragment">🚨 Error rate tracking</li>
-<li class="fragment">🌐 Bandwidth usage</li>
-<li class="fragment">🗺 Geographic distribution</li>
-</ul>
-</div><div class="column" style="width:30%;">
-<h4 id="diagnostics"><strong>Diagnostics</strong></h4>
-<ul>
-<li class="fragment">👥 Real User Monitoring</li>
-<li class="fragment">🛣 Traceroute analysis</li>
-<li class="fragment">🔐 SSL/TLS metrics</li>
-</ul>
-</div><div class="column" style="width:30%;">
-<h4 id="alerts"><strong>Alerts</strong></h4>
-<ul>
-<li class="fragment">⚠️ Performance thresholds</li>
-<li class="fragment">📉 Error rate spikes</li>
-<li class="fragment">🧩 Cache efficiency drops</li>
-<li class="fragment">💻 Origin health</li>
-<li class="fragment">🏢 Edge status</li>
-</ul>
+<section id="monitoring-structure" class="slide level2">
+<h2>Monitoring Structure</h2>
+<div class="mermaid-container">
+<div class="cell" data-reveal="true" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class=""><p></p>
+<div>
+<pre class="mermaid mermaid-js">%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph TB
+    Monitor[Monitoring System] --&gt; Tools{Tool Type}
+    Tools --&gt; Analytics[Analytics Tools]
+    Tools --&gt; Metrics[Key Metrics]
+    Tools --&gt; Alerts[Alert System]
+    
+    Analytics --&gt; Grafana[Grafana]
+    Analytics --&gt; Prometheus[Prometheus]
+    Analytics --&gt; Traces[App Traces]
+    
+    Metrics --&gt; Response[Response Times]
+    Metrics --&gt; Cache[Cache Stats]
+    Metrics --&gt; Errors[Error Rates]
+    
+    Alerts --&gt; TTFB[TTFB &gt; 200ms]
+    Alerts --&gt; CacheHit[Cache &lt; 80%]
+    Alerts --&gt; ErrorRate[5xx &gt; 0.1%]
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+
+    class Monitor,Tools orange;
+    class Analytics,Metrics,Alerts blue;
+    class Grafana,Prometheus,Traces,Response,Cache,Errors,TTFB,CacheHit,ErrorRate green;
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="alert-response-flow" class="slide level2">
+<h2>Alert Response Flow</h2>
+<div class="mermaid-container">
+<div class="cell" data-reveal="true" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class=""><p></p>
+<div>
+<pre class="mermaid mermaid-js">%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph TB
+    Alert[Alert Triggered] --&gt; Type{Alert Type}
+    Type --&gt;|TTFB &gt; 200ms| TTFB[Edge TTFB Alert]
+    Type --&gt;|Cache &lt; 80%| Cache[Cache Alert]
+    Type --&gt;|5xx &gt; 1%| Error[Error Alert]
+    
+    TTFB --&gt; ArgoCheck[Check Argo]
+    TTFB --&gt; SSLCheck[Review SSL]
+    TTFB --&gt; NetworkCheck[Network Path]
+    
+    Cache --&gt; RuleCheck[Review Rules]
+    Cache --&gt; HeaderCheck[Check Headers]
+    Cache --&gt; PatternCheck[MISS Patterns]
+    
+    Error --&gt; OriginHealth[Origin Health]
+    Error --&gt; ServiceCheck[Service Status]
+    Error --&gt; ResourceCheck[Resources]
+    
+    ArgoCheck --&gt; Action1{Optimize?}
+    SSLCheck --&gt; Action1
+    NetworkCheck --&gt; Action1
+    
+    RuleCheck --&gt; Action2{Update?}
+    HeaderCheck --&gt; Action2
+    PatternCheck --&gt; Action2
+    
+    OriginHealth --&gt; Action3{Scale?}
+    ServiceCheck --&gt; Action3
+    ResourceCheck --&gt; Action3
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+
+    class Alert,Type orange;
+    class TTFB,Cache,Error blue;
+    class ArgoCheck,SSLCheck,NetworkCheck,RuleCheck,HeaderCheck,PatternCheck,OriginHealth,ServiceCheck,ResourceCheck green;
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
 </div>
 </div>
 </section>
 <section id="demo-and-qa" class="slide level2 center">
 <h2>Demo and Q&amp;A</h2>
+<p>Questions about specific performance scenarios?</p>
 <div class="quarto-auto-generated-content">
 <div class="footer footer-default">
 
