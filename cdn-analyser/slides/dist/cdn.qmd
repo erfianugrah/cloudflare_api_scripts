@@ -32,22 +32,29 @@ format:
 
 ## Key Metrics 
 
+::: {.columns}
+
+::: {.column width="30%"}
 ### 1. Response Times
 - **Edge TTFB** (Time to First Byte - includes origin response)
 - **Origin Response Time**
 - **P50/P95/P99 Latencies**
+:::
 
----
-
+::: {.column width="30%"}
 ### 2. Cache Stats
 - **Hit Ratio**
 - **Cache Status**
+:::
 
----
-
+::: {.column width="30%"}
 ### 3. Reliability
 - **Error Rates**
 - **Geographic Distribution Data**
+
+:::
+
+:::
 
 ---
 
@@ -185,22 +192,28 @@ sequenceDiagram
 ---
 
 ## Common Issues 
+::: {.columns}
 
+::: {.column width="30%"}
 ### 1. High TTFB
 - Check origin server response times
 - Check network paths - MTRs/traceroutes
 - Monitor backend latency - Prometheus metrics of services
+:::
 
----
-
+::: {.column width="30%"}
 ### 2. Cache Problems
 - Review Cache Rules
 - Analyze MISS patterns
+:::
 
----
-
+::: {.column width="30%"}
 ### 3. Regional Issues
 - Check traffic patterns
+
+:::
+
+:::
 
 ---
 
