@@ -7,17 +7,13 @@ scipy>=1.10.0
 requests>=2.28.0
 python-dotenv>=1.0.0
 
-# Visualization
-matplotlib>=3.7.0
-seaborn>=0.12.0
+# Visualization and Dashboard
 plotly>=5.13.0
-kaleido>=0.2.1 
 dash>=2.14.0
 dash-bootstrap-components>=1.5.0
 
 # Utility
 typing-extensions>=4.5.0
-prettytable>=3.0.0
 concurrent-log-handler>=0.9.20
 
 # Development dependencies
@@ -27,3 +23,6 @@ pytest>=7.0.0  # Testing
 pytest-cov>=3.0.0  # Test coverage
 mypy>=0.950  # Type checking
 flake8>=4.0.1  # Linting
+
+# Optional visualization enhancements
+kaleido>=0.2.1  # For static image export
