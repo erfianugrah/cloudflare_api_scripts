@@ -707,12 +707,11 @@ graph TB
 <span id="cb3-21"><a href=""></a>            exclude = ["*"]  # Ignore all query params</span>
 <span id="cb3-22"><a href=""></a>          }</span>
 <span id="cb3-23"><a href=""></a>        }</span>
-<span id="cb3-24"><a href=""></a>        cache_deception_armor = true</span>
-<span id="cb3-25"><a href=""></a>      }</span>
-<span id="cb3-26"><a href=""></a>    }</span>
-<span id="cb3-27"><a href=""></a>    expression = "(http.request.uri.path matches \"\\.(jpg|jpeg|gif|png|ico|css|js|svg|woff2)$\")"</span>
-<span id="cb3-28"><a href=""></a>  }</span>
-<span id="cb3-29"><a href=""></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb3-24"><a href=""></a>      }</span>
+<span id="cb3-25"><a href=""></a>    }</span>
+<span id="cb3-26"><a href=""></a>    expression = "(http.request.uri.path matches \"\\.(jpg|jpeg|gif|png|ico|css|js|svg|woff2)$\")"</span>
+<span id="cb3-27"><a href=""></a>  }</span>
+<span id="cb3-28"><a href=""></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <p><br></p>
 <h4 id="api-response-caching">2. API Response Caching</h4>
 <div class="sourceCode" id="cb4"><pre class="sourceCode numberSource hcl number-lines code-with-copy"><code class="sourceCode"><span id="cb4-1"><a href=""></a>resource "cloudflare_ruleset" "api_cache" {</span>
@@ -832,8 +831,7 @@ graph TB
 <h3 id="cache-optimization">1. Cache Optimization</h3>
 <ul>
 <li>Implement appropriate TTLs</li>
-<li>Use custom cache keys</li>
-<li>Enable cache deception armor</li>
+<li>Use custom cache keys when appropriate</li>
 <li>Configure browser cache</li>
 <li>Implement tiered caching</li>
 <li>Monitor cache hit ratios</li>
@@ -842,8 +840,6 @@ graph TB
 <ul>
 <li>Enable Argo Smart Routing</li>
 <li>Configure load balancing</li>
-<li>Optimize SSL/TLS</li>
-<li>Use regional routing</li>
 <li>Monitor latency metrics</li>
 <li>Implement failover</li>
 </ul>

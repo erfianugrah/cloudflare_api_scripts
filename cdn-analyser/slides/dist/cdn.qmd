@@ -335,7 +335,6 @@ resource "cloudflare_ruleset" "static_cache" {
             exclude = ["*"]  # Ignore all query params
           }
         }
-        cache_deception_armor = true
       }
     }
     expression = "(http.request.uri.path matches \"\\.(jpg|jpeg|gif|png|ico|css|js|svg|woff2)$\")"
@@ -480,8 +479,7 @@ resource "cloudflare_ruleset" "regional_cache" {
 
 ### 1. Cache Optimization
 - Implement appropriate TTLs
-- Use custom cache keys
-- Enable cache deception armor
+- Use custom cache keys when appropriate
 - Configure browser cache
 - Implement tiered caching
 - Monitor cache hit ratios
@@ -489,8 +487,6 @@ resource "cloudflare_ruleset" "regional_cache" {
 ### 2. Network Performance
 - Enable Argo Smart Routing
 - Configure load balancing
-- Optimize SSL/TLS
-- Use regional routing
 - Monitor latency metrics
 - Implement failover
 
