@@ -17,6 +17,17 @@ class OriginVisualizer:
     def __init__(self, config):
         self.config = config
         self._setup_style()
+        self.colors = {
+            'edge': '#2E86C1',      # Strong blue
+            'origin': '#E74C3C',    # Clear red
+            'cache_hit': '#27AE60', # Vibrant green
+            'cache_miss': '#95A5A6', # Medium gray
+            'error': '#F39C12',     # Orange
+            'warning': '#F1C40F',   # Yellow
+            'success': '#2ECC71',   # Light green
+            'primary': '#3498DB',   # Light blue
+            'secondary': '#9B59B6'  # Purple
+        }
         
     def _setup_style(self):
         """Configure visualization style."""
@@ -62,65 +73,170 @@ class OriginVisualizer:
         analysis: Dict, 
         output_dir: Path
     ) -> None:
-        """Create response time analysis visualizations."""
+        """Create response time analysis visualizations with enhanced quantiles and ASN correlation."""
         try:
             fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
 
-            # 1. Response Time Distribution
-            sns.histplot(
-                data=df, 
-                x='origin_time_avg',
-                bins=50,
-                ax=ax1,
-                color='blue',
-                alpha=0.6
-            )
-            ax1.set_title('Origin Response Time Distribution')
-            ax1.set_xlabel('Response Time (ms)')
-            ax1.set_ylabel('Count')
+            # 1. Edge vs Origin Response Times with Quantiles
+            df_time = df.set_index('timestamp').sort_index()
+            rolling_window = '5min'
 
-            # 2. Response Time by Cache Status
-            sns.boxplot(
-                data=df,
-                x='cache_status',
-                y='origin_time_avg',
-                ax=ax2
+            # Plot average TTFB
+            ax1.plot(
+                df_time.index,
+                df_time['ttfb_avg'].rolling(rolling_window).mean(),
+                label='Edge TTFB (avg)',
+                color=self.colors['edge'],
+                linewidth=2
             )
-            ax2.set_title('Response Time by Cache Status')
-            ax2.set_xlabel('Cache Status')
-            ax2.set_ylabel('Response Time (ms)')
-            plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45)
-
-            # 3. Response Time Percentiles
-            percentiles = df['origin_time_avg'].quantile([0.5, 0.75, 0.9, 0.95, 0.99])
-            ax3.bar(
-                range(len(percentiles)),
-                percentiles.values,
-                tick_label=[f'P{int(p*100)}' for p in percentiles.index]
+            
+            # Add TTFB quantiles
+            ax1.plot(
+                df_time.index,
+                df_time['ttfb_p95'].rolling(rolling_window).mean(),
+                label='Edge TTFB (P95)',
+                color=self.colors['edge'],
+                linestyle='--',
+                alpha=0.7
             )
-            ax3.set_title('Response Time Percentiles')
-            ax3.set_ylabel('Response Time (ms)')
+            ax1.plot(
+                df_time.index,
+                df_time['ttfb_p99'].rolling(rolling_window).mean(),
+                label='Edge TTFB (P99)',
+                color=self.colors['edge'],
+                linestyle=':',
+                alpha=0.7
+            )
 
-            # 4. Response Time vs Request Volume
+            # Plot average origin time
+            ax1.plot(
+                df_time.index,
+                df_time['origin_time_avg'].rolling(rolling_window).mean(),
+                label='Origin Response (avg)',
+                color=self.colors['origin'],
+                linewidth=2
+            )
+
+            # Add origin time quantiles
+            ax1.plot(
+                df_time.index,
+                df_time['origin_p95'].rolling(rolling_window).mean(),
+                label='Origin Response (P95)',
+                color=self.colors['origin'],
+                linestyle='--',
+                alpha=0.7
+            )
+            ax1.plot(
+                df_time.index,
+                df_time['origin_p99'].rolling(rolling_window).mean(),
+                label='Origin Response (P99)',
+                color=self.colors['origin'],
+                linestyle=':',
+                alpha=0.7
+            )
+
+            ax1.set_title('Edge vs Origin Response Times with Quantiles')
+            ax1.set_xlabel('Time')
+            ax1.set_ylabel('Response Time (ms)')
+            ax1.legend()
+
+            # 2. Request Volume Over Time
             df_hourly = df.set_index('timestamp').resample('1H').agg({
-                'origin_time_avg': 'mean',
                 'visits_adjusted': 'sum'
             }).reset_index()
 
-            ax4.scatter(
+            ax2.plot(
+                df_hourly['timestamp'],
                 df_hourly['visits_adjusted'],
-                df_hourly['origin_time_avg'],
-                alpha=0.5
+                color=self.colors['primary'],
+                label='Request Volume'
             )
-            ax4.set_title('Response Time vs Request Volume')
-            ax4.set_xlabel('Requests per Hour')
-            ax4.set_ylabel('Average Response Time (ms)')
+            ax2.set_title('Request Volume Over Time')
+            ax2.set_xlabel('Time')
+            ax2.set_ylabel('Requests per Hour')
+            ax2.legend()
+
+            # 3. Response Time Distribution with Quantile Markers
+            ttfb_dist = df['ttfb_avg'].clip(upper=df['ttfb_avg'].quantile(0.99))
+            sns.histplot(
+                data=ttfb_dist,
+                bins=50,
+                ax=ax3,
+                color=self.colors['edge'],
+                alpha=0.6
+            )
+
+            # Add quantile lines
+            quantiles = [
+                ('P50', df['ttfb_p50'].mean(), self.colors['success']),
+                ('P95', df['ttfb_p95'].mean(), self.colors['warning']),
+                ('P99', df['ttfb_p99'].mean(), self.colors['error'])
+            ]
+
+            for label, value, color in quantiles:
+                ax3.axvline(
+                    value,
+                    color=color,
+                    linestyle='--',
+                    alpha=0.8,
+                    label=f'{label}: {value:.1f}ms'
+                )
+
+            ax3.set_title('TTFB Distribution with Quantiles')
+            ax3.set_xlabel('TTFB (ms)')
+            ax3.set_ylabel('Count')
+            ax3.legend()
+
+            # 4. ASN vs TTFB Analysis
+            asn_perf = df.groupby('clientAsn').agg({
+                'ttfb_avg': 'mean',
+                'ttfb_p95': 'mean',
+                'visits_adjusted': 'sum'
+            }).reset_index()
+
+            # Get top ASNs by request volume
+            top_asns = asn_perf.nlargest(10, 'visits_adjusted')
+
+            scatter = ax4.scatter(
+                top_asns['ttfb_avg'],
+                top_asns['ttfb_p95'],
+                s=top_asns['visits_adjusted'] / top_asns['visits_adjusted'].max() * 500,  # Size by volume
+                alpha=0.6,
+                c=top_asns['visits_adjusted'],
+                cmap='viridis'
+            )
+
+            # Add ASN labels
+            for idx, row in top_asns.iterrows():
+                ax4.annotate(
+                    row['clientAsn'],
+                    (row['ttfb_avg'], row['ttfb_p95']),
+                    xytext=(5, 5),
+                    textcoords='offset points',
+                    fontsize=8,
+                    alpha=0.8
+                )
+
+            ax4.set_title('Top ASNs: Avg TTFB vs P95 TTFB')
+            ax4.set_xlabel('Average TTFB (ms)')
+            ax4.set_ylabel('P95 TTFB (ms)')
+            
+            # Add colorbar
+            cbar = plt.colorbar(scatter, ax=ax4)
+            cbar.set_label('Request Volume')
+
+            # Add diagonal reference line
+            min_val = min(top_asns['ttfb_avg'].min(), top_asns['ttfb_p95'].min())
+            max_val = max(top_asns['ttfb_avg'].max(), top_asns['ttfb_p95'].max())
+            ax4.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5, label='1:1 Reference')
+            ax4.legend()
 
             plt.tight_layout()
             self._save_plot(fig, output_dir / 'response_time_analysis.png')
 
         except Exception as e:
             logger.error(f"Error creating response time analysis: {str(e)}")
+            logger.error(traceback.format_exc())
             plt.close('all')
 
     def _create_geographic_heatmap(

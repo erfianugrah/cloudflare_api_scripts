@@ -41,54 +41,61 @@ class Visualizer:
         self.figures = {}
 
     def create_visualizations(self, df: pd.DataFrame, analysis: dict, zone_name: str) -> None:
-        """Create comprehensive visualizations with better error handling."""
+        """Create comprehensive visualizations with multi-zone support."""
         try:
             if df is None or df.empty or not analysis:
-                logger.error("No data available for visualization")
+                logger.error(f"No data available for visualization for zone {zone_name}")
                 return
 
-            output_dir = self.config.images_dir / zone_name
+            output_dir = self.config.images_dir / zone_name 
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Create all visualization figures with error handling
-            try:
-                self.figures['performance'] = self._create_performance_dashboard(df, analysis)
-            except Exception as e:
-                logger.error(f"Error creating performance dashboard: {str(e)}")
-                self.figures['performance'] = self._create_error_figure("Error generating performance dashboard")
+            # Initialize figures dictionary for this zone if not exists
+            if not hasattr(self, 'zone_figures'):
+                self.zone_figures = {}
+            if zone_name not in self.zone_figures:
+                self.zone_figures[zone_name] = {}
 
+            # Create visualization groups for this zone
             try:
-                self.figures['cache'] = self._create_cache_dashboard(df, analysis)
+                self.zone_figures[zone_name]['performance'] = self._create_performance_dashboard(df, analysis)
+                self.zone_figures[zone_name]['cache'] = self._create_cache_dashboard(df, analysis)
+                self.zone_figures[zone_name]['error'] = self._create_error_dashboard(df, analysis)
+                self.zone_figures[zone_name]['geographic'] = self._create_geographic_dashboard(df, analysis)
+                self.zone_figures[zone_name]['rps'] = self._create_rps_dashboard(df, analysis)
             except Exception as e:
-                logger.error(f"Error creating cache dashboard: {str(e)}")
-                self.figures['cache'] = self._create_error_figure("Error generating cache dashboard")
+                logger.error(f"Error creating dashboards for zone {zone_name}: {str(e)}")
+                logger.error(traceback.format_exc())
 
+            # Save visualizations
             try:
-                self.figures['error'] = self._create_error_dashboard(df, analysis)
+                for name, fig in self.zone_figures[zone_name].items():
+                    html_path = output_dir / f"{name}_dashboard.html"
+                    fig.write_html(
+                        str(html_path),
+                        include_plotlyjs='cdn',
+                        full_html=True,
+                        config={
+                            'displayModeBar': True,
+                            'responsive': True
+                        }
+                    )
+                    logger.info(f"Saved {name} dashboard for zone {zone_name} to {html_path}")
             except Exception as e:
-                logger.error(f"Error creating error dashboard: {str(e)}")
-                self.figures['error'] = self._create_error_figure("Error generating error dashboard")
+                logger.error(f"Error saving visualizations for zone {zone_name}: {str(e)}")
 
+            # Create dashboard for this zone
             try:
-                self.figures['geographic'] = self._create_geographic_dashboard(df, analysis)
+                port = 8050 + len(self.zone_figures) - 1  # Increment port for each zone
+                self._create_dashboard(zone_name, port)
             except Exception as e:
-                logger.error(f"Error creating geographic dashboard: {str(e)}")
-                self.figures['geographic'] = self._create_error_figure("Error generating geographic dashboard")
-
-            try:
-                self.figures['rps'] = self._create_rps_dashboard(df, analysis)
-            except Exception as e:
-                logger.error(f"Error creating RPS dashboard: {str(e)}")
-                self.figures['rps'] = self._create_error_figure("Error generating RPS dashboard")
-
-            # Save visualizations and launch dashboard
-            self._save_visualizations(output_dir)
-            self._create_dashboard(zone_name)
-            self.app.run_server(debug=False, port=8050)
+                logger.error(f"Error creating dashboard for zone {zone_name}: {str(e)}")
 
         except Exception as e:
-            logger.error(f"Error creating visualizations: {str(e)}")
+            logger.error(f"Error in visualization creation for zone {zone_name}: {str(e)}")
             logger.error(traceback.format_exc())
+            plt.close('all')
+
 
     def _create_performance_dashboard(self, df: pd.DataFrame, analysis: dict) -> go.Figure:
         """Create performance dashboard with fixed choropleth specifications."""
@@ -858,177 +865,176 @@ class Visualizer:
             logger.error(traceback.format_exc())
             return self._create_error_figure("Error generating geographic dashboard")
 
-    def _create_dashboard(self, zone_name: str) -> None:
-        """Create the main dashboard layout with proper shutdown mechanism."""
-        from dash import Dash, dcc, html, Input, Output
-        import dash_bootstrap_components as dbc
-        import sys
-        from threading import Timer
-        import logging
-
-        logger = logging.getLogger(__name__)
-
-        tab_style = {
-            'backgroundColor': '#1e1e1e',
-            'color': '#ffffff',
-            'padding': '6px 12px',
-            'border': '1px solid #333',
-            'borderRadius': '3px 3px 0 0',
-            'marginRight': '2px',
-            'height': '32px',
-            'fontSize': '13px',
-            'lineHeight': '20px'
-        }
-        
-        selected_tab_style = {
-            'backgroundColor': '#2d2d2d',
-            'color': '#ffffff',
-            'padding': '6px 12px',
-            'border': '1px solid #333',
-            'borderRadius': '3px 3px 0 0',
-            'marginRight': '2px',
-            'height': '32px',
-            'fontSize': '13px',
-            'lineHeight': '20px',
-            'borderBottom': '2px solid #3498db'
-        }
-
-        shutdown_button = html.Button(
-            'Shutdown Dashboard',
-            id='shutdown-button',
-            className='mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700',
-            n_clicks=0,
-            style={
-                'marginTop': '20px',
-                'padding': '8px 16px',
-                'backgroundColor': '#e53e3e',
-                'color': 'white',
-                'border': 'none',
-                'borderRadius': '4px',
-                'cursor': 'pointer'
-            }
-        )
-
-        self.app.layout = html.Div([
-            html.H1(
-                f"Cloudflare Analytics - {zone_name}",
-                style={
-                    'textAlign': 'center',
-                    'margin': '20px 0',
-                    'color': '#ffffff',
-                    'fontSize': '24px',
-                    'fontFamily': 'Arial, sans-serif'
-                }
-            ),
+    def _create_dashboard(self, zone_name: str, port: int) -> None:
+        """Create zone-specific dashboard."""
+        try:
+            zone_figures = self.zone_figures.get(zone_name, {})
             
-            html.Div([
-                dcc.Tabs([
-                    dcc.Tab(
-                        label='Performance',
-                        children=[
-                            dcc.Graph(
-                                figure=self.figures.get('performance', self._create_error_figure("No performance data available")),
-                                style={'height': '85vh'}
-                            )
-                        ],
-                        style=tab_style,
-                        selected_style=selected_tab_style
-                    ),
-                    dcc.Tab(
-                        label='Cache',
-                        children=[
-                            dcc.Graph(
-                                figure=self.figures.get('cache', self._create_error_figure("No cache data available")),
-                                style={'height': '85vh'}
-                            )
-                        ],
-                        style=tab_style,
-                        selected_style=selected_tab_style
-                    ),
-                    dcc.Tab(
-                        label='Errors',
-                        children=[
-                            dcc.Graph(
-                                figure=self.figures.get('error', self._create_error_figure("No error data available")),
-                                style={'height': '85vh'}
-                            )
-                        ],
-                        style=tab_style,
-                        selected_style=selected_tab_style
-                    ),
-                    dcc.Tab(
-                        label='Geographic',
-                        children=[
-                            dcc.Graph(
-                                figure=self.figures.get('geographic', self._create_error_figure("No geographic data available")),
-                                style={'height': '85vh'}
-                            )
-                        ],
-                        style=tab_style,
-                        selected_style=selected_tab_style
-                    ),
-                    dcc.Tab(
-                        label='RPS Analysis',
-                        children=[
-                            dcc.Graph(
-                                figure=self.figures.get('rps', self._create_error_figure("No RPS data available")),
-                                style={'height': '85vh'}
-                            )
-                        ],
-                        style=tab_style,
-                        selected_style=selected_tab_style
-                    )
+            tab_style = {
+                'backgroundColor': '#1e1e1e',
+                'color': '#ffffff',
+                'padding': '6px 12px',
+                'border': '1px solid #333',
+                'borderRadius': '3px 3px 0 0',
+                'marginRight': '2px',
+                'height': '32px',
+                'fontSize': '13px',
+                'lineHeight': '20px'
+            }
+            
+            selected_tab_style = {
+                'backgroundColor': '#2d2d2d',
+                'color': '#ffffff',
+                'padding': '6px 12px',
+                'border': '1px solid #333',
+                'borderRadius': '3px 3px 0 0',
+                'marginRight': '2px',
+                'height': '32px',
+                'fontSize': '13px',
+                'lineHeight': '20px',
+                'borderBottom': '2px solid #3498db'
+            }
+
+            app = Dash(
+                f"cloudflare-analytics-{zone_name}",
+                external_stylesheets=[dbc.themes.DARKLY]
+            )
+
+            shutdown_button = html.Button(
+                'Shutdown Dashboard',
+                id='shutdown-button',
+                className='mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700',
+                n_clicks=0,
+                style={
+                    'marginTop': '20px',
+                    'padding': '8px 16px',
+                    'backgroundColor': '#e53e3e',
+                    'color': 'white',
+                    'border': 'none',
+                    'borderRadius': '4px',
+                    'cursor': 'pointer'
+                }
+            )
+
+            app.layout = html.Div([
+                html.H1(
+                    f"Cloudflare Analytics - {zone_name}",
+                    style={
+                        'textAlign': 'center',
+                        'margin': '20px 0',
+                        'color': '#ffffff',
+                        'fontSize': '24px',
+                        'fontFamily': 'Arial, sans-serif'
+                    }
+                ),
+                
+                html.Div([
+                    dcc.Tabs([
+                        dcc.Tab(
+                            label='Performance',
+                            children=[
+                                dcc.Graph(
+                                    figure=zone_figures.get('performance', self._create_error_figure("No performance data available")),
+                                    style={'height': '85vh'}
+                                )
+                            ],
+                            style=tab_style,
+                            selected_style=selected_tab_style
+                        ),
+                        dcc.Tab(
+                            label='Cache',
+                            children=[
+                                dcc.Graph(
+                                    figure=zone_figures.get('cache', self._create_error_figure("No cache data available")),
+                                    style={'height': '85vh'}
+                                )
+                            ],
+                            style=tab_style,
+                            selected_style=selected_tab_style
+                        ),
+                        dcc.Tab(
+                            label='Errors',
+                            children=[
+                                dcc.Graph(
+                                    figure=zone_figures.get('error', self._create_error_figure("No error data available")),
+                                    style={'height': '85vh'}
+                                )
+                            ],
+                            style=tab_style,
+                            selected_style=selected_tab_style
+                        ),
+                        dcc.Tab(
+                            label='Geographic',
+                            children=[
+                                dcc.Graph(
+                                    figure=zone_figures.get('geographic', self._create_error_figure("No geographic data available")),
+                                    style={'height': '85vh'}
+                                )
+                            ],
+                            style=tab_style,
+                            selected_style=selected_tab_style
+                        ),
+                        dcc.Tab(
+                            label='RPS Analysis',
+                            children=[
+                                dcc.Graph(
+                                    figure=zone_figures.get('rps', self._create_error_figure("No RPS data available")),
+                                    style={'height': '85vh'}
+                                )
+                            ],
+                            style=tab_style,
+                            selected_style=selected_tab_style
+                        )
+                    ])
                 ],
                 style={
-                    'height': '32px',
-                    'marginBottom': '8px'
-                })
+                    'margin': '0 12px'
+                }),
+                
+                html.Div([
+                    shutdown_button
+                ], style={
+                    'textAlign': 'center',
+                    'marginTop': '20px',
+                    'marginBottom': '20px'
+                }),
+                
+                html.Div(id='shutdown-trigger', style={'display': 'none'})
             ],
             style={
-                'margin': '0 12px'
-            }),
-            
-            html.Div([
-                shutdown_button
-            ], style={
-                'textAlign': 'center',
-                'marginTop': '20px',
-                'marginBottom': '20px'
-            }),
-            
-            html.Div(id='shutdown-trigger', style={'display': 'none'})
-        ],
-        style={
-            'backgroundColor': '#121212',
-            'minHeight': '100vh',
-            'padding': '12px'
-        })
+                'backgroundColor': '#121212',
+                'minHeight': '100vh',
+                'padding': '12px'
+            })
 
-        @self.app.callback(
-            Output('shutdown-trigger', 'children'),
-            Input('shutdown-button', 'n_clicks')
-        )
+            @app.callback(
+                Output('shutdown-trigger', 'children'),
+                Input('shutdown-button', 'n_clicks')
+            )
+            def shutdown_server(n_clicks):
+                if n_clicks and n_clicks > 0:
+                    logger.info(f"Shutdown requested for zone {zone_name} dashboard")
+                    def shutdown():
+                        try:
+                            self.cleanup()
+                        finally:
+                            sys.exit(0)
+                    Timer(1.0, shutdown).start()
+                    return "Shutting down..."
+                return ""
 
-        def shutdown_server(n_clicks):
-            if n_clicks and n_clicks > 0:
-                logger.info("Shutdown requested via dashboard button")
-                def shutdown():
-                    try:
-                        self.cleanup()  # Call cleanup if defined
-                    finally:
-                        sys.exit(0)
-                Timer(1.0, shutdown).start()
-                return "Shutting down..."
-            return ""
+            logger.info(f"Starting dashboard for zone {zone_name} on port {port}")
+            app.run_server(
+                debug=False,
+                port=port,
+                use_reloader=False,
+                dev_tools_hot_reload=False,
+                host='127.0.0.1'
+            )
 
-        # Start the server
-        self.app.run_server(
-            debug=False, 
-            port=8050, 
-            use_reloader=False,
-            dev_tools_hot_reload=False,
-            host='127.0.0.1'
-        )
+        except Exception as e:
+            logger.error(f"Error creating dashboard for zone {zone_name}: {str(e)}")
+            logger.error(traceback.format_exc())
 
     def _create_rps_dashboard(self, df: pd.DataFrame, analysis: dict) -> go.Figure:
         """Create requests per second (RPS) analysis dashboard with fixed choropleth."""

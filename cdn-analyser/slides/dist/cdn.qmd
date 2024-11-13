@@ -1,10 +1,10 @@
 ---
-title: "How to Identify Performance Bottlenecks with Cloudflare's GraphQL Datasets" 
+title: "How to Identify Performance Bottlenecks <br> and Solving Them with the Ruleset Engine" 
 author: "Erfi Anugrah" 
 format:
   revealjs:
-    width: 1280
-    height: 720
+    width: 1920
+    height: 1080
     margin: 0.1
     progress: true
     history: true
@@ -12,7 +12,7 @@ format:
     slide-number: true
     show-slide-number: print
     preview-links: auto
-    incremental: true
+    code-block-height: 900px
     chalkboard:
       theme: whiteboard
       boardmarker-width: 5
@@ -24,67 +24,88 @@ format:
 
 **What we'll cover:**
 
-1. Understanding Performance Metrics
-2. Common Performance Issues
-3. Analysis Workflow
-4. Performance Troubleshooting
-5. Demo
+1. Key Performance Metrics to Monitor
+2. Common Performance Bottlenecks
+3. Analysis Methodology
+4. GraphQL Data Collection
+5. Troubleshooting Workflow
+6. Implementation Solutions
 
 ---
 
-## Key Metrics  {.smaller}
+## Key Performance Metrics
 
 ::: {.columns}
 
 ::: {.column width="30%"}
 ### 1. Response Times
-- **Edge TTFB** (Time to First Byte)
-  - < 100ms: Excellent
-  - 100-200ms: Good
-  - > 200ms: Investigate origin
+
+- **Edge TTFB**
+
 - **Origin Response Time**
-  - < 200ms: Optimal
-  - 200-500ms: Review
-  - > 500ms: Critical investigation
-- **P50/P95/P99 Latencies**
-  - Monitor trend changes
-  - Alert on sudden spikes
+
+- **Cache Performance**
+
 :::
 
 ::: {.column width="30%"}
-### 2. Cache Stats
-- **Hit Ratio**
-  - > 90%: Excellent
-  - 80-90%: Room for optimization
-  - < 80%: Needs investigation
-- **Cache Status Distribution**
-  - Monitor MISS patterns
-  - Track BYPASS reasons
-  - Analyze EXPIRED vs UPDATING
-- **TTL Analysis**
-  - Review effectiveness
-  - Check browser cache alignment
+### 2. Geographic Distribution
+- **Regional Latency**
+
+- **Cache Efficiency**
+
+- **Error Distribution**
+
 :::
 
 ::: {.column width="30%"}
-### 3. Reliability
-- **Error Rates**
-  - 4xx baseline monitoring
-  - 5xx < 0.1% target
-  - Timeout patterns
-- **Geographic Distribution**
-  - Regional latency patterns
-  - Cache efficiency by location
-- **Network Health**
-  - MTR results
-  - Packet loss rates
+### 3. Resource Utilization
+
+- **Origin Load**
+- **Application Bottlenecks**
+
 :::
 
 :::
 
 ---
 
-## Analysis Flow
+## Common Performance Bottlenecks 
+
+::: {.columns}
+
+::: {.column width="30%"}
+### 1. Cache Issues
+- Low cache hit ratios
+- Frequent cache BYPASS/MISS
+- Ineffective/low TTLs
+- Poor cache key design
+- Missing cache rules
+- Dynamic content handling
+:::
+
+::: {.column width="30%"}
+### 2. Network Problems
+- High origin latency
+- Poor routing paths
+- Regional connectivity
+- Connection limits
+:::
+
+::: {.column width="30%"}
+### 3. Origin Issues
+- Server overload
+- Database bottlenecks
+- Resource exhaustion
+- Timeout configuration
+- Error handling
+:::
+
+:::
+
+---
+
+## Analysis Workflow
 
 <style>
 .mermaid-container {
@@ -104,22 +125,22 @@ format:
 }
 
 #mermaid-1 {
-  width: 720px;
+  width: 2500px;
 }
 #mermaid-2 {
-  width: 650px;
+  width: 950px;
 }
 #mermaid-3 {
-  width: 720px;
+  width: 1000px;
 }
 #mermaid-4 {
-  width: 720px;
+  width: 1000px;
 }
 #mermaid-5 {
-  width: 720px;
+  width: 1000px;
 }
 #mermaid-6 {
-  width: 720px;
+  width: 1000px;
 }
 </style>
 
@@ -137,391 +158,357 @@ format:
     'mainBkg': '#2d3436',
     'nodeBorder': '#ff9800',
     'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800',
-    'fontSize': '20px'
-  },
-  'flowchart': {
-    'nodeSpacing': 50,
-    'rankSpacing': 100,
-    'curve': 'basis'
+    'clusterBorder': '#ff9800'
   }
 }}%%
 graph TB
-    Collect[Collect Metrics] --> Analyze{Analysis}
-    Analyze --> Edge[Edge Analysis]
-    Analyze --> Origin[Origin Analysis]
-    Analyze --> Cache[Cache Analysis]
-    Edge --> TTFB[Edge TTFB]
-    Edge --> Geo[Geographic Distribution]
-    Edge --> Errors[Error Rates]
-    Origin --> Geo[Geographic Distribution]
-    Origin --> Errors[Error Rates]
-    Origin --> Response[Origin Response Time]
+    Start[Performance Issue] --> Identify{Identify Problem Type}
+    Identify --> Cache[Cache Analysis]
+    Identify --> Network[Network Analysis]
+    Identify --> Origin[Origin Analysis]
+    
+    Cache --> CacheMetrics[Cache Metrics]
     Cache --> HitRatio[Hit Ratio]
-    TTFB --> Issues{Issues}
-    Geo --> Issues
-    Response --> Issues
-    Errors --> Issues
-    HitRatio --> Issues
-
-    classDef orange fill:#ff9800,stroke:#fff,stroke-width:4px,color:#fff;
-    classDef blue fill:#006064,stroke:#fff,stroke-width:4px,color:#fff;
-    classDef green fill:#4caf50,stroke:#fff,stroke-width:4px,color:#fff;
-
-    class Collect,Analyze orange;
-    class Edge,Origin,Cache blue;
-    class TTFB,Geo,Response,Errors,HitRatio,Efficiency green;
-    class Issues orange;
-  ```
-</div>
-
----
-
-## Request Flow
-
-<div class="mermaid-container">
-```{mermaid}
-%%{init: {
-  'theme': 'dark',
-  'themeVariables': {
-    'primaryColor': '#ff9800',
-    'primaryTextColor': '#fff',
-    'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
-    'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
-    'actorBorder': '#ff9800',
-    'actorBackground': '#ff9800',
-    'actorTextColor': '#fff',
-    'noteBorderColor': '#006064',
-    'noteTextColor': '#fff',
-    'noteBackground': '#006064'
-  }
-}}%%
-sequenceDiagram
-    participant User
-    participant Edge
-    participant Cache
-    participant Origin
+    Cache --> CacheRules[Cache Rules]
     
-    User->>Edge: Request
-    Edge->>Cache: Check Cache
-    alt Cache Hit
-        Cache-->>Edge: Serve from Cache
-        Edge-->>User: Fast Response
-        Note over Edge,User: Typical: <50ms
-    else Cache Miss
-        Cache-->>Edge: Not Found
-        Edge->>Origin: Forward Request
-        Note over Origin: Process Request
-        Origin-->>Edge: Response
-        Edge->>Cache: Store in Cache
-        Edge-->>User: Slower Response
-        Note over Edge,User: Typical: >100ms
-    end
+    Network --> Latency[Latency Analysis]
+    Network --> Routes[Route Analysis]
+    Network --> Geo[Geographic Distribution]
+    
+    Origin --> Server[Server Metrics]
+    Origin --> Database[Database]
+    Origin --> Application[Application]
+    
+    CacheMetrics --> Solution{Solution}
+    HitRatio --> Solution
+    CacheRules --> Solution
+    Latency --> Solution
+    Geo --> Solution
+    Routes --> Solution
+    Server --> Solution
+    Database --> Solution
+    Application --> Solution
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+
+    class Start,Identify,Solution orange;
+    class Cache,Network,Origin blue;
+    class CacheMetrics,HitRatio,CacheRules,Latency,Routes,SSL,Server,Database,Application,Geo green;
 ```
 </div>
 
 ---
 
-## Performance Troubleshooting Flow
+## Initial Investigation Steps {.smaller}
 
-<div class="mermaid-container">
-```{mermaid}
-%%{init: {
-  'theme': 'dark',
-  'themeVariables': {
-    'primaryColor': '#ff9800',
-    'primaryTextColor': '#fff',
-    'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
-    'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
-    'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
-  }
-}}%%
-graph TB
-    Start[High Latency Detected] --> Type{Issue Type}
-    Type -->|High TTFB| Network[Network Analysis]
-    Type -->|Low Cache| Cache[Cache Analysis]
-    Type -->|High Errors| Error[Error Analysis]
-    
-    Network --> MTR[MTR Tests]
-    Network --> Routes[BGP Routes]
-    Network --> Peering[Peering Check]
-    
-    MTR --> AppCheck{App or Network?}
-    Routes --> AppCheck
-    Peering --> AppCheck
-    
-    AppCheck -->|App| Application[Application Analysis]
-    AppCheck -->|Network| NetworkFix[Network Optimization]
-    
-    Application --> Traces[Check Traces]
-    Application --> Metrics[Prometheus Metrics]
-    Application --> Database[DB Performance]
-    
-    Cache --> Rules[Cache Rules]
-    Cache --> Headers[Origin Headers]
-    Cache --> Content[Content Analysis]
-    
-    Rules --> CacheFix[Cache Optimization]
-    Headers --> CacheFix
-    Content --> CacheFix
-    
-    Error --> Origins[Origin Health]
-    Error --> Services[Service Status]
-    Error --> Resources[Resource Usage]
+### 1. Baseline Metrics
+- Current cache hit ratio
+- Average response times
+- Quantiles for response times
+- Error rate patterns
+- Geographic distribution
+- Resource utilization
 
-    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+### 2. Impact Assessment
+- Affected regions
+- User experience impact
+- Origin load
+- Bandwidth implications
 
-    class Start,Type orange;
-    class Network,Cache,Error blue;
-    class MTR,Routes,Peering,Application,Rules,Headers,Content,Origins,Services,Resources green;
-  ```
-</div>
----
-
-## Common Issues {.smaller} 
-::: {.columns}
-
-::: {.column width="30%"}
-### 1. High TTFB
-**Investigation Steps:**
-1. Network Path
-   - MTR analysis
-   - Route optimization
-   - Peering review
-
-2. Application Performance
-   - Trace analysis
-   - Resource monitoring
-   - Service dependencies
-
-3. Database
-   - Query optimization
-   - Connection pooling
-   - Index efficiency
-:::
-
-::: {.column width="30%"}
-### 2. Cache Problems
-**Investigation Steps:**
-1. Cache Rules
-   - Key composition
-   - TTL settings
-   - Bypass conditions
-
-2. Content Analysis
-   - Status patterns
-   - URL patterns
-   - User behavior
-
-3. Origin Config
-   - Cache headers
-   - Revalidation
-   - Compression
-:::
-
-::: {.column width="30%"}
-### 3. Regional Issues
-**Investigation Steps:**
-1. Network
-   - Local MTR results
-   - Regional routes
-   - DC connectivity
-
-2. Traffic Patterns
-   - Load distribution
-   - Request types
-   - Error patterns
-
-3. Cache Efficiency
-   - Regional hit ratios
-   - Content locality
-   - Edge performance
-:::
-
-:::
+### 3. Root Cause Analysis
+- Timeline correlation
+- Configuration review
+- Log analysis
+- Performance profiling
 
 ---
 
-## Geographic Analysis
+## GraphQL Performance Analysis {.scrollable} 
 
-<div class="mermaid-container">
-```{mermaid}
-%%{init: {
-  'theme': 'dark',
-  'themeVariables': {
-    'primaryColor': '#ff9800',
-    'primaryTextColor': '#fff',
-    'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
-    'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
-    'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
+```graphql
+query ZoneMetricsBasic($zoneTag: String!, $filter: ZoneHttpRequestsAdaptiveGroupsFilter!) {
+  viewer {
+    zones(filter: { zoneTag: $zoneTag }) {
+      httpRequestsAdaptiveGroups(
+        limit: 5000
+        filter: $filter
+        orderBy: [datetimeMinute_DESC]
+      ) {
+        dimensions {
+          datetimeMinute
+          clientCountryName
+          clientDeviceType
+          clientRequestHTTPProtocol
+          edgeResponseContentTypeName
+          edgeResponseStatus
+          cacheStatus
+          coloCode
+          upperTierColoName
+        }
+        avg {
+          sampleInterval
+          edgeTimeToFirstByteMs
+          originResponseDurationMs
+        }
+        sum {
+          visits
+          edgeResponseBytes
+        }
+        count
+        ratio {
+          status4xx
+          status5xx
+        }
+      }
+    }
   }
-}}%%
-graph TB
-    A[Geographic Analysis] --> B{Performance Metrics}
-    B --> C[Response Times]
-    B --> D[Cache Performance]
-    B --> E[Error Rates]
-    C --> F[Regional TTFB]
-    C --> G[Origin Latency]
-    D --> H[Regional Cache Hits]
-    D --> I[Bandwidth Usage]
-    E --> J[Error Distribution]
-    E --> K[Timeout Patterns]
-    F --> L{Action Items}
-    G --> L
-    H --> L
-    I --> L
-    J --> L
-    K --> L
-    L --> M[Build Observability]
-    L --> N[Origin Placement]
-    L --> O[Cache Rules]
-    L --> P[Error Handling]
-
-    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
-
-    class A,B,L orange;
-    class C,D,E blue;
-    class F,G,H,I,J,K,M,N,O,P green;
+}
 ```
-</div>
 
----
+<br>
 
-## Optimization Recommendations  {.smaller}
-
-| Issue | Investigation Steps | Solutions | Validation |
-|-------|-------------------|------------|------------|
-| **High TTFB** | 1. MTR Analysis<br>2. App Traces<br>3. Resource Monitoring | - Optimize app code<br>- Scale resources<br>- Enable Argo<br>- Tune DB queries | - Monitor p95 latency<br>- Check CPU/Memory<br>- Verify trace improvements |
-| **Low Cache Hit** | 1. Rule Analysis<br>2. Content Patterns<br>3. Header Review | - Optimize cache rules<br>- Adjust TTLs<br>- Review cache keys<br>- Set browser cache | - Track hit ratio<br>- Monitor bandwidth<br>- Verify header changes |
-| **Regional Issues** | 1. Network Path<br>2. Traffic Analysis<br>3. Edge Performance | - Add origin locations<br>- Optimize routes<br>- Review peering<br>- Adjust load balancing | - Check regional latency<br>- Monitor error rates<br>- Verify path improvements |
-| **High Errors** | 1. Error Patterns<br>2. Service Health<br>3. Resource Limits | - Scale services<br>- Add redundancy<br>- Implement retries<br>- Set rate limits | - Track error rates<br>- Monitor availability<br>- Check success rates |
-
-## Monitoring Structure
-
-<div class="mermaid-container">
-```{mermaid}
-%%{init: {
-  'theme': 'dark',
-  'themeVariables': {
-    'primaryColor': '#ff9800',
-    'primaryTextColor': '#fff',
-    'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
-    'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
-    'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
+```graphql
+query ZoneMetricsDetailed($zoneTag: String!, $filter: ZoneHttpRequestsAdaptiveGroupsFilter!) {
+  viewer {
+    zones(filter: { zoneTag: $zoneTag }) {
+      httpRequestsAdaptiveGroups(
+        limit: 5000
+        filter: $filter
+        orderBy: [datetimeMinute_DESC]
+      ) {
+        dimensions {
+          datetimeMinute
+          clientAsn
+          clientIP
+          clientRefererHost
+          clientRequestHTTPHost
+          clientRequestPath
+          clientRequestHTTPMethodName
+        }
+        quantiles {
+          edgeTimeToFirstByteMsP50
+          edgeTimeToFirstByteMsP95
+          edgeTimeToFirstByteMsP99
+          originResponseDurationMsP50
+          originResponseDurationMsP95
+          originResponseDurationMsP99
+        }
+        sum {
+          edgeTimeToFirstByteMs
+          originResponseDurationMs
+        }
+      }
+    }
   }
-}}%%
-graph TB
-    Monitor[Monitoring System] --> Tools{Tool Type}
-    Tools --> Analytics[Analytics Tools]
-    Tools --> Metrics[Key Metrics]
-    Tools --> Alerts[Alert System]
-    
-    Analytics --> Grafana[Grafana]
-    Analytics --> Prometheus[Prometheus]
-    Analytics --> Traces[App Traces]
-    
-    Metrics --> Response[Response Times]
-    Metrics --> Cache[Cache Stats]
-    Metrics --> Errors[Error Rates]
-    
-    Alerts --> TTFB[TTFB > 200ms]
-    Alerts --> CacheHit[Cache < 80%]
-    Alerts --> ErrorRate[5xx > 0.1%]
-
-    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
-
-    class Monitor,Tools orange;
-    class Analytics,Metrics,Alerts blue;
-    class Grafana,Prometheus,Traces,Response,Cache,Errors,TTFB,CacheHit,ErrorRate green;
+}
 ```
-</div>
+
 ---
 
-## Alert Response Flow
+## Cache Optimization Solutions {.scrollable}
 
-<div class="mermaid-container">
-```{mermaid}
-%%{init: {
-  'theme': 'dark',
-  'themeVariables': {
-    'primaryColor': '#ff9800',
-    'primaryTextColor': '#fff',
-    'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
-    'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
-    'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
+#### 1. Static Content Caching
+
+```hcl
+resource "cloudflare_ruleset" "static_cache" {
+  zone_id = var.zone_id
+  name    = "Static Content Optimization"
+  phase   = "http_request_cache_settings"
+
+  rules {
+    action = "set_cache_settings"
+    action_parameters {
+      cache = true
+      edge_ttl {
+        default = 31536000  # 1 year
+        mode    = "override_origin"
+      }
+      browser_ttl {
+        default = 86400    # 1 day
+        mode    = "override_origin"
+      }
+      cache_key {
+        custom_key {
+          query_string {
+            exclude = ["*"]  # Ignore all query params
+          }
+        }
+        cache_deception_armor = true
+      }
+    }
+    expression = "(http.request.uri.path matches \"\\.(jpg|jpeg|gif|png|ico|css|js|svg|woff2)$\")"
   }
-}}%%
-graph TB
-    Alert[Alert Triggered] --> Type{Alert Type}
-    Type -->|TTFB > 200ms| TTFB[Edge TTFB Alert]
-    Type -->|Cache < 80%| Cache[Cache Alert]
-    Type -->|5xx > 1%| Error[Error Alert]
-    
-    TTFB --> ArgoCheck[Check Argo]
-    TTFB --> SSLCheck[Review SSL]
-    TTFB --> NetworkCheck[Network Path]
-    
-    Cache --> RuleCheck[Review Rules]
-    Cache --> HeaderCheck[Check Headers]
-    Cache --> PatternCheck[MISS Patterns]
-    
-    Error --> OriginHealth[Origin Health]
-    Error --> ServiceCheck[Service Status]
-    Error --> ResourceCheck[Resources]
-    
-    ArgoCheck --> Action1{Optimize?}
-    SSLCheck --> Action1
-    NetworkCheck --> Action1
-    
-    RuleCheck --> Action2{Update?}
-    HeaderCheck --> Action2
-    PatternCheck --> Action2
-    
-    OriginHealth --> Action3{Scale?}
-    ServiceCheck --> Action3
-    ResourceCheck --> Action3
+}
+```
+<br>
 
-    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+#### 2. API Response Caching
+```hcl
+resource "cloudflare_ruleset" "api_cache" {
+  zone_id = var.zone_id
+  name    = "API Cache"
+  phase   = "http_request_cache_settings"
 
-    class Alert,Type orange;
-    class TTFB,Cache,Error blue;
-    class ArgoCheck,SSLCheck,NetworkCheck,RuleCheck,HeaderCheck,PatternCheck,OriginHealth,ServiceCheck,ResourceCheck green;
-  ```
-</div>
+  rules {
+    action = "set_cache_settings"
+    action_parameters {
+      cache = true
+      cache_key {
+        custom_key {
+          header {
+            include = ["Authorization"]
+          }
+          query_string {
+            include = ["version", "locale"]
+          }
+        }
+      }
+      edge_ttl {
+        default = 300  # 5 minutes
+        mode    = "respect_origin"
+      }
+      serve_stale {
+        disable_stale_while_updating = false
+      }
+    }
+    expression = "(http.host eq \"api.example.com\" and http.request.uri.path contains \"/v1/\")"
+  }
+}
+```
+
+---
+
+## Network Optimization {.scrollable}
+
+#### 1. Argo Smart Routing
+```hcl
+resource "cloudflare_argo" "argo" {
+  zone_id        = var.cloudflare_zone_id
+  smart_routing  = "on"
+}
+```
+<br>
+
+#### 2. Tiered Cache
+```hcl
+resource "cloudflare_tiered_cache" "tc" {
+  zone_id        = var.cloudflare_zone_id
+  cache_type     = "smart"
+}
+
+resource "cloudflare_regional_tiered_cache" "regional_tc" {
+  zone_id        = var.cloudflare_zone_id
+  value          = "on"
+}
+```
+
+<br>
+
+#### 3. Load Balancing
+```hcl
+resource "cloudflare_load_balancer" "revista" {
+  default_pool_ids = [cloudflare_load_balancer_pool.revista_k3s_nl.id, cloudflare_load_balancer_pool.revista_proxmox_nl.id, cloudflare_load_balancer_pool.revista_ipsec_k3s_nl.id]
+  enabled          = true
+  fallback_pool_id = cloudflare_load_balancer_pool.revista_sg.id
+  name             = var.domain_name
+  proxied          = true
+  session_affinity = "none"
+  steering_policy  = "geo"
+  zone_id          = var.cloudflare_zone_id
+  pop_pools {
+    pop      = "AMS"
+    pool_ids = [cloudflare_load_balancer_pool.revista_k3s_nl.id, cloudflare_load_balancer_pool.revista_proxmox_nl.id, cloudflare_load_balancer_pool.revista_ipsec_k3s_nl.id]
+  }
+  pop_pools {
+    pop      = "SIN"
+    pool_ids = [cloudflare_load_balancer_pool.revista_sg.id]
+  }
+  adaptive_routing {
+    failover_across_pools = true
+  }
+  location_strategy {
+    mode       = "pop"
+    prefer_ecs = "proximity"
+  }
+  random_steering {
+    default_weight = 1
+  }
+  session_affinity_attributes {
+    samesite               = "Auto"
+    secure                 = "Auto"
+    zero_downtime_failover = "temporary"
+  }
+}
+```
+
+<br>
+
+#### 4. Regional Cache Configuration
+```hcl
+resource "cloudflare_ruleset" "regional_cache" {
+  zone_id = var.zone_id
+  name    = "Regional Cache Settings"
+  phase   = "http_request_cache_settings"
+
+  rules {
+    action = "set_cache_settings"
+    action_parameters {
+      cache = true
+      cache_key {
+        custom_key {
+          user {
+            geo = true
+            device_type = true
+          }
+        }
+      }
+      edge_ttl {
+        default = 3600
+        mode    = "override_origin"
+      }
+    }
+    expression = "(ip.src.country in {\"US\" \"CA\" \"GB\"} and http.request.uri.path contains \"/content/\")"
+  }
+}
+```
+
+---
+
+## Best Practices Summary {.smaller}
+
+### 1. Cache Optimization
+- Implement appropriate TTLs
+- Use custom cache keys
+- Enable cache deception armor
+- Configure browser cache
+- Implement tiered caching
+- Monitor cache hit ratios
+
+### 2. Network Performance
+- Enable Argo Smart Routing
+- Configure load balancing
+- Optimize SSL/TLS
+- Use regional routing
+- Monitor latency metrics
+- Implement failover
+
+### 3. Error Handling
+- Configure origin error pages
+- Implement service monitoring
+- Set up alerts
+- Use stale content
+- Monitor error rates
+- Track origin health
 
 ## Demo and Q&A {.center}
 
-Questions about specific performance scenarios?
+- Performance analysis walkthrough
+- Common issue resolution
+- Implementation guidance
+- Monitoring setup
+- Alert configuration
+
+Questions about specific scenarios or implementations?
+
