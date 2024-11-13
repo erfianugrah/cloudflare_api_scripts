@@ -10,7 +10,7 @@ from pathlib import Path
 import traceback
 import sys
 from threading import Timer
-import matplotlib.pyplot as plt
+from .origin_visualizer import OriginVisualizer
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +37,18 @@ class Visualizer:
             external_stylesheets=[dbc.themes.DARKLY]
         )
         
+        # Initialize origin visualizer
+        self.origin_visualizer = OriginVisualizer(config)
+        
         # Store for generated figures
         self.figures = {}
 
-    def create_visualizations(self, df: pd.DataFrame, analysis: dict, zone_name: str) -> None:
+    def create_visualizations(
+        self, 
+        df: pd.DataFrame, 
+        analysis: dict, 
+        zone_name: str
+    ) -> None:
         """Create comprehensive visualizations with multi-zone support."""
         try:
             if df is None or df.empty or not analysis:
@@ -58,11 +66,17 @@ class Visualizer:
 
             # Create visualization groups for this zone
             try:
+                # Create main dashboards
                 self.zone_figures[zone_name]['performance'] = self._create_performance_dashboard(df, analysis)
                 self.zone_figures[zone_name]['cache'] = self._create_cache_dashboard(df, analysis)
                 self.zone_figures[zone_name]['error'] = self._create_error_dashboard(df, analysis)
                 self.zone_figures[zone_name]['geographic'] = self._create_geographic_dashboard(df, analysis)
                 self.zone_figures[zone_name]['rps'] = self._create_rps_dashboard(df, analysis)
+                
+                # Create origin visualizations
+                origin_figures = self.origin_visualizer.create_origin_visualizations(df, analysis, zone_name)
+                self.zone_figures[zone_name].update(origin_figures)
+
             except Exception as e:
                 logger.error(f"Error creating dashboards for zone {zone_name}: {str(e)}")
                 logger.error(traceback.format_exc())
@@ -86,16 +100,13 @@ class Visualizer:
 
             # Create dashboard for this zone
             try:
-                port = 8050 + len(self.zone_figures) - 1  # Increment port for each zone
-                self._create_dashboard(zone_name, port)
+                self._create_dashboard(zone_name)
             except Exception as e:
                 logger.error(f"Error creating dashboard for zone {zone_name}: {str(e)}")
 
         except Exception as e:
             logger.error(f"Error in visualization creation for zone {zone_name}: {str(e)}")
             logger.error(traceback.format_exc())
-            plt.close('all')
-
 
     def _create_performance_dashboard(self, df: pd.DataFrame, analysis: dict) -> go.Figure:
         """Create performance dashboard with fixed choropleth specifications."""
@@ -865,11 +876,19 @@ class Visualizer:
             logger.error(traceback.format_exc())
             return self._create_error_figure("Error generating geographic dashboard")
 
-    def _create_dashboard(self, zone_name: str, port: int) -> None:
-        """Create zone-specific dashboard."""
+    def _create_dashboard(self, zone_name: str) -> None:
+        """Create zone-specific dashboard including origin metrics."""
         try:
             zone_figures = self.zone_figures.get(zone_name, {})
+            port = 8050 + abs(hash(zone_name)) % 1000  # Keep port number reasonable
             
+            logger.info(f"Creating dashboard for zone {zone_name} on port {port}")
+
+            # Create new Dash app instance for this zone
+            app = Dash(
+                f"cloudflare-analytics-{zone_name}",
+                external_stylesheets=[dbc.themes.DARKLY]
+            )
             tab_style = {
                 'backgroundColor': '#1e1e1e',
                 'color': '#ffffff',
@@ -895,28 +914,7 @@ class Visualizer:
                 'borderBottom': '2px solid #3498db'
             }
 
-            app = Dash(
-                f"cloudflare-analytics-{zone_name}",
-                external_stylesheets=[dbc.themes.DARKLY]
-            )
-
-            shutdown_button = html.Button(
-                'Shutdown Dashboard',
-                id='shutdown-button',
-                className='mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700',
-                n_clicks=0,
-                style={
-                    'marginTop': '20px',
-                    'padding': '8px 16px',
-                    'backgroundColor': '#e53e3e',
-                    'color': 'white',
-                    'border': 'none',
-                    'borderRadius': '4px',
-                    'cursor': 'pointer'
-                }
-            )
-
-            app.layout = html.Div([
+            app_layout = html.Div([
                 html.H1(
                     f"Cloudflare Analytics - {zone_name}",
                     style={
@@ -984,6 +982,62 @@ class Visualizer:
                             ],
                             style=tab_style,
                             selected_style=selected_tab_style
+                        ),
+                        # Origin Analysis Tabs
+                        dcc.Tab(
+                            label='Origin Response Time',
+                            children=[
+                                dcc.Graph(
+                                    figure=zone_figures.get('origin_response_time', self._create_error_figure("No origin response time data available")),
+                                    style={'height': '85vh'}
+                                )
+                            ],
+                            style=tab_style,
+                            selected_style=selected_tab_style
+                        ),
+                        dcc.Tab(
+                            label='Origin ASN Analysis',
+                            children=[
+                                dcc.Graph(
+                                    figure=zone_figures.get('origin_asn', self._create_error_figure("No ASN analysis data available")),
+                                    style={'height': '85vh'}
+                                )
+                            ],
+                            style=tab_style,
+                            selected_style=selected_tab_style
+                        ),
+                        dcc.Tab(
+                            label='Origin Errors',
+                            children=[
+                                dcc.Graph(
+                                    figure=zone_figures.get('origin_error', self._create_error_figure("No origin error data available")),
+                                    style={'height': '85vh'}
+                                )
+                            ],
+                            style=tab_style,
+                            selected_style=selected_tab_style
+                        ),
+                        dcc.Tab(
+                            label='Origin Geographic',
+                            children=[
+                                dcc.Graph(
+                                    figure=zone_figures.get('origin_geographic', self._create_error_figure("No origin geographic data available")),
+                                    style={'height': '85vh'}
+                                )
+                            ],
+                            style=tab_style,
+                            selected_style=selected_tab_style
+                        ),
+                        dcc.Tab(
+                            label='Origin Endpoints',
+                            children=[
+                                dcc.Graph(
+                                    figure=zone_figures.get('origin_endpoints', self._create_error_figure("No origin endpoint data available")),
+                                    style={'height': '85vh'}
+                                )
+                            ],
+                            style=tab_style,
+                            selected_style=selected_tab_style
                         )
                     ])
                 ],
@@ -992,7 +1046,21 @@ class Visualizer:
                 }),
                 
                 html.Div([
-                    shutdown_button
+                    html.Button(
+                        'Shutdown Dashboard',
+                        id='shutdown-button',
+                        className='mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700',
+                        n_clicks=0,
+                        style={
+                            'marginTop': '20px',
+                            'padding': '8px 16px',
+                            'backgroundColor': '#e53e3e',
+                            'color': 'white',
+                            'border': 'none',
+                            'borderRadius': '4px',
+                            'cursor': 'pointer'
+                        }
+                    )
                 ], style={
                     'textAlign': 'center',
                     'marginTop': '20px',
@@ -1007,7 +1075,9 @@ class Visualizer:
                 'padding': '12px'
             })
 
-            @app.callback(
+            self.app.layout = app_layout
+
+            @self.app.callback(
                 Output('shutdown-trigger', 'children'),
                 Input('shutdown-button', 'n_clicks')
             )
@@ -1023,10 +1093,10 @@ class Visualizer:
                     return "Shutting down..."
                 return ""
 
-            logger.info(f"Starting dashboard for zone {zone_name} on port {port}")
-            app.run_server(
+            logger.info(f"Starting dashboard for zone {zone_name}")
+            self.app.run_server(
                 debug=False,
-                port=port,
+                port=port,  # Use single port since we're not creating multiple instances
                 use_reloader=False,
                 dev_tools_hot_reload=False,
                 host='127.0.0.1'
@@ -1272,8 +1342,6 @@ class Visualizer:
 
     def cleanup(self):
         """Clean up resources and shutdown dashboard properly."""
-        import matplotlib.pyplot as plt
-        
         try:
             # Clear all figures to free memory
             if hasattr(self, 'figures'):
@@ -1284,6 +1352,10 @@ class Visualizer:
             
             # Reset matplotlib settings if needed
             plt.style.use('default')
+            
+            # Clean up origin visualizer
+            if hasattr(self, 'origin_visualizer'):
+                self.origin_visualizer.cleanup()
             
             # Clear any cached data
             if hasattr(self, 'app') and self.app:

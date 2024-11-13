@@ -171,6 +171,9 @@ Error Rates: 4xx={df['error_rate_4xx'].mean()*100:.2f}%, 5xx={df['error_rate_5xx
     Cache: {dimensions.get('cacheStatus')}
     Path: {dimensions.get('clientRequestPath')}
     Upper Tier: {dimensions.get('upperTierColoName', 'None')}
+    ASN: {dimensions.get('clientAsn', 'None')}
+    Protocol: {dimensions.get('clientRequestHTTPProtocol', 'None')}
+    Country: {dimensions.get('clientCountryName', 'None')}
     """)
 
             # Categorize cache status
@@ -187,6 +190,7 @@ Error Rates: 4xx={df['error_rate_4xx'].mean()*100:.2f}%, 5xx={df['error_rate_5xx
                 
                 # Request metadata
                 'country': dimensions.get('clientCountryName', 'Unknown'),
+                'clientAsn': dimensions.get('clientAsn', 'Unknown'),
                 'device_type': dimensions.get('clientDeviceType', 'Unknown'),
                 'protocol': dimensions.get('clientRequestHTTPProtocol', 'Unknown'),
                 'content_type': dimensions.get('edgeResponseContentTypeName', 'Unknown'),
@@ -195,11 +199,13 @@ Error Rates: 4xx={df['error_rate_4xx'].mean()*100:.2f}%, 5xx={df['error_rate_5xx
                 'clientRequestMethod': dimensions.get('clientRequestHTTPMethodName', 'GET'),
                 'clientRequestHTTPHost': dimensions.get('clientRequestHTTPHost', 'unknown'),
                 'edgeResponseStatus': dimensions.get('edgeResponseStatus', 0),
+                'clientIP': dimensions.get('clientIP', 'Unknown'),
+                'clientRefererHost': dimensions.get('clientRefererHost', 'unknown'),
                 
                 # Cache and tier information
                 'cache_status': cache_status,
                 'cache_category': cache_category,
-                'upperTierColoName': dimensions.get('upperTierColoName'),  # Added this field
+                'upperTierColoName': dimensions.get('upperTierColoName'),
                 
                 # Performance metrics
                 'ttfb_avg': avg_metrics.get('edgeTimeToFirstByteMs', 0),
