@@ -11,7 +11,7 @@
   <meta name="generator" content="quarto-1.4.554">
 
   <meta name="author" content="Erfi Anugrah">
-  <title>How to Identify Performance Bottlenecks with Cloudflare’s GraphQL Datasets</title>
+  <title>How to Identify Performance Bottlenecks   and Solving Them with the Ruleset Engine</title>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
@@ -29,6 +29,71 @@
       margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
       vertical-align: middle;
     }
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+      }
+    pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+    div.sourceCode
+      { color: #f8f8f2;  }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span { color: #f8f8f2; } /* Normal */
+    code span.al { color: #f07178; background-color: #2a0f15; font-weight: bold; } /* Alert */
+    code span.an { color: #d4d0ab; } /* Annotation */
+    code span.at { color: #00e0e0; } /* Attribute */
+    code span.bn { color: #d4d0ab; } /* BaseN */
+    code span.bu { color: #abe338; } /* BuiltIn */
+    code span.cf { color: #ffa07a; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #abe338; } /* Char */
+    code span.cn { color: #ffd700; } /* Constant */
+    code span.co { color: #f8f8f2; font-style: italic; } /* Comment */
+    code span.cv { color: #ffd700; } /* CommentVar */
+    code span.do { color: #f8f8f2; } /* Documentation */
+    code span.dt { color: #ffa07a; } /* DataType */
+    code span.dv { color: #d4d0ab; } /* DecVal */
+    code span.er { color: #f07178; text-decoration: underline; } /* Error */
+    code span.ex { color: #00e0e0; font-weight: bold; } /* Extension */
+    code span.fl { color: #d4d0ab; } /* Float */
+    code span.fu { color: #ffa07a; } /* Function */
+    code span.im { color: #abe338; } /* Import */
+    code span.in { color: #d4d0ab; } /* Information */
+    code span.kw { color: #ffa07a; font-weight: bold; } /* Keyword */
+    code span.op { color: #ffa07a; } /* Operator */
+    code span.ot { color: #00e0e0; } /* Other */
+    code span.pp { color: #dcc6e0; } /* Preprocessor */
+    code span.re { color: #00e0e0; background-color: #f8f8f2; } /* RegionMarker */
+    code span.sc { color: #abe338; } /* SpecialChar */
+    code span.ss { color: #abe338; } /* SpecialString */
+    code span.st { color: #abe338; } /* String */
+    code span.va { color: #00e0e0; } /* Variable */
+    code span.vs { color: #abe338; } /* VerbatimString */
+    code span.wa { color: #dcc6e0; } /* Warning */
   </style>
   <link rel="stylesheet" href="cdn_files/libs/revealjs/dist/theme/quarto.css">
   <link href="cdn_files/libs/revealjs/plugin/quarto-line-highlight/line-highlight.css" rel="stylesheet">
@@ -332,7 +397,7 @@
     <div class="slides">
 
 <section id="title-slide" class="quarto-title-block center">
-  <h1 class="title">How to Identify Performance Bottlenecks with Cloudflare’s GraphQL Datasets</h1>
+  <h1 class="title">How to Identify Performance Bottlenecks <br> and Solving Them with the Ruleset Engine</h1>
 
 <div class="quarto-title-authors">
 <div class="quarto-title-author">
@@ -347,89 +412,75 @@ Erfi Anugrah
 <h2>Overview</h2>
 <p><strong>What we’ll cover:</strong></p>
 <ol type="1">
-<li class="fragment">Understanding Performance Metrics</li>
-<li class="fragment">Common Performance Issues</li>
-<li class="fragment">Analysis Workflow</li>
-<li class="fragment">Performance Troubleshooting</li>
-<li class="fragment">Demo</li>
+<li>Key Performance Metrics to Monitor</li>
+<li>Common Performance Bottlenecks</li>
+<li>Analysis Methodology</li>
+<li>GraphQL Data Collection</li>
+<li>Troubleshooting Workflow</li>
+<li>Implementation Solutions</li>
 </ol>
 </section>
-<section id="key-metrics" class="slide level2 smaller">
-<h2>Key Metrics</h2>
+<section id="key-performance-metrics" class="slide level2">
+<h2>Key Performance Metrics</h2>
 <div class="columns">
 <div class="column" style="width:30%;">
 <h3 id="response-times">1. Response Times</h3>
 <ul>
-<li class="fragment"><strong>Edge TTFB</strong> (Time to First Byte)
-<ul>
-<li class="fragment">&lt; 100ms: Excellent</li>
-<li class="fragment">100-200ms: Good</li>
-<li class="fragment"><blockquote>
-<p>200ms: Investigate origin</p>
-</blockquote></li>
-</ul></li>
-<li class="fragment"><strong>Origin Response Time</strong>
-<ul>
-<li class="fragment">&lt; 200ms: Optimal</li>
-<li class="fragment">200-500ms: Review</li>
-<li class="fragment"><blockquote>
-<p>500ms: Critical investigation</p>
-</blockquote></li>
-</ul></li>
-<li class="fragment"><strong>P50/P95/P99 Latencies</strong>
-<ul>
-<li class="fragment">Monitor trend changes</li>
-<li class="fragment">Alert on sudden spikes</li>
-</ul></li>
+<li><p><strong>Edge TTFB</strong></p></li>
+<li><p><strong>Origin Response Time</strong></p></li>
+<li><p><strong>Cache Performance</strong></p></li>
 </ul>
 </div><div class="column" style="width:30%;">
-<h3 id="cache-stats">2. Cache Stats</h3>
+<h3 id="geographic-distribution">2. Geographic Distribution</h3>
 <ul>
-<li class="fragment"><strong>Hit Ratio</strong>
-<ul>
-<li class="fragment"><blockquote>
-<p>90%: Excellent</p>
-</blockquote></li>
-<li class="fragment">80-90%: Room for optimization</li>
-<li class="fragment">&lt; 80%: Needs investigation</li>
-</ul></li>
-<li class="fragment"><strong>Cache Status Distribution</strong>
-<ul>
-<li class="fragment">Monitor MISS patterns</li>
-<li class="fragment">Track BYPASS reasons</li>
-<li class="fragment">Analyze EXPIRED vs UPDATING</li>
-</ul></li>
-<li class="fragment"><strong>TTL Analysis</strong>
-<ul>
-<li class="fragment">Review effectiveness</li>
-<li class="fragment">Check browser cache alignment</li>
-</ul></li>
+<li><p><strong>Regional Latency</strong></p></li>
+<li><p><strong>Cache Efficiency</strong></p></li>
+<li><p><strong>Error Distribution</strong></p></li>
 </ul>
 </div><div class="column" style="width:30%;">
-<h3 id="reliability">3. Reliability</h3>
+<h3 id="resource-utilization">3. Resource Utilization</h3>
 <ul>
-<li class="fragment"><strong>Error Rates</strong>
-<ul>
-<li class="fragment">4xx baseline monitoring</li>
-<li class="fragment">5xx &lt; 0.1% target</li>
-<li class="fragment">Timeout patterns</li>
-</ul></li>
-<li class="fragment"><strong>Geographic Distribution</strong>
-<ul>
-<li class="fragment">Regional latency patterns</li>
-<li class="fragment">Cache efficiency by location</li>
-</ul></li>
-<li class="fragment"><strong>Network Health</strong>
-<ul>
-<li class="fragment">MTR results</li>
-<li class="fragment">Packet loss rates</li>
-</ul></li>
+<li><strong>Origin Load</strong></li>
+<li><strong>Application Bottlenecks</strong></li>
 </ul>
 </div>
 </div>
 </section>
-<section id="analysis-flow" class="slide level2">
-<h2>Analysis Flow</h2>
+<section id="common-performance-bottlenecks" class="slide level2">
+<h2>Common Performance Bottlenecks</h2>
+<div class="columns">
+<div class="column" style="width:30%;">
+<h3 id="cache-issues">1. Cache Issues</h3>
+<ul>
+<li>Low cache hit ratios</li>
+<li>Frequent cache BYPASS/MISS</li>
+<li>Ineffective/low TTLs</li>
+<li>Poor cache key design</li>
+<li>Missing cache rules</li>
+<li>Dynamic content handling</li>
+</ul>
+</div><div class="column" style="width:30%;">
+<h3 id="network-problems">2. Network Problems</h3>
+<ul>
+<li>High origin latency</li>
+<li>Poor routing paths</li>
+<li>Regional connectivity</li>
+<li>Connection limits</li>
+</ul>
+</div><div class="column" style="width:30%;">
+<h3 id="origin-issues">3. Origin Issues</h3>
+<ul>
+<li>Server overload</li>
+<li>Database bottlenecks</li>
+<li>Resource exhaustion</li>
+<li>Timeout configuration</li>
+<li>Error handling</li>
+</ul>
+</div>
+</div>
+</section>
+<section id="analysis-workflow" class="slide level2">
+<h2>Analysis Workflow</h2>
 <style>
 .mermaid-container {
   display: flex;
@@ -448,22 +499,22 @@ Erfi Anugrah
 }
 
 #mermaid-1 {
-  width: 720px;
+  width: 2500px;
 }
 #mermaid-2 {
-  width: 650px;
+  width: 950px;
 }
 #mermaid-3 {
-  width: 720px;
+  width: 1000px;
 }
 #mermaid-4 {
-  width: 720px;
+  width: 1000px;
 }
 #mermaid-5 {
-  width: 720px;
+  width: 1000px;
 }
 #mermaid-6 {
-  width: 720px;
+  width: 1000px;
 }
 </style>
 <div class="mermaid-container">
@@ -484,168 +535,44 @@ Erfi Anugrah
     'mainBkg': '#2d3436',
     'nodeBorder': '#ff9800',
     'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800',
-    'fontSize': '20px'
-  },
-  'flowchart': {
-    'nodeSpacing': 50,
-    'rankSpacing': 100,
-    'curve': 'basis'
+    'clusterBorder': '#ff9800'
   }
 }}%%
 graph TB
-    Collect[Collect Metrics] --&gt; Analyze{Analysis}
-    Analyze --&gt; Edge[Edge Analysis]
-    Analyze --&gt; Origin[Origin Analysis]
-    Analyze --&gt; Cache[Cache Analysis]
-    Edge --&gt; TTFB[Edge TTFB]
-    Edge --&gt; Geo[Geographic Distribution]
-    Edge --&gt; Errors[Error Rates]
-    Origin --&gt; Geo[Geographic Distribution]
-    Origin --&gt; Errors[Error Rates]
-    Origin --&gt; Response[Origin Response Time]
+    Start[Performance Issue] --&gt; Identify{Identify Problem Type}
+    Identify --&gt; Cache[Cache Analysis]
+    Identify --&gt; Network[Network Analysis]
+    Identify --&gt; Origin[Origin Analysis]
+    
+    Cache --&gt; CacheMetrics[Cache Metrics]
     Cache --&gt; HitRatio[Hit Ratio]
-    TTFB --&gt; Issues{Issues}
-    Geo --&gt; Issues
-    Response --&gt; Issues
-    Errors --&gt; Issues
-    HitRatio --&gt; Issues
-
-    classDef orange fill:#ff9800,stroke:#fff,stroke-width:4px,color:#fff;
-    classDef blue fill:#006064,stroke:#fff,stroke-width:4px,color:#fff;
-    classDef green fill:#4caf50,stroke:#fff,stroke-width:4px,color:#fff;
-
-    class Collect,Analyze orange;
-    class Edge,Origin,Cache blue;
-    class TTFB,Geo,Response,Errors,HitRatio,Efficiency green;
-    class Issues orange;
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-</div>
-</section>
-<section id="request-flow" class="slide level2">
-<h2>Request Flow</h2>
-<div class="mermaid-container">
-<div class="cell" data-reveal="true" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class=""><p></p>
-<div>
-<pre class="mermaid mermaid-js">%%{init: {
-  'theme': 'dark',
-  'themeVariables': {
-    'primaryColor': '#ff9800',
-    'primaryTextColor': '#fff',
-    'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
-    'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
-    'actorBorder': '#ff9800',
-    'actorBackground': '#ff9800',
-    'actorTextColor': '#fff',
-    'noteBorderColor': '#006064',
-    'noteTextColor': '#fff',
-    'noteBackground': '#006064'
-  }
-}}%%
-sequenceDiagram
-    participant User
-    participant Edge
-    participant Cache
-    participant Origin
+    Cache --&gt; CacheRules[Cache Rules]
     
-    User-&gt;&gt;Edge: Request
-    Edge-&gt;&gt;Cache: Check Cache
-    alt Cache Hit
-        Cache--&gt;&gt;Edge: Serve from Cache
-        Edge--&gt;&gt;User: Fast Response
-        Note over Edge,User: Typical: &lt;50ms
-    else Cache Miss
-        Cache--&gt;&gt;Edge: Not Found
-        Edge-&gt;&gt;Origin: Forward Request
-        Note over Origin: Process Request
-        Origin--&gt;&gt;Edge: Response
-        Edge-&gt;&gt;Cache: Store in Cache
-        Edge--&gt;&gt;User: Slower Response
-        Note over Edge,User: Typical: &gt;100ms
-    end
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-</div>
-</section>
-<section id="performance-troubleshooting-flow" class="slide level2">
-<h2>Performance Troubleshooting Flow</h2>
-<div class="mermaid-container">
-<div class="cell" data-reveal="true" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class=""><p></p>
-<div>
-<pre class="mermaid mermaid-js">%%{init: {
-  'theme': 'dark',
-  'themeVariables': {
-    'primaryColor': '#ff9800',
-    'primaryTextColor': '#fff',
-    'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
-    'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
-    'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
-  }
-}}%%
-graph TB
-    Start[High Latency Detected] --&gt; Type{Issue Type}
-    Type --&gt;|High TTFB| Network[Network Analysis]
-    Type --&gt;|Low Cache| Cache[Cache Analysis]
-    Type --&gt;|High Errors| Error[Error Analysis]
+    Network --&gt; Latency[Latency Analysis]
+    Network --&gt; Routes[Route Analysis]
+    Network --&gt; Geo[Geographic Distribution]
     
-    Network --&gt; MTR[MTR Tests]
-    Network --&gt; Routes[BGP Routes]
-    Network --&gt; Peering[Peering Check]
+    Origin --&gt; Server[Server Metrics]
+    Origin --&gt; Database[Database]
+    Origin --&gt; Application[Application]
     
-    MTR --&gt; AppCheck{App or Network?}
-    Routes --&gt; AppCheck
-    Peering --&gt; AppCheck
-    
-    AppCheck --&gt;|App| Application[Application Analysis]
-    AppCheck --&gt;|Network| NetworkFix[Network Optimization]
-    
-    Application --&gt; Traces[Check Traces]
-    Application --&gt; Metrics[Prometheus Metrics]
-    Application --&gt; Database[DB Performance]
-    
-    Cache --&gt; Rules[Cache Rules]
-    Cache --&gt; Headers[Origin Headers]
-    Cache --&gt; Content[Content Analysis]
-    
-    Rules --&gt; CacheFix[Cache Optimization]
-    Headers --&gt; CacheFix
-    Content --&gt; CacheFix
-    
-    Error --&gt; Origins[Origin Health]
-    Error --&gt; Services[Service Status]
-    Error --&gt; Resources[Resource Usage]
+    CacheMetrics --&gt; Solution{Solution}
+    HitRatio --&gt; Solution
+    CacheRules --&gt; Solution
+    Latency --&gt; Solution
+    Geo --&gt; Solution
+    Routes --&gt; Solution
+    Server --&gt; Solution
+    Database --&gt; Solution
+    Application --&gt; Solution
 
     classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
     classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
     classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
 
-    class Start,Type orange;
-    class Network,Cache,Error blue;
-    class MTR,Routes,Peering,Application,Rules,Headers,Content,Origins,Services,Resources green;
+    class Start,Identify,Solution orange;
+    class Cache,Network,Origin blue;
+    class CacheMetrics,HitRatio,CacheRules,Latency,Routes,SSL,Server,Database,Application,Geo green;
 </pre>
 </div>
 <p></p></figure><p></p>
@@ -654,295 +581,292 @@ graph TB
 </div>
 </div>
 </section>
-<section id="common-issues" class="slide level2 smaller">
-<h2>Common Issues</h2>
-<div class="columns">
-<div class="column" style="width:30%;">
-<h3 id="high-ttfb">1. High TTFB</h3>
-<p><strong>Investigation Steps:</strong> 1. Network Path - MTR analysis - Route optimization - Peering review</p>
-<ol start="2" type="1">
-<li class="fragment">Application Performance
+<section id="initial-investigation-steps" class="slide level2 smaller">
+<h2>Initial Investigation Steps</h2>
+<h3 id="baseline-metrics">1. Baseline Metrics</h3>
 <ul>
-<li class="fragment">Trace analysis</li>
-<li class="fragment">Resource monitoring</li>
-<li class="fragment">Service dependencies</li>
-</ul></li>
-<li class="fragment">Database
+<li>Current cache hit ratio</li>
+<li>Average response times</li>
+<li>Quantiles for response times</li>
+<li>Error rate patterns</li>
+<li>Geographic distribution</li>
+<li>Resource utilization</li>
+</ul>
+<h3 id="impact-assessment">2. Impact Assessment</h3>
 <ul>
-<li class="fragment">Query optimization</li>
-<li class="fragment">Connection pooling</li>
-<li class="fragment">Index efficiency</li>
-</ul></li>
-</ol>
-</div><div class="column" style="width:30%;">
-<h3 id="cache-problems">2. Cache Problems</h3>
-<p><strong>Investigation Steps:</strong> 1. Cache Rules - Key composition - TTL settings - Bypass conditions</p>
-<ol start="2" type="1">
-<li class="fragment">Content Analysis
+<li>Affected regions</li>
+<li>User experience impact</li>
+<li>Origin load</li>
+<li>Bandwidth implications</li>
+</ul>
+<h3 id="root-cause-analysis">3. Root Cause Analysis</h3>
 <ul>
-<li class="fragment">Status patterns</li>
-<li class="fragment">URL patterns</li>
-<li class="fragment">User behavior</li>
-</ul></li>
-<li class="fragment">Origin Config
-<ul>
-<li class="fragment">Cache headers</li>
-<li class="fragment">Revalidation</li>
-<li class="fragment">Compression</li>
-</ul></li>
-</ol>
-</div><div class="column" style="width:30%;">
-<h3 id="regional-issues">3. Regional Issues</h3>
-<p><strong>Investigation Steps:</strong> 1. Network - Local MTR results - Regional routes - DC connectivity</p>
-<ol start="2" type="1">
-<li class="fragment">Traffic Patterns
-<ul>
-<li class="fragment">Load distribution</li>
-<li class="fragment">Request types</li>
-<li class="fragment">Error patterns</li>
-</ul></li>
-<li class="fragment">Cache Efficiency
-<ul>
-<li class="fragment">Regional hit ratios</li>
-<li class="fragment">Content locality</li>
-<li class="fragment">Edge performance</li>
-</ul></li>
-</ol>
-</div>
-</div>
+<li>Timeline correlation</li>
+<li>Configuration review</li>
+<li>Log analysis</li>
+<li>Performance profiling</li>
+</ul>
 </section>
-<section id="geographic-analysis" class="slide level2">
-<h2>Geographic Analysis</h2>
-<div class="mermaid-container">
-<div class="cell" data-reveal="true" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class=""><p></p>
-<div>
-<pre class="mermaid mermaid-js">%%{init: {
-  'theme': 'dark',
-  'themeVariables': {
-    'primaryColor': '#ff9800',
-    'primaryTextColor': '#fff',
-    'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
-    'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
-    'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
-  }
-}}%%
-graph TB
-    A[Geographic Analysis] --&gt; B{Performance Metrics}
-    B --&gt; C[Response Times]
-    B --&gt; D[Cache Performance]
-    B --&gt; E[Error Rates]
-    C --&gt; F[Regional TTFB]
-    C --&gt; G[Origin Latency]
-    D --&gt; H[Regional Cache Hits]
-    D --&gt; I[Bandwidth Usage]
-    E --&gt; J[Error Distribution]
-    E --&gt; K[Timeout Patterns]
-    F --&gt; L{Action Items}
-    G --&gt; L
-    H --&gt; L
-    I --&gt; L
-    J --&gt; L
-    K --&gt; L
-    L --&gt; M[Build Observability]
-    L --&gt; N[Origin Placement]
-    L --&gt; O[Cache Rules]
-    L --&gt; P[Error Handling]
-
-    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
-
-    class A,B,L orange;
-    class C,D,E blue;
-    class F,G,H,I,J,K,M,N,O,P green;
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-</div>
+<section id="graphql-performance-analysis" class="slide level2 scrollable">
+<h2>GraphQL Performance Analysis</h2>
+<div class="sourceCode" id="cb1"><pre class="sourceCode numberSource graphql number-lines code-with-copy"><code class="sourceCode graphql"><span id="cb1-1"><a href=""></a><span class="kw">query</span> ZoneMetricsBasic(<span class="va">$zoneTag</span>: <span class="dt">String</span>!, <span class="va">$filter</span>: ZoneHttpRequestsAdaptiveGroupsFilter!) {</span>
+<span id="cb1-2"><a href=""></a>  viewer {</span>
+<span id="cb1-3"><a href=""></a>    zones(filter: { zoneTag: <span class="va">$zoneTag</span> }) {</span>
+<span id="cb1-4"><a href=""></a>      httpRequestsAdaptiveGroups(</span>
+<span id="cb1-5"><a href=""></a>        limit: <span class="dv">5000</span></span>
+<span id="cb1-6"><a href=""></a>        filter: <span class="va">$filter</span></span>
+<span id="cb1-7"><a href=""></a>        orderBy: [datetimeMinute_DESC]</span>
+<span id="cb1-8"><a href=""></a>      ) {</span>
+<span id="cb1-9"><a href=""></a>        dimensions {</span>
+<span id="cb1-10"><a href=""></a>          datetimeMinute</span>
+<span id="cb1-11"><a href=""></a>          clientCountryName</span>
+<span id="cb1-12"><a href=""></a>          clientDeviceType</span>
+<span id="cb1-13"><a href=""></a>          clientRequestHTTPProtocol</span>
+<span id="cb1-14"><a href=""></a>          edgeResponseContentTypeName</span>
+<span id="cb1-15"><a href=""></a>          edgeResponseStatus</span>
+<span id="cb1-16"><a href=""></a>          cacheStatus</span>
+<span id="cb1-17"><a href=""></a>          coloCode</span>
+<span id="cb1-18"><a href=""></a>          upperTierColoName</span>
+<span id="cb1-19"><a href=""></a>        }</span>
+<span id="cb1-20"><a href=""></a>        avg {</span>
+<span id="cb1-21"><a href=""></a>          sampleInterval</span>
+<span id="cb1-22"><a href=""></a>          edgeTimeToFirstByteMs</span>
+<span id="cb1-23"><a href=""></a>          originResponseDurationMs</span>
+<span id="cb1-24"><a href=""></a>        }</span>
+<span id="cb1-25"><a href=""></a>        sum {</span>
+<span id="cb1-26"><a href=""></a>          visits</span>
+<span id="cb1-27"><a href=""></a>          edgeResponseBytes</span>
+<span id="cb1-28"><a href=""></a>        }</span>
+<span id="cb1-29"><a href=""></a>        count</span>
+<span id="cb1-30"><a href=""></a>        ratio {</span>
+<span id="cb1-31"><a href=""></a>          status4xx</span>
+<span id="cb1-32"><a href=""></a>          status5xx</span>
+<span id="cb1-33"><a href=""></a>        }</span>
+<span id="cb1-34"><a href=""></a>      }</span>
+<span id="cb1-35"><a href=""></a>    }</span>
+<span id="cb1-36"><a href=""></a>  }</span>
+<span id="cb1-37"><a href=""></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><br></p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode numberSource graphql number-lines code-with-copy"><code class="sourceCode graphql"><span id="cb2-1"><a href=""></a><span class="kw">query</span> ZoneMetricsDetailed(<span class="va">$zoneTag</span>: <span class="dt">String</span>!, <span class="va">$filter</span>: ZoneHttpRequestsAdaptiveGroupsFilter!) {</span>
+<span id="cb2-2"><a href=""></a>  viewer {</span>
+<span id="cb2-3"><a href=""></a>    zones(filter: { zoneTag: <span class="va">$zoneTag</span> }) {</span>
+<span id="cb2-4"><a href=""></a>      httpRequestsAdaptiveGroups(</span>
+<span id="cb2-5"><a href=""></a>        limit: <span class="dv">5000</span></span>
+<span id="cb2-6"><a href=""></a>        filter: <span class="va">$filter</span></span>
+<span id="cb2-7"><a href=""></a>        orderBy: [datetimeMinute_DESC]</span>
+<span id="cb2-8"><a href=""></a>      ) {</span>
+<span id="cb2-9"><a href=""></a>        dimensions {</span>
+<span id="cb2-10"><a href=""></a>          datetimeMinute</span>
+<span id="cb2-11"><a href=""></a>          clientAsn</span>
+<span id="cb2-12"><a href=""></a>          clientIP</span>
+<span id="cb2-13"><a href=""></a>          clientRefererHost</span>
+<span id="cb2-14"><a href=""></a>          clientRequestHTTPHost</span>
+<span id="cb2-15"><a href=""></a>          clientRequestPath</span>
+<span id="cb2-16"><a href=""></a>          clientRequestHTTPMethodName</span>
+<span id="cb2-17"><a href=""></a>        }</span>
+<span id="cb2-18"><a href=""></a>        quantiles {</span>
+<span id="cb2-19"><a href=""></a>          edgeTimeToFirstByteMsP50</span>
+<span id="cb2-20"><a href=""></a>          edgeTimeToFirstByteMsP95</span>
+<span id="cb2-21"><a href=""></a>          edgeTimeToFirstByteMsP99</span>
+<span id="cb2-22"><a href=""></a>          originResponseDurationMsP50</span>
+<span id="cb2-23"><a href=""></a>          originResponseDurationMsP95</span>
+<span id="cb2-24"><a href=""></a>          originResponseDurationMsP99</span>
+<span id="cb2-25"><a href=""></a>        }</span>
+<span id="cb2-26"><a href=""></a>        sum {</span>
+<span id="cb2-27"><a href=""></a>          edgeTimeToFirstByteMs</span>
+<span id="cb2-28"><a href=""></a>          originResponseDurationMs</span>
+<span id="cb2-29"><a href=""></a>        }</span>
+<span id="cb2-30"><a href=""></a>      }</span>
+<span id="cb2-31"><a href=""></a>    }</span>
+<span id="cb2-32"><a href=""></a>  }</span>
+<span id="cb2-33"><a href=""></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </section>
-<section id="optimization-recommendations" class="slide level2 smaller">
-<h2>Optimization Recommendations</h2>
-<table>
-<colgroup>
-<col style="width: 14%">
-<col style="width: 38%">
-<col style="width: 24%">
-<col style="width: 24%">
-</colgroup>
-<thead>
-<tr class="header">
-<th>Issue</th>
-<th>Investigation Steps</th>
-<th>Solutions</th>
-<th>Validation</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td><strong>High TTFB</strong></td>
-<td>1. MTR Analysis<br>2. App Traces<br>3. Resource Monitoring</td>
-<td>- Optimize app code<br>- Scale resources<br>- Enable Argo<br>- Tune DB queries</td>
-<td>- Monitor p95 latency<br>- Check CPU/Memory<br>- Verify trace improvements</td>
-</tr>
-<tr class="even">
-<td><strong>Low Cache Hit</strong></td>
-<td>1. Rule Analysis<br>2. Content Patterns<br>3. Header Review</td>
-<td>- Optimize cache rules<br>- Adjust TTLs<br>- Review cache keys<br>- Set browser cache</td>
-<td>- Track hit ratio<br>- Monitor bandwidth<br>- Verify header changes</td>
-</tr>
-<tr class="odd">
-<td><strong>Regional Issues</strong></td>
-<td>1. Network Path<br>2. Traffic Analysis<br>3. Edge Performance</td>
-<td>- Add origin locations<br>- Optimize routes<br>- Review peering<br>- Adjust load balancing</td>
-<td>- Check regional latency<br>- Monitor error rates<br>- Verify path improvements</td>
-</tr>
-<tr class="even">
-<td><strong>High Errors</strong></td>
-<td>1. Error Patterns<br>2. Service Health<br>3. Resource Limits</td>
-<td>- Scale services<br>- Add redundancy<br>- Implement retries<br>- Set rate limits</td>
-<td>- Track error rates<br>- Monitor availability<br>- Check success rates</td>
-</tr>
-</tbody>
-</table>
+<section id="cache-optimization-solutions" class="slide level2 scrollable">
+<h2>Cache Optimization Solutions</h2>
+<h4 id="static-content-caching">1. Static Content Caching</h4>
+<div class="sourceCode" id="cb3"><pre class="sourceCode numberSource hcl number-lines code-with-copy"><code class="sourceCode"><span id="cb3-1"><a href=""></a>resource "cloudflare_ruleset" "static_cache" {</span>
+<span id="cb3-2"><a href=""></a>  zone_id = var.zone_id</span>
+<span id="cb3-3"><a href=""></a>  name    = "Static Content Optimization"</span>
+<span id="cb3-4"><a href=""></a>  phase   = "http_request_cache_settings"</span>
+<span id="cb3-5"><a href=""></a></span>
+<span id="cb3-6"><a href=""></a>  rules {</span>
+<span id="cb3-7"><a href=""></a>    action = "set_cache_settings"</span>
+<span id="cb3-8"><a href=""></a>    action_parameters {</span>
+<span id="cb3-9"><a href=""></a>      cache = true</span>
+<span id="cb3-10"><a href=""></a>      edge_ttl {</span>
+<span id="cb3-11"><a href=""></a>        default = 31536000  # 1 year</span>
+<span id="cb3-12"><a href=""></a>        mode    = "override_origin"</span>
+<span id="cb3-13"><a href=""></a>      }</span>
+<span id="cb3-14"><a href=""></a>      browser_ttl {</span>
+<span id="cb3-15"><a href=""></a>        default = 86400    # 1 day</span>
+<span id="cb3-16"><a href=""></a>        mode    = "override_origin"</span>
+<span id="cb3-17"><a href=""></a>      }</span>
+<span id="cb3-18"><a href=""></a>      cache_key {</span>
+<span id="cb3-19"><a href=""></a>        custom_key {</span>
+<span id="cb3-20"><a href=""></a>          query_string {</span>
+<span id="cb3-21"><a href=""></a>            exclude = ["*"]  # Ignore all query params</span>
+<span id="cb3-22"><a href=""></a>          }</span>
+<span id="cb3-23"><a href=""></a>        }</span>
+<span id="cb3-24"><a href=""></a>        cache_deception_armor = true</span>
+<span id="cb3-25"><a href=""></a>      }</span>
+<span id="cb3-26"><a href=""></a>    }</span>
+<span id="cb3-27"><a href=""></a>    expression = "(http.request.uri.path matches \"\\.(jpg|jpeg|gif|png|ico|css|js|svg|woff2)$\")"</span>
+<span id="cb3-28"><a href=""></a>  }</span>
+<span id="cb3-29"><a href=""></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><br></p>
+<h4 id="api-response-caching">2. API Response Caching</h4>
+<div class="sourceCode" id="cb4"><pre class="sourceCode numberSource hcl number-lines code-with-copy"><code class="sourceCode"><span id="cb4-1"><a href=""></a>resource "cloudflare_ruleset" "api_cache" {</span>
+<span id="cb4-2"><a href=""></a>  zone_id = var.zone_id</span>
+<span id="cb4-3"><a href=""></a>  name    = "API Cache"</span>
+<span id="cb4-4"><a href=""></a>  phase   = "http_request_cache_settings"</span>
+<span id="cb4-5"><a href=""></a></span>
+<span id="cb4-6"><a href=""></a>  rules {</span>
+<span id="cb4-7"><a href=""></a>    action = "set_cache_settings"</span>
+<span id="cb4-8"><a href=""></a>    action_parameters {</span>
+<span id="cb4-9"><a href=""></a>      cache = true</span>
+<span id="cb4-10"><a href=""></a>      cache_key {</span>
+<span id="cb4-11"><a href=""></a>        custom_key {</span>
+<span id="cb4-12"><a href=""></a>          header {</span>
+<span id="cb4-13"><a href=""></a>            include = ["Authorization"]</span>
+<span id="cb4-14"><a href=""></a>          }</span>
+<span id="cb4-15"><a href=""></a>          query_string {</span>
+<span id="cb4-16"><a href=""></a>            include = ["version", "locale"]</span>
+<span id="cb4-17"><a href=""></a>          }</span>
+<span id="cb4-18"><a href=""></a>        }</span>
+<span id="cb4-19"><a href=""></a>      }</span>
+<span id="cb4-20"><a href=""></a>      edge_ttl {</span>
+<span id="cb4-21"><a href=""></a>        default = 300  # 5 minutes</span>
+<span id="cb4-22"><a href=""></a>        mode    = "respect_origin"</span>
+<span id="cb4-23"><a href=""></a>      }</span>
+<span id="cb4-24"><a href=""></a>      serve_stale {</span>
+<span id="cb4-25"><a href=""></a>        disable_stale_while_updating = false</span>
+<span id="cb4-26"><a href=""></a>      }</span>
+<span id="cb4-27"><a href=""></a>    }</span>
+<span id="cb4-28"><a href=""></a>    expression = "(http.host eq \"api.example.com\" and http.request.uri.path contains \"/v1/\")"</span>
+<span id="cb4-29"><a href=""></a>  }</span>
+<span id="cb4-30"><a href=""></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </section>
-<section id="monitoring-structure" class="slide level2">
-<h2>Monitoring Structure</h2>
-<div class="mermaid-container">
-<div class="cell" data-reveal="true" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class=""><p></p>
-<div>
-<pre class="mermaid mermaid-js">%%{init: {
-  'theme': 'dark',
-  'themeVariables': {
-    'primaryColor': '#ff9800',
-    'primaryTextColor': '#fff',
-    'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
-    'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
-    'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
-  }
-}}%%
-graph TB
-    Monitor[Monitoring System] --&gt; Tools{Tool Type}
-    Tools --&gt; Analytics[Analytics Tools]
-    Tools --&gt; Metrics[Key Metrics]
-    Tools --&gt; Alerts[Alert System]
-    
-    Analytics --&gt; Grafana[Grafana]
-    Analytics --&gt; Prometheus[Prometheus]
-    Analytics --&gt; Traces[App Traces]
-    
-    Metrics --&gt; Response[Response Times]
-    Metrics --&gt; Cache[Cache Stats]
-    Metrics --&gt; Errors[Error Rates]
-    
-    Alerts --&gt; TTFB[TTFB &gt; 200ms]
-    Alerts --&gt; CacheHit[Cache &lt; 80%]
-    Alerts --&gt; ErrorRate[5xx &gt; 0.1%]
-
-    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
-
-    class Monitor,Tools orange;
-    class Analytics,Metrics,Alerts blue;
-    class Grafana,Prometheus,Traces,Response,Cache,Errors,TTFB,CacheHit,ErrorRate green;
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-</div>
+<section id="network-optimization" class="slide level2 scrollable">
+<h2>Network Optimization</h2>
+<h4 id="argo-smart-routing">1. Argo Smart Routing</h4>
+<div class="sourceCode" id="cb5"><pre class="sourceCode numberSource hcl number-lines code-with-copy"><code class="sourceCode"><span id="cb5-1"><a href=""></a>resource "cloudflare_argo" "argo" {</span>
+<span id="cb5-2"><a href=""></a>  zone_id        = var.cloudflare_zone_id</span>
+<span id="cb5-3"><a href=""></a>  smart_routing  = "on"</span>
+<span id="cb5-4"><a href=""></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><br></p>
+<h4 id="tiered-cache">2. Tiered Cache</h4>
+<div class="sourceCode" id="cb6"><pre class="sourceCode numberSource hcl number-lines code-with-copy"><code class="sourceCode"><span id="cb6-1"><a href=""></a>resource "cloudflare_tiered_cache" "tc" {</span>
+<span id="cb6-2"><a href=""></a>  zone_id        = var.cloudflare_zone_id</span>
+<span id="cb6-3"><a href=""></a>  cache_type     = "smart"</span>
+<span id="cb6-4"><a href=""></a>}</span>
+<span id="cb6-5"><a href=""></a></span>
+<span id="cb6-6"><a href=""></a>resource "cloudflare_regional_tiered_cache" "regional_tc" {</span>
+<span id="cb6-7"><a href=""></a>  zone_id        = var.cloudflare_zone_id</span>
+<span id="cb6-8"><a href=""></a>  value          = "on"</span>
+<span id="cb6-9"><a href=""></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><br></p>
+<h4 id="load-balancing">3. Load Balancing</h4>
+<div class="sourceCode" id="cb7"><pre class="sourceCode numberSource hcl number-lines code-with-copy"><code class="sourceCode"><span id="cb7-1"><a href=""></a>resource "cloudflare_load_balancer" "revista" {</span>
+<span id="cb7-2"><a href=""></a>  default_pool_ids = [cloudflare_load_balancer_pool.revista_k3s_nl.id, cloudflare_load_balancer_pool.revista_proxmox_nl.id, cloudflare_load_balancer_pool.revista_ipsec_k3s_nl.id]</span>
+<span id="cb7-3"><a href=""></a>  enabled          = true</span>
+<span id="cb7-4"><a href=""></a>  fallback_pool_id = cloudflare_load_balancer_pool.revista_sg.id</span>
+<span id="cb7-5"><a href=""></a>  name             = var.domain_name</span>
+<span id="cb7-6"><a href=""></a>  proxied          = true</span>
+<span id="cb7-7"><a href=""></a>  session_affinity = "none"</span>
+<span id="cb7-8"><a href=""></a>  steering_policy  = "geo"</span>
+<span id="cb7-9"><a href=""></a>  zone_id          = var.cloudflare_zone_id</span>
+<span id="cb7-10"><a href=""></a>  pop_pools {</span>
+<span id="cb7-11"><a href=""></a>    pop      = "AMS"</span>
+<span id="cb7-12"><a href=""></a>    pool_ids = [cloudflare_load_balancer_pool.revista_k3s_nl.id, cloudflare_load_balancer_pool.revista_proxmox_nl.id, cloudflare_load_balancer_pool.revista_ipsec_k3s_nl.id]</span>
+<span id="cb7-13"><a href=""></a>  }</span>
+<span id="cb7-14"><a href=""></a>  pop_pools {</span>
+<span id="cb7-15"><a href=""></a>    pop      = "SIN"</span>
+<span id="cb7-16"><a href=""></a>    pool_ids = [cloudflare_load_balancer_pool.revista_sg.id]</span>
+<span id="cb7-17"><a href=""></a>  }</span>
+<span id="cb7-18"><a href=""></a>  adaptive_routing {</span>
+<span id="cb7-19"><a href=""></a>    failover_across_pools = true</span>
+<span id="cb7-20"><a href=""></a>  }</span>
+<span id="cb7-21"><a href=""></a>  location_strategy {</span>
+<span id="cb7-22"><a href=""></a>    mode       = "pop"</span>
+<span id="cb7-23"><a href=""></a>    prefer_ecs = "proximity"</span>
+<span id="cb7-24"><a href=""></a>  }</span>
+<span id="cb7-25"><a href=""></a>  random_steering {</span>
+<span id="cb7-26"><a href=""></a>    default_weight = 1</span>
+<span id="cb7-27"><a href=""></a>  }</span>
+<span id="cb7-28"><a href=""></a>  session_affinity_attributes {</span>
+<span id="cb7-29"><a href=""></a>    samesite               = "Auto"</span>
+<span id="cb7-30"><a href=""></a>    secure                 = "Auto"</span>
+<span id="cb7-31"><a href=""></a>    zero_downtime_failover = "temporary"</span>
+<span id="cb7-32"><a href=""></a>  }</span>
+<span id="cb7-33"><a href=""></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><br></p>
+<h4 id="regional-cache-configuration">4. Regional Cache Configuration</h4>
+<div class="sourceCode" id="cb8"><pre class="sourceCode numberSource hcl number-lines code-with-copy"><code class="sourceCode"><span id="cb8-1"><a href=""></a>resource "cloudflare_ruleset" "regional_cache" {</span>
+<span id="cb8-2"><a href=""></a>  zone_id = var.zone_id</span>
+<span id="cb8-3"><a href=""></a>  name    = "Regional Cache Settings"</span>
+<span id="cb8-4"><a href=""></a>  phase   = "http_request_cache_settings"</span>
+<span id="cb8-5"><a href=""></a></span>
+<span id="cb8-6"><a href=""></a>  rules {</span>
+<span id="cb8-7"><a href=""></a>    action = "set_cache_settings"</span>
+<span id="cb8-8"><a href=""></a>    action_parameters {</span>
+<span id="cb8-9"><a href=""></a>      cache = true</span>
+<span id="cb8-10"><a href=""></a>      cache_key {</span>
+<span id="cb8-11"><a href=""></a>        custom_key {</span>
+<span id="cb8-12"><a href=""></a>          user {</span>
+<span id="cb8-13"><a href=""></a>            geo = true</span>
+<span id="cb8-14"><a href=""></a>            device_type = true</span>
+<span id="cb8-15"><a href=""></a>          }</span>
+<span id="cb8-16"><a href=""></a>        }</span>
+<span id="cb8-17"><a href=""></a>      }</span>
+<span id="cb8-18"><a href=""></a>      edge_ttl {</span>
+<span id="cb8-19"><a href=""></a>        default = 3600</span>
+<span id="cb8-20"><a href=""></a>        mode    = "override_origin"</span>
+<span id="cb8-21"><a href=""></a>      }</span>
+<span id="cb8-22"><a href=""></a>    }</span>
+<span id="cb8-23"><a href=""></a>    expression = "(ip.src.country in {\"US\" \"CA\" \"GB\"} and http.request.uri.path contains \"/content/\")"</span>
+<span id="cb8-24"><a href=""></a>  }</span>
+<span id="cb8-25"><a href=""></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </section>
-<section id="alert-response-flow" class="slide level2">
-<h2>Alert Response Flow</h2>
-<div class="mermaid-container">
-<div class="cell" data-reveal="true" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class=""><p></p>
-<div>
-<pre class="mermaid mermaid-js">%%{init: {
-  'theme': 'dark',
-  'themeVariables': {
-    'primaryColor': '#ff9800',
-    'primaryTextColor': '#fff',
-    'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
-    'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
-    'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
-  }
-}}%%
-graph TB
-    Alert[Alert Triggered] --&gt; Type{Alert Type}
-    Type --&gt;|TTFB &gt; 200ms| TTFB[Edge TTFB Alert]
-    Type --&gt;|Cache &lt; 80%| Cache[Cache Alert]
-    Type --&gt;|5xx &gt; 1%| Error[Error Alert]
-    
-    TTFB --&gt; ArgoCheck[Check Argo]
-    TTFB --&gt; SSLCheck[Review SSL]
-    TTFB --&gt; NetworkCheck[Network Path]
-    
-    Cache --&gt; RuleCheck[Review Rules]
-    Cache --&gt; HeaderCheck[Check Headers]
-    Cache --&gt; PatternCheck[MISS Patterns]
-    
-    Error --&gt; OriginHealth[Origin Health]
-    Error --&gt; ServiceCheck[Service Status]
-    Error --&gt; ResourceCheck[Resources]
-    
-    ArgoCheck --&gt; Action1{Optimize?}
-    SSLCheck --&gt; Action1
-    NetworkCheck --&gt; Action1
-    
-    RuleCheck --&gt; Action2{Update?}
-    HeaderCheck --&gt; Action2
-    PatternCheck --&gt; Action2
-    
-    OriginHealth --&gt; Action3{Scale?}
-    ServiceCheck --&gt; Action3
-    ResourceCheck --&gt; Action3
-
-    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
-
-    class Alert,Type orange;
-    class TTFB,Cache,Error blue;
-    class ArgoCheck,SSLCheck,NetworkCheck,RuleCheck,HeaderCheck,PatternCheck,OriginHealth,ServiceCheck,ResourceCheck green;
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-</div>
+<section id="best-practices-summary" class="slide level2 smaller">
+<h2>Best Practices Summary</h2>
+<h3 id="cache-optimization">1. Cache Optimization</h3>
+<ul>
+<li>Implement appropriate TTLs</li>
+<li>Use custom cache keys</li>
+<li>Enable cache deception armor</li>
+<li>Configure browser cache</li>
+<li>Implement tiered caching</li>
+<li>Monitor cache hit ratios</li>
+</ul>
+<h3 id="network-performance">2. Network Performance</h3>
+<ul>
+<li>Enable Argo Smart Routing</li>
+<li>Configure load balancing</li>
+<li>Optimize SSL/TLS</li>
+<li>Use regional routing</li>
+<li>Monitor latency metrics</li>
+<li>Implement failover</li>
+</ul>
+<h3 id="error-handling">3. Error Handling</h3>
+<ul>
+<li>Configure origin error pages</li>
+<li>Implement service monitoring</li>
+<li>Set up alerts</li>
+<li>Use stale content</li>
+<li>Monitor error rates</li>
+<li>Track origin health</li>
+</ul>
 </section>
 <section id="demo-and-qa" class="slide level2 center">
 <h2>Demo and Q&amp;A</h2>
-<p>Questions about specific performance scenarios?</p>
+<ul>
+<li>Performance analysis walkthrough</li>
+<li>Common issue resolution</li>
+<li>Implementation guidance</li>
+<li>Monitoring setup</li>
+<li>Alert configuration</li>
+</ul>
+<p>Questions about specific scenarios or implementations?</p>
 <div class="quarto-auto-generated-content">
 <div class="footer footer-default">
 
@@ -1127,9 +1051,9 @@ graph TB
         // The "normal" size of the presentation, aspect ratio will be preserved
         // when the presentation is scaled to fit different resolutions. Can be
         // specified using percentage units.
-        width: 1280,
+        width: 1920,
 
-        height: 720,
+        height: 1080,
 
         // Factor of the display size that should remain empty around the content
         margin: 0.1,
