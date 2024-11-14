@@ -499,22 +499,7 @@ Erfi Anugrah
 }
 
 #mermaid-1 {
-  width: 2500px;
-}
-#mermaid-2 {
-  width: 950px;
-}
-#mermaid-3 {
-  width: 1000px;
-}
-#mermaid-4 {
-  width: 1000px;
-}
-#mermaid-5 {
-  width: 1000px;
-}
-#mermaid-6 {
-  width: 1000px;
+  width: 2000px;
 }
 </style>
 <div class="mermaid-container">
@@ -553,8 +538,8 @@ graph TB
     Network --&gt; Geo[Geographic Distribution]
     
     Origin --&gt; Server[Server Metrics]
-    Origin --&gt; Database[Database]
-    Origin --&gt; Application[Application]
+    Origin --&gt; Database[Database Servers]
+    Origin --&gt; Application[Application Servers]
     
     CacheMetrics --&gt; Solution{Solution}
     HitRatio --&gt; Solution
@@ -680,7 +665,11 @@ graph TB
 <span id="cb2-31"><a href=""></a>    }</span>
 <span id="cb2-32"><a href=""></a>  }</span>
 <span id="cb2-33"><a href=""></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
-</section>
+<p><br></p>
+
+<aside><div>
+<p>Be aware for Cloudflare’s GraphQL API <a href="https://developers.cloudflare.com/analytics/graphql-api/limits/">limits</a></p>
+</div></aside></section>
 <section id="cache-optimization-solutions" class="slide level2 scrollable">
 <h2>Cache Optimization Solutions</h2>
 <h4 id="static-content-caching">1. Static Content Caching</h4>
@@ -766,7 +755,7 @@ graph TB
 <p><br></p>
 <h4 id="load-balancing">3. Load Balancing</h4>
 <div class="sourceCode" id="cb7"><pre class="sourceCode numberSource hcl number-lines code-with-copy"><code class="sourceCode"><span id="cb7-1"><a href=""></a>resource "cloudflare_load_balancer" "revista" {</span>
-<span id="cb7-2"><a href=""></a>  default_pool_ids = [cloudflare_load_balancer_pool.revista_k3s_nl.id, cloudflare_load_balancer_pool.revista_proxmox_nl.id, cloudflare_load_balancer_pool.revista_ipsec_k3s_nl.id]</span>
+<span id="cb7-2"><a href=""></a>  default_pool_ids = [cloudflare_load_balancer_pool.revista_k3s_nl.id,  cloudflare_load_balancer_pool.revista_ipsec_k3s_nl.id]</span>
 <span id="cb7-3"><a href=""></a>  enabled          = true</span>
 <span id="cb7-4"><a href=""></a>  fallback_pool_id = cloudflare_load_balancer_pool.revista_sg.id</span>
 <span id="cb7-5"><a href=""></a>  name             = var.domain_name</span>
@@ -776,7 +765,7 @@ graph TB
 <span id="cb7-9"><a href=""></a>  zone_id          = var.cloudflare_zone_id</span>
 <span id="cb7-10"><a href=""></a>  pop_pools {</span>
 <span id="cb7-11"><a href=""></a>    pop      = "AMS"</span>
-<span id="cb7-12"><a href=""></a>    pool_ids = [cloudflare_load_balancer_pool.revista_k3s_nl.id, cloudflare_load_balancer_pool.revista_proxmox_nl.id, cloudflare_load_balancer_pool.revista_ipsec_k3s_nl.id]</span>
+<span id="cb7-12"><a href=""></a>    pool_ids = [cloudflare_load_balancer_pool.revista_k3s_nl.id, cloudflare_load_balancer_pool.revista_ipsec_k3s_nl.id]</span>
 <span id="cb7-13"><a href=""></a>  }</span>
 <span id="cb7-14"><a href=""></a>  pop_pools {</span>
 <span id="cb7-15"><a href=""></a>    pop      = "SIN"</span>
@@ -826,13 +815,12 @@ graph TB
 <span id="cb8-24"><a href=""></a>  }</span>
 <span id="cb8-25"><a href=""></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </section>
-<section id="best-practices-summary" class="slide level2 smaller">
-<h2>Best Practices Summary</h2>
-<h3 id="cache-optimization">1. Cache Optimization</h3>
+<section id="things-to-look-out-for" class="slide level2 smaller">
+<h2>Things to look out for</h2>
+<h3 id="cache-optimisation">1. Cache Optimisation</h3>
 <ul>
 <li>Implement appropriate TTLs</li>
 <li>Use custom cache keys when appropriate</li>
-<li>Configure browser cache</li>
 <li>Implement tiered caching</li>
 <li>Monitor cache hit ratios</li>
 </ul>
@@ -841,14 +829,12 @@ graph TB
 <li>Enable Argo Smart Routing</li>
 <li>Configure load balancing</li>
 <li>Monitor latency metrics</li>
-<li>Implement failover</li>
 </ul>
 <h3 id="error-handling">3. Error Handling</h3>
 <ul>
 <li>Configure origin error pages</li>
 <li>Implement service monitoring</li>
-<li>Set up alerts</li>
-<li>Use stale content</li>
+<li>Serve stale content if applicable</li>
 <li>Monitor error rates</li>
 <li>Track origin health</li>
 </ul>
@@ -859,10 +845,7 @@ graph TB
 <li>Performance analysis walkthrough</li>
 <li>Common issue resolution</li>
 <li>Implementation guidance</li>
-<li>Monitoring setup</li>
-<li>Alert configuration</li>
 </ul>
-<p>Questions about specific scenarios or implementations?</p>
 <div class="quarto-auto-generated-content">
 <div class="footer footer-default">
 
@@ -1047,9 +1030,9 @@ graph TB
         // The "normal" size of the presentation, aspect ratio will be preserved
         // when the presentation is scaled to fit different resolutions. Can be
         // specified using percentage units.
-        width: 1920,
+        width: 1600,
 
-        height: 1080,
+        height: 900,
 
         // Factor of the display size that should remain empty around the content
         margin: 0.1,
