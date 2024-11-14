@@ -10,6 +10,8 @@ from pathlib import Path
 import traceback
 import sys
 from threading import Timer
+from typing import Optional, Dict, List
+import plotly.graph_objects as go
 
 logger = logging.getLogger(__name__)
 
@@ -47,43 +49,199 @@ class Visualizer:
         """Format hover label with line breaks for better readability."""
         return text.replace(', ', '<br>')
 
-    # def _add_chart_annotations(
-    #     self, 
-    #     fig: go.Figure,
-    #     row: int,
-    #     col: int,
-    #     title: str,
-    #     subtitle: Optional[str] = None
-    # ) -> None:
-    #     """Add title and optional subtitle to chart."""
-    #     fig.add_annotation(
-    #         text=title,
-    #         xref="x domain",
-    #         yref="y domain",
-    #         x=0.5,
-    #         y=1.1,
-    #         showarrow=False,
-    #         font=self.title_font,
-    #         row=row,
-    #         col=col
-    #     )
-    #     
-    #     if subtitle:
-    #         fig.add_annotation(
-    #             text=subtitle,
-    #             xref="x domain",
-    #             yref="y domain",
-    #             x=0.5,
-    #             y=1.05,
-    #             showarrow=False,
-    #             font=dict(
-    #                 family=self.chart_font['family'],
-    #                 size=10,
-    #                 color='#999'
-    #             ),
-    #             row=row,
-    #             col=col
-    #         )
+    def _add_chart_annotations(
+        self,
+        fig: go.Figure,
+        row: int,
+        col: int,
+        title: str,
+        subtitle: Optional[str] = None
+    ) -> None:
+        """Add title and optional subtitle to chart.
+        
+        Args:
+            fig: The plotly figure object
+            row: Row number for the subplot
+            col: Column number for the subplot
+            title: The main title text
+            subtitle: Optional subtitle text
+        """
+        # Get grid dimensions with fallbacks
+        try:
+            grid_refs = getattr(fig.layout, '_grid_ref', None)
+            if grid_refs:
+                grid_rows = len(grid_refs)
+                grid_cols = len(grid_refs[0]) if grid_rows > 0 else 1
+            else:
+                # Get from subplot dimensions
+                subplot_refs = fig._subplot_refs
+                if subplot_refs:
+                    grid_rows = max(ref[0] for ref in subplot_refs if ref) if subplot_refs else 1
+                    grid_cols = max(ref[1] for ref in subplot_refs if ref) if subplot_refs else 1
+                else:
+                    # Default fallback
+                    grid_rows = 3  # Default assumption for most plots
+                    grid_cols = 2  # Default assumption for most plots
+        except (AttributeError, IndexError):
+            # Safe fallback values
+            grid_rows = 3
+            grid_cols = 2
+
+        # Calculate positions
+        if grid_cols == 1:
+            x_pos = 0.5
+        else:
+            x_pos = (col - 0.5) / grid_cols
+
+        if grid_rows == 1:
+            y_offset = 0.1
+        else:
+            y_offset = (grid_rows - row + 0.5) / grid_rows
+
+        # Add title annotation
+        fig.add_annotation(
+            dict(
+                text=title,
+                xref='paper',
+                yref='paper',
+                x=x_pos,
+                y=1.0 + (0.1 / grid_rows),  # Adjust title height based on grid size
+                showarrow=False,
+                font=self.title_font,
+                xanchor='center',
+                yanchor='bottom'
+            )
+        )
+
+        # Add subtitle if provided
+        if subtitle:
+            fig.add_annotation(
+                dict(
+                    text=subtitle,
+                    xref='paper',
+                    yref='paper',
+                    x=x_pos,
+                    y=1.0 + (0.02 / grid_rows),  # Smaller offset for subtitle
+                    showarrow=False,
+                    font=dict(
+                        family=self.chart_font['family'],
+                        size=10,
+                        color='#999'
+                    ),
+                    xanchor='center',
+                    yanchor='bottom'
+                )
+            )
+
+    def _update_subplot_titles(
+        self,
+        fig: go.Figure,
+        titles: dict
+    ) -> None:
+        """Update all subplot titles at once.
+        
+        Args:
+            fig: The plotly figure object
+            titles: Dictionary mapping (row, col) to {'title': str, 'subtitle': str}
+        """
+        annotations = []
+        
+        for (row, col), title_info in titles.items():
+            try:
+                # Calculate positions using the same logic as _add_chart_annotations
+                x_pos = (col - 0.5) / 2  # Assuming standard 2-column layout
+                y_pos = 1.0 + (0.1 if row == 1 else 0.05)  # Adjust based on row
+                
+                # Add title
+                annotations.append(dict(
+                    text=title_info['title'],
+                    xref='paper',
+                    yref='paper',
+                    x=x_pos,
+                    y=y_pos,
+                    showarrow=False,
+                    font=self.title_font,
+                    xanchor='center',
+                    yanchor='bottom'
+                ))
+                
+                # Add subtitle if present
+                if 'subtitle' in title_info:
+                    annotations.append(dict(
+                        text=title_info['subtitle'],
+                        xref='paper',
+                        yref='paper',
+                        x=x_pos,
+                        y=y_pos - 0.05,
+                        showarrow=False,
+                        font=dict(
+                            family=self.chart_font['family'],
+                            size=10,
+                            color='#999'
+                        ),
+                        xanchor='center',
+                        yanchor='bottom'
+                    ))
+                    
+            except Exception as e:
+                logger.warning(f"Error adding annotation for subplot ({row}, {col}): {str(e)}")
+                continue
+        
+        # Update all annotations at once
+        current_annotations = list(fig.layout.annotations) if fig.layout.annotations else []
+        fig.update_layout(annotations=current_annotations + annotations)
+
+    def _add_special_subplot_title(
+        self,
+        fig: go.Figure,
+        title: str,
+        subtitle: Optional[str] = None,
+        x_pos: float = 0.5,
+        y_pos: float = 1.1
+    ) -> None:
+        """Add title to special subplot types (pie, geo, etc.).
+        
+        Args:
+            fig: The plotly figure object
+            title: Title text
+            subtitle: Optional subtitle text
+            x_pos: X position in paper coordinates (0-1)
+            y_pos: Y position in paper coordinates (0-1)
+        """
+        # Add title
+        fig.add_annotation(
+            dict(
+                text=title,
+                xref='paper',
+                yref='paper',
+                x=x_pos,
+                y=y_pos,
+                showarrow=False,
+                font=self.title_font,
+                xanchor='center',
+                yanchor='bottom'
+            )
+        )
+        
+        # Add subtitle if provided
+        if subtitle:
+            fig.add_annotation(
+                dict(
+                    text=subtitle,
+                    xref='paper',
+                    yref='paper',
+                    x=x_pos,
+                    y=y_pos - 0.05,
+                    showarrow=False,
+                    font=dict(
+                        family=self.chart_font['family'],
+                        size=10,
+                        color='#999'
+                    ),
+                    xanchor='center',
+                    yanchor='bottom'
+                )
+            )
 
     def _create_dashboard(self, zone_name: str, port: int) -> None:
         """Create zone-specific dashboard with all visualizations."""
