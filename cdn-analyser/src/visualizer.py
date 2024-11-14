@@ -11,6 +11,16 @@ import traceback
 import sys
 from threading import Timer
 from .origin_visualizer import OriginVisualizer
+<<<<<<< HEAD
+=======
+from .dashboards import (
+    create_cache_dashboard,
+    create_error_dashboard,
+    create_performance_dashboard,
+    create_geographic_dashboard,
+    create_rps_dashboard
+)
+>>>>>>> 05423a1 (center legends)
 
 logger = logging.getLogger(__name__)
 
@@ -67,20 +77,36 @@ class Visualizer:
             # Create visualization groups for this zone
             try:
                 # Create main dashboards
+<<<<<<< HEAD
                 self.zone_figures[zone_name]['performance'] = self._create_performance_dashboard(df, analysis)
                 self.zone_figures[zone_name]['cache'] = self._create_cache_dashboard(df, analysis)
                 self.zone_figures[zone_name]['error'] = self._create_error_dashboard(df, analysis)
                 self.zone_figures[zone_name]['geographic'] = self._create_geographic_dashboard(df, analysis)
                 self.zone_figures[zone_name]['rps'] = self._create_rps_dashboard(df, analysis)
+=======
+                self.zone_figures[zone_name]['performance'] = create_performance_dashboard(df, analysis, self.colors)
+                self.zone_figures[zone_name]['cache'] = create_cache_dashboard(df, analysis, self.colors)
+                self.zone_figures[zone_name]['error'] = create_error_dashboard(df, analysis, self.colors)
+                self.zone_figures[zone_name]['geographic'] = create_geographic_dashboard(df, analysis, self.colors)
+                self.zone_figures[zone_name]['rps'] = create_rps_dashboard(df, analysis, self.colors)
+>>>>>>> 05423a1 (center legends)
                 
                 # Create origin visualizations
                 origin_figures = self.origin_visualizer.create_origin_visualizations(df, analysis, zone_name)
                 self.zone_figures[zone_name].update(origin_figures)
+<<<<<<< HEAD
 
             except Exception as e:
                 logger.error(f"Error creating dashboards for zone {zone_name}: {str(e)}")
                 logger.error(traceback.format_exc())
 
+=======
+
+            except Exception as e:
+                logger.error(f"Error creating dashboards for zone {zone_name}: {str(e)}")
+                logger.error(traceback.format_exc())
+
+>>>>>>> 05423a1 (center legends)
             # Save visualizations
             try:
                 for name, fig in self.zone_figures[zone_name].items():
@@ -97,6 +123,7 @@ class Visualizer:
                     logger.info(f"Saved {name} dashboard for zone {zone_name} to {html_path}")
             except Exception as e:
                 logger.error(f"Error saving visualizations for zone {zone_name}: {str(e)}")
+<<<<<<< HEAD
 
             # Create dashboard for this zone
             try:
@@ -875,11 +902,24 @@ class Visualizer:
             logger.error(f"Error creating geographic dashboard: {str(e)}")
             logger.error(traceback.format_exc())
             return self._create_error_figure("Error generating geographic dashboard")
+=======
+
+            # Create dashboard for this zone
+            try:
+                self._create_dashboard(zone_name)
+            except Exception as e:
+                logger.error(f"Error creating dashboard for zone {zone_name}: {str(e)}")
+
+        except Exception as e:
+            logger.error(f"Error in visualization creation for zone {zone_name}: {str(e)}")
+            logger.error(traceback.format_exc())
+>>>>>>> 05423a1 (center legends)
 
     def _create_dashboard(self, zone_name: str) -> None:
         """Create zone-specific dashboard including origin metrics."""
         try:
             zone_figures = self.zone_figures.get(zone_name, {})
+<<<<<<< HEAD
             port = 8050 + abs(hash(zone_name)) % 1000  # Keep port number reasonable
             
             logger.info(f"Creating dashboard for zone {zone_name} on port {port}")
@@ -889,6 +929,12 @@ class Visualizer:
                 f"cloudflare-analytics-{zone_name}",
                 external_stylesheets=[dbc.themes.DARKLY]
             )
+=======
+            port = 8050 + abs(hash(zone_name)) % 1000
+            
+            logger.info(f"Creating dashboard for zone {zone_name} on port {port}")
+
+>>>>>>> 05423a1 (center legends)
             tab_style = {
                 'backgroundColor': '#1e1e1e',
                 'color': '#ffffff',
@@ -914,6 +960,54 @@ class Visualizer:
                 'borderBottom': '2px solid #3498db'
             }
 
+<<<<<<< HEAD
+=======
+            # Create graph containers with individual legends
+            def create_graph_container(figure, tab_name):
+                return html.Div([
+                    # Title container
+                    html.Div(
+                        tab_name,
+                        style={
+                            'textAlign': 'center',
+                            'fontSize': '18px',
+                            'fontWeight': 'bold',
+                            'padding': '10px',
+                            'color': 'white'
+                        }
+                    ),
+                    # Graph container
+                    dcc.Graph(
+                        figure=figure,
+                        style={'height': '2000px'},
+                        config={
+                            'displayModeBar': True,
+                            'displaylogo': False,
+                            'modeBarButtonsToRemove': [
+                                'select2d',
+                                'lasso2d',
+                                'autoScale2d'
+                            ],
+                        }
+                    ),
+                    # Legend container
+                    html.Div(
+                        style={
+                            'backgroundColor': 'rgba(0,0,0,0.5)',
+                            'padding': '10px',
+                            'marginTop': '10px',
+                            'borderRadius': '4px',
+                            'border': '1px solid rgba(255,255,255,0.2)'
+                        }
+                    )
+                ], style={
+                    'marginBottom': '40px',
+                    'backgroundColor': '#1e1e1e',
+                    'padding': '20px',
+                    'borderRadius': '8px'
+                })
+
+>>>>>>> 05423a1 (center legends)
             app_layout = html.Div([
                 html.H1(
                     f"Cloudflare Analytics - {zone_name}",
@@ -931,9 +1025,9 @@ class Visualizer:
                         dcc.Tab(
                             label='Performance',
                             children=[
-                                dcc.Graph(
-                                    figure=zone_figures.get('performance', self._create_error_figure("No performance data available")),
-                                    style={'height': '85vh'}
+                                create_graph_container(
+                                    zone_figures.get('performance', self._create_error_figure("No performance data available")),
+                                    "Performance Metrics"
                                 )
                             ],
                             style=tab_style,
@@ -942,9 +1036,9 @@ class Visualizer:
                         dcc.Tab(
                             label='Cache',
                             children=[
-                                dcc.Graph(
-                                    figure=zone_figures.get('cache', self._create_error_figure("No cache data available")),
-                                    style={'height': '85vh'}
+                                create_graph_container(
+                                    zone_figures.get('cache', self._create_error_figure("No cache data available")),
+                                    "Cache Analysis"
                                 )
                             ],
                             style=tab_style,
@@ -953,9 +1047,9 @@ class Visualizer:
                         dcc.Tab(
                             label='Errors',
                             children=[
-                                dcc.Graph(
-                                    figure=zone_figures.get('error', self._create_error_figure("No error data available")),
-                                    style={'height': '85vh'}
+                                create_graph_container(
+                                    zone_figures.get('error', self._create_error_figure("No error data available")),
+                                    "Error Analysis"
                                 )
                             ],
                             style=tab_style,
@@ -964,9 +1058,9 @@ class Visualizer:
                         dcc.Tab(
                             label='Geographic',
                             children=[
-                                dcc.Graph(
-                                    figure=zone_figures.get('geographic', self._create_error_figure("No geographic data available")),
-                                    style={'height': '85vh'}
+                                create_graph_container(
+                                    zone_figures.get('geographic', self._create_error_figure("No geographic data available")),
+                                    "Geographic Analysis"
                                 )
                             ],
                             style=tab_style,
@@ -975,14 +1069,21 @@ class Visualizer:
                         dcc.Tab(
                             label='RPS Analysis',
                             children=[
+<<<<<<< HEAD
                                 dcc.Graph(
                                     figure=zone_figures.get('rps', self._create_error_figure("No RPS data available")),
                                     style={'height': '85vh'}
+=======
+                                create_graph_container(
+                                    zone_figures.get('rps', self._create_error_figure("No RPS data available")),
+                                    "Requests Per Second Analysis"
+>>>>>>> 05423a1 (center legends)
                                 )
                             ],
                             style=tab_style,
                             selected_style=selected_tab_style
                         ),
+<<<<<<< HEAD
                         # Origin Analysis Tabs
                         dcc.Tab(
                             label='Origin Response Time',
@@ -990,6 +1091,14 @@ class Visualizer:
                                 dcc.Graph(
                                     figure=zone_figures.get('origin_response_time', self._create_error_figure("No origin response time data available")),
                                     style={'height': '85vh'}
+=======
+                        dcc.Tab(
+                            label='Origin Response Time',
+                            children=[
+                                create_graph_container(
+                                    zone_figures.get('origin_response_time', self._create_error_figure("No origin response time data available")),
+                                    "Origin Response Time Analysis"
+>>>>>>> 05423a1 (center legends)
                                 )
                             ],
                             style=tab_style,
@@ -998,9 +1107,15 @@ class Visualizer:
                         dcc.Tab(
                             label='Origin ASN Analysis',
                             children=[
+<<<<<<< HEAD
                                 dcc.Graph(
                                     figure=zone_figures.get('origin_asn', self._create_error_figure("No ASN analysis data available")),
                                     style={'height': '85vh'}
+=======
+                                create_graph_container(
+                                    zone_figures.get('origin_asn', self._create_error_figure("No ASN analysis data available")),
+                                    "Origin ASN Analysis"
+>>>>>>> 05423a1 (center legends)
                                 )
                             ],
                             style=tab_style,
@@ -1009,9 +1124,15 @@ class Visualizer:
                         dcc.Tab(
                             label='Origin Errors',
                             children=[
+<<<<<<< HEAD
                                 dcc.Graph(
                                     figure=zone_figures.get('origin_error', self._create_error_figure("No origin error data available")),
                                     style={'height': '85vh'}
+=======
+                                create_graph_container(
+                                    zone_figures.get('origin_error', self._create_error_figure("No origin error data available")),
+                                    "Origin Error Analysis"
+>>>>>>> 05423a1 (center legends)
                                 )
                             ],
                             style=tab_style,
@@ -1020,9 +1141,15 @@ class Visualizer:
                         dcc.Tab(
                             label='Origin Geographic',
                             children=[
+<<<<<<< HEAD
                                 dcc.Graph(
                                     figure=zone_figures.get('origin_geographic', self._create_error_figure("No origin geographic data available")),
                                     style={'height': '85vh'}
+=======
+                                create_graph_container(
+                                    zone_figures.get('origin_geographic', self._create_error_figure("No origin geographic data available")),
+                                    "Origin Geographic Analysis"
+>>>>>>> 05423a1 (center legends)
                                 )
                             ],
                             style=tab_style,
@@ -1031,51 +1158,30 @@ class Visualizer:
                         dcc.Tab(
                             label='Origin Endpoints',
                             children=[
+<<<<<<< HEAD
                                 dcc.Graph(
                                     figure=zone_figures.get('origin_endpoints', self._create_error_figure("No origin endpoint data available")),
                                     style={'height': '85vh'}
+=======
+                                create_graph_container(
+                                    zone_figures.get('origin_endpoints', self._create_error_figure("No origin endpoint data available")),
+                                    "Origin Endpoints Analysis"
+>>>>>>> 05423a1 (center legends)
                                 )
                             ],
                             style=tab_style,
                             selected_style=selected_tab_style
                         )
                     ])
-                ],
-                style={
-                    'margin': '0 12px'
-                }),
-                
-                html.Div([
-                    html.Button(
-                        'Shutdown Dashboard',
-                        id='shutdown-button',
-                        className='mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700',
-                        n_clicks=0,
-                        style={
-                            'marginTop': '20px',
-                            'padding': '8px 16px',
-                            'backgroundColor': '#e53e3e',
-                            'color': 'white',
-                            'border': 'none',
-                            'borderRadius': '4px',
-                            'cursor': 'pointer'
-                        }
-                    )
-                ], style={
-                    'textAlign': 'center',
-                    'marginTop': '20px',
-                    'marginBottom': '20px'
-                }),
-                
-                html.Div(id='shutdown-trigger', style={'display': 'none'})
-            ],
-            style={
+                ], style={'margin': '0 12px'})
+            ], style={
                 'backgroundColor': '#121212',
                 'minHeight': '100vh',
                 'padding': '12px'
             })
 
             self.app.layout = app_layout
+<<<<<<< HEAD
 
             @self.app.callback(
                 Output('shutdown-trigger', 'children'),
@@ -1092,6 +1198,8 @@ class Visualizer:
                     Timer(1.0, shutdown).start()
                     return "Shutting down..."
                 return ""
+=======
+>>>>>>> 05423a1 (center legends)
 
             logger.info(f"Starting dashboard for zone {zone_name}")
             self.app.run_server(
@@ -1106,6 +1214,7 @@ class Visualizer:
             logger.error(f"Error creating dashboard for zone {zone_name}: {str(e)}")
             logger.error(traceback.format_exc())
 
+<<<<<<< HEAD
     def _create_rps_dashboard(self, df: pd.DataFrame, analysis: dict) -> go.Figure:
         """Create requests per second (RPS) analysis dashboard with fixed choropleth."""
         try:
@@ -1313,6 +1422,8 @@ class Visualizer:
         except Exception as e:
             logger.error(f"Error saving visualizations: {str(e)}")
 
+=======
+>>>>>>> 05423a1 (center legends)
     def _create_error_figure(self, message: str) -> go.Figure:
         """Create an error figure with improved styling."""
         fig = go.Figure()
@@ -1340,6 +1451,27 @@ class Visualizer:
         
         return fig
 
+<<<<<<< HEAD
+=======
+    def _save_visualizations(self, output_dir: Path) -> None:
+        """Save all visualizations as HTML files."""
+        try:
+            for name, fig in self.figures.items():
+                html_path = output_dir / f"{name}_dashboard.html"
+                fig.write_html(
+                    str(html_path),
+                    include_plotlyjs='cdn',
+                    full_html=True,
+                    config={
+                        'displayModeBar': True,
+                        'responsive': True
+                    }
+                )
+                logger.info(f"Saved {name} dashboard to {html_path}")
+        except Exception as e:
+            logger.error(f"Error saving visualizations: {str(e)}")
+
+>>>>>>> 05423a1 (center legends)
     def cleanup(self):
         """Clean up resources and shutdown dashboard properly."""
         try:
