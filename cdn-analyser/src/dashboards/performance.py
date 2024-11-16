@@ -263,43 +263,43 @@ def create_performance_dashboard(df: pd.DataFrame, analysis: dict, colors: dict)
             # Individual legend settings
             legend1=dict(
                 yanchor="top",
-                y=0.82,  # Positioned right under first chart
-                xanchor="left",
-                x=0.02,
+                y=0.99,  # Positioned right under first chart
+                xanchor="right",
+                x=0.46,
                 bgcolor='rgba(0,0,0,0.5)',
-                orientation='h'  # Make legend horizontal
+                orientation='v'  # Make legend horizontal
             ),
             legend2=dict(
                 yanchor="top",
-                y=0.82,  # Positioned right under first chart
-                xanchor="left",
-                x=0.52,
+                y=0.99,  # Positioned right under first chart
+                xanchor="right",
+                x=1.02,
                 bgcolor='rgba(0,0,0,0.5)',
-                orientation='h'  # Make legend horizontal
+                orientation='v'  # Make legend horizontal
             ),
             legend3=dict(
                 yanchor="top",
-                y=0.48,  # Positioned right under second chart
-                xanchor="left",
-                x=0.02,
+                y=0.60,  # Positioned right under second chart
+                xanchor="right",
+                x=0.46,
                 bgcolor='rgba(0,0,0,0.5)',
-                orientation='h'  # Make legend horizontal
+                orientation='v'  # Make legend horizontal
             ),
             legend4=dict(
                 yanchor="top",
-                y=0.48,  # Positioned right under second chart
+                y=0.60,  # Positioned right under second chart
                 xanchor="left",
-                x=0.52,
+                x=0.95,
                 bgcolor='rgba(0,0,0,0.5)',
-                orientation='h'  # Make legend horizontal
+                orientation='v'  # Make legend horizontal
             ),
             legend5=dict(
                 yanchor="top",
-                y=0.15,  # Positioned right under third chart
+                y=0.18,  # Positioned right under third chart
                 xanchor="left",
-                x=0.02,
+                x=0.40,
                 bgcolor='rgba(0,0,0,0.5)',
-                orientation='h'  # Make legend horizontal
+                orientation='v'  # Make legend horizontal
             )
         )
 
