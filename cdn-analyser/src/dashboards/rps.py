@@ -6,7 +6,7 @@ import traceback
 logger = logging.getLogger(__name__)
 
 def create_rps_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.Figure:
-    """Create requests per second (RPS) analysis dashboard with fixed choropleth."""
+    """Create requests per second (RPS) analysis dashboard with right-side legends."""
     try:
         fig = make_subplots(
             rows=2, cols=2,
@@ -20,8 +20,8 @@ def create_rps_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.F
                 [{"secondary_y": True}, {"type": "bar"}],
                 [{"type": "bar"}, {"type": "choropleth"}]
             ],
-            vertical_spacing=0.15,
-            horizontal_spacing=0.12
+            horizontal_spacing=0.2,
+            vertical_spacing=0.2
         )
 
         # Calculate RPS over time
@@ -36,14 +36,14 @@ def create_rps_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.F
         # Convert to requests per second
         rps['rps'] = rps['requests_adjusted'] / 60
 
-        # RPS Over Time
         fig.add_trace(
             go.Scatter(
                 x=rps.index,
                 y=rps['rps'],
                 name='RPS',
                 line=dict(color=colors['primary'], width=2),
-                hovertemplate='%{y:.1f} req/s<extra>RPS</extra>'
+                hovertemplate='%{y:.1f} req/s<extra>RPS</extra>',
+                legend='legend1'
             ),
             row=1, col=1
         )
@@ -55,7 +55,8 @@ def create_rps_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.F
                 y=rps['cache_status'],
                 name='Cache Hit Ratio',
                 line=dict(color=colors['cache_hit'], dash='dot'),
-                hovertemplate='%{y:.1f}%<extra>Cache Hit Ratio</extra>'
+                hovertemplate='%{y:.1f}%<extra>Cache Hit Ratio</extra>',
+                legend='legend1'
             ),
             row=1, col=1,
             secondary_y=True
@@ -73,7 +74,8 @@ def create_rps_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.F
                 y=method_rps['rps'],
                 name='RPS by Method',
                 marker_color=colors['secondary'],
-                hovertemplate='%{x}<br>%{y:.1f} req/s<extra>RPS by Method</extra>'
+                hovertemplate='%{x}<br>%{y:.1f} req/s<extra>RPS by Method</extra>',
+                legend='legend2'
             ),
             row=1, col=2
         )
@@ -91,12 +93,13 @@ def create_rps_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.F
                 y=top_endpoints['rps'],
                 name='Top Endpoints',
                 marker_color=colors['primary'],
-                hovertemplate='%{x}<br>%{y:.1f} req/s<extra>RPS by Endpoint</extra>'
+                hovertemplate='%{x}<br>%{y:.1f} req/s<extra>RPS by Endpoint</extra>',
+                legend='legend3'
             ),
             row=2, col=1
         )
 
-        # Geographic RPS Distribution - Fixed choropleth implementation
+        # Geographic RPS Distribution
         geo_rps = df.groupby('country').agg({
             'requests_adjusted': 'sum'
         }).reset_index()
@@ -114,7 +117,8 @@ def create_rps_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.F
                 showscale=True,
                 zmin=0,
                 zmax=geo_rps['rps'].quantile(0.95),
-                hovertemplate='%{location}<br>%{z:.1f} req/s<extra>RPS by Country</extra>'
+                hovertemplate='%{location}<br>%{z:.1f} req/s<extra>RPS by Country</extra>',
+                legend='legend4'
             ),
             row=2, col=2
         )
@@ -127,29 +131,59 @@ def create_rps_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.F
             paper_bgcolor='#1e1e1e',
             plot_bgcolor='#1e1e1e',
             margin=dict(l=60, r=60, t=80, b=60),
-            legend=dict(
+            
+            # Position legends with adjusted spacing
+            legend1=dict(
+                x=0.43,
+                y=0.95,
+                xanchor="left",
+                yanchor="top",
                 bgcolor='rgba(0,0,0,0.5)',
                 bordercolor='#333',
                 borderwidth=1,
-                font=dict(size=12, color='white'),
-                yanchor="top",
-                y=0.99,
+                font=dict(size=12)
+            ),
+            legend2=dict(
+                x=0.94,
+                y=0.95,
                 xanchor="left",
-                x=0.01,
-                itemsizing='constant'
+                yanchor="top",
+                bgcolor='rgba(0,0,0,0.5)',
+                bordercolor='#333',
+                borderwidth=1,
+                font=dict(size=12)
+            ),
+            legend3=dict(
+                x=0.43,
+                y=0.45,
+                xanchor="left",
+                yanchor="top",
+                bgcolor='rgba(0,0,0,0.5)',
+                bordercolor='#333',
+                borderwidth=1,
+                font=dict(size=12)
+            ),
+            legend4=dict(
+                x=0.94,
+                y=0.45,
+                xanchor="left",
+                yanchor="top",
+                bgcolor='rgba(0,0,0,0.5)',
+                bordercolor='#333',
+                borderwidth=1,
+                font=dict(size=12)
             )
         )
 
-        # Update axes
+        # Update axes styling
         fig.update_xaxes(
             title_font=dict(size=14, color='white'),
             tickfont=dict(size=12, color='white'),
             gridcolor='#333',
             title_standoff=20,
-            zeroline=False,
-            tickangle=45
+            zeroline=False
         )
-        
+
         fig.update_yaxes(
             title_font=dict(size=14, color='white'),
             tickfont=dict(size=12, color='white'),
@@ -158,13 +192,7 @@ def create_rps_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.F
             zeroline=False
         )
 
-        # Update axis titles
-        fig.update_yaxes(title_text="Requests/Second", row=1, col=1, secondary_y=False)
-        fig.update_yaxes(title_text="Cache Hit Ratio (%)", row=1, col=1, secondary_y=True)
-        fig.update_yaxes(title_text="Requests/Second", row=1, col=2)
-        fig.update_yaxes(title_text="Requests/Second", row=2, col=1)
-
-        # Update geo layout with complete configuration
+        # Update geo layout
         fig.update_geos(
             showcoastlines=True,
             coastlinecolor='#666',
@@ -182,6 +210,16 @@ def create_rps_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.F
             framecolor='#666',
             bgcolor='#1e1e1e'
         )
+
+        # Specific axis labels
+        fig.update_xaxes(title_text="Time", row=1, col=1)
+        fig.update_xaxes(title_text="HTTP Method", row=1, col=2)
+        fig.update_xaxes(title_text="Endpoint", row=2, col=1, tickangle=45)
+        
+        fig.update_yaxes(title_text="Requests/Second", row=1, col=1, secondary_y=False)
+        fig.update_yaxes(title_text="Cache Hit Ratio (%)", row=1, col=1, secondary_y=True)
+        fig.update_yaxes(title_text="Requests/Second", row=1, col=2)
+        fig.update_yaxes(title_text="Requests/Second", row=2, col=1)
 
         # Update subplot titles
         for i in fig['layout']['annotations']:
@@ -202,10 +240,7 @@ def _create_error_figure(message: str) -> go.Figure:
         x=0.5,
         y=0.5,
         text=message,
-        font=dict(
-            size=16,
-            color='#ffffff'
-        ),
+        font=dict(size=16, color='#ffffff'),
         showarrow=False,
         xref="paper",
         yref="paper"

@@ -251,6 +251,73 @@ def create_performance_dashboard(df: pd.DataFrame, analysis: dict, colors: dict)
                     ),
                     row=3, col=1
                 )
+        # 6. Geographic Performance
+        geo_metrics = df.groupby('country').agg({
+            'ttfb_avg': 'mean',
+            'ttfb_p95': 'mean',
+            'requests_adjusted': 'sum'
+        }).dropna().reset_index()
+
+        if not geo_metrics.empty:
+            fig.add_trace(
+                go.Choropleth(
+                    locations=geo_metrics['country'],
+                    z=geo_metrics['ttfb_avg'],
+                    colorscale=[
+                        [0, colors['edge']],
+                        [0.5, 'rgba(46, 134, 193, 0.4)'],
+                        [1, colors['origin']]
+                    ],
+                    reversescale=True,
+                    name='Geographic Performance',
+                    colorbar=dict(
+                        title=dict(
+                            text='TTFB (ms)',
+                            font=dict(size=12, color='white')
+                        ),
+                        thickness=15,
+                        len=0.8,
+                        tickfont=dict(size=10, color='white'),
+                        yanchor='middle',
+                        y=0.5,
+                        xanchor='left',
+                        x=1.02
+                    ),
+                    locationmode='country names',
+                    showscale=True,
+                    zmin=0,
+                    zmax=geo_metrics['ttfb_avg'].quantile(0.95),
+                    hovertemplate=(
+                        '%{location}<br>'
+                        'Avg TTFB: %{z:.2f} ms<br>'
+                        'P95: %{customdata:.2f} ms'
+                        '<extra></extra>'
+                    ),
+                    customdata=geo_metrics['ttfb_p95']
+                ),
+                row=3, col=2
+            )
+
+            # Add geo styling
+            fig.update_geos(
+                showcoastlines=True,
+                coastlinecolor='rgba(255, 255, 255, 0.2)',
+                showland=True,
+                landcolor='#181b1f',
+                showocean=True,
+                oceancolor='#181b1f',
+                showframe=False,
+                framecolor='rgba(255, 255, 255, 0.2)',
+                showlakes=True,
+                lakecolor='#181b1f',
+                showcountries=True,
+                countrycolor='rgba(255, 255, 255, 0.2)',
+                bgcolor='#181b1f',
+                projection_type='equirectangular',
+                resolution=110,
+                lonaxis_range=[-180, 180],
+                lataxis_range=[-90, 90]
+            )
 
         # Update layout with properly positioned individual legends
         fig.update_layout(

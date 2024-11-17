@@ -6,7 +6,7 @@ import traceback
 logger = logging.getLogger(__name__)
 
 def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.Figure:
-    """Create error analysis dashboard with fixed choropleth."""
+    """Create error analysis dashboard with legends matching performance.py pattern."""
     try:
         fig = make_subplots(
             rows=2, cols=2,
@@ -38,7 +38,8 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
                 y=error_rates['error_rate_4xx'] * 100,
                 name='4xx Errors',
                 line=dict(color=colors['warning']),
-                hovertemplate='%{y:.2f}%<extra>4xx Error Rate</extra>'
+                hovertemplate='%{y:.2f}%<extra>4xx Error Rate</extra>',
+                legend='legend1'
             ),
             row=1, col=1
         )
@@ -49,7 +50,8 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
                 y=error_rates['error_rate_5xx'] * 100,
                 name='5xx Errors',
                 line=dict(color=colors['error']),
-                hovertemplate='%{y:.2f}%<extra>5xx Error Rate</extra>'
+                hovertemplate='%{y:.2f}%<extra>5xx Error Rate</extra>',
+                legend='legend1'
             ),
             row=1, col=1
         )
@@ -60,7 +62,8 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
                 y=error_rates['requests_adjusted'],
                 name='Request Volume',
                 line=dict(color=colors['secondary'], dash='dot'),
-                hovertemplate='%{y:.0f} requests<extra>Request Volume</extra>'
+                hovertemplate='%{y:.0f} requests<extra>Request Volume</extra>',
+                legend='legend1'
             ),
             row=1, col=1,
             secondary_y=True
@@ -77,7 +80,8 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
                 name='Error Distribution',
                 marker_color=[colors['warning'] if s < 500 else colors['error'] 
                             for s in status_dist.index],
-                hovertemplate='Status %{x}<br>Count: %{y:,}<extra></extra>'
+                hovertemplate='Status %{x}<br>Count: %{y:,}<extra></extra>',
+                legend='legend2'
             ),
             row=1, col=2
         )
@@ -95,7 +99,8 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
                 y=endpoint_errors['error_rate_5xx'] * 100,
                 name='5xx Error Rate',
                 marker_color=colors['error'],
-                hovertemplate='%{x}<br>5xx Rate: %{y:.2f}%<extra></extra>'
+                hovertemplate='%{x}<br>5xx Rate: %{y:.2f}%<extra></extra>',
+                legend='legend3'
             ),
             row=2, col=1
         )
@@ -106,12 +111,13 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
                 y=endpoint_errors['error_rate_4xx'] * 100,
                 name='4xx Error Rate',
                 marker_color=colors['warning'],
-                hovertemplate='%{x}<br>4xx Rate: %{y:.2f}%<extra></extra>'
+                hovertemplate='%{x}<br>4xx Rate: %{y:.2f}%<extra></extra>',
+                legend='legend3'
             ),
             row=2, col=1
         )
 
-        # Geographic Error Distribution - Fixed choropleth implementation
+        # Geographic Error Distribution
         geo_errors = df.groupby('country').agg({
             'error_rate_4xx': 'mean',
             'error_rate_5xx': 'mean',
@@ -131,12 +137,13 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
                 showscale=True,
                 zmin=0,
                 zmax=min(100, total_error_rate.max() * 100),
-                hovertemplate='%{location}<br>Error Rate: %{z:.2f}%<extra></extra>'
+                hovertemplate='%{location}<br>Error Rate: %{z:.2f}%<extra></extra>',
+                legend='legend4'
             ),
             row=2, col=2
         )
 
-        # Update layout
+        # Update layout with adjusted legend positions
         fig.update_layout(
             height=1000,
             showlegend=True,
@@ -144,21 +151,52 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
             paper_bgcolor='#1e1e1e',
             plot_bgcolor='#1e1e1e',
             margin=dict(l=60, r=60, t=80, b=60),
-            legend=dict(
+            
+            # Position legends to the right of each subplot with adjusted x-coordinates
+            legend1=dict(
+                x=0.45,    # Right side of first plot
+                y=0.95,    # Top of first plot
+                xanchor="left",
+                yanchor="top",
                 bgcolor='rgba(0,0,0,0.5)',
                 bordercolor='#333',
                 borderwidth=1,
-                font=dict(size=12, color='white'),
-                yanchor="top",
-                y=0.99,
-                xanchor="left",
-                x=0.01,
-                itemsizing='constant'
+                font=dict(size=12)
             ),
-            barmode='stack'
+            legend2=dict(
+                x=0.95,    # Moved slightly left to avoid overlap
+                y=0.95,    # Top of second plot
+                xanchor="left",
+                yanchor="top",
+                bgcolor='rgba(0,0,0,0.5)',
+                bordercolor='#333',
+                borderwidth=1,
+                font=dict(size=12)
+            ),
+            legend3=dict(
+                x=0.45,    # Right side of third plot
+                y=0.45,    # Top of third plot
+                xanchor="left",
+                yanchor="top",
+                bgcolor='rgba(0,0,0,0.5)',
+                bordercolor='#333',
+                borderwidth=1,
+                font=dict(size=12)
+            ),
+            legend4=dict(
+                x=0.95,    # Moved slightly left to avoid overlap
+                y=0.45,    # Top of fourth plot
+                xanchor="left",
+                yanchor="top",
+                bgcolor='rgba(0,0,0,0.5)',
+                bordercolor='#333',
+                borderwidth=1,
+                font=dict(size=12)
+            )
         )
 
-        # Update axes
+
+        # Update axes styling
         fig.update_xaxes(
             title_font=dict(size=14, color='white'),
             tickfont=dict(size=12, color='white'),
@@ -166,7 +204,7 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
             title_standoff=20,
             zeroline=False
         )
-        
+
         fig.update_yaxes(
             title_font=dict(size=14, color='white'),
             tickfont=dict(size=12, color='white'),
@@ -175,7 +213,7 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
             zeroline=False
         )
 
-        # Update geo layout with complete configuration
+        # Update geo layout
         fig.update_geos(
             showcoastlines=True,
             coastlinecolor='#666',
@@ -193,6 +231,16 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
             framecolor='#666',
             bgcolor='#1e1e1e'
         )
+
+        # Specific axis labels
+        fig.update_xaxes(title_text="Time", row=1, col=1)
+        fig.update_xaxes(title_text="Status Code", row=1, col=2)
+        fig.update_xaxes(title_text="Endpoint", row=2, col=1, tickangle=45)
+        
+        fig.update_yaxes(title_text="Error Rate (%)", secondary_y=False, row=1, col=1)
+        fig.update_yaxes(title_text="Requests", secondary_y=True, row=1, col=1)
+        fig.update_yaxes(title_text="Count", row=1, col=2)
+        fig.update_yaxes(title_text="Error Rate (%)", row=2, col=1)
 
         # Update subplot titles
         for i in fig['layout']['annotations']:
@@ -213,10 +261,7 @@ def _create_error_figure(message: str) -> go.Figure:
         x=0.5,
         y=0.5,
         text=message,
-        font=dict(
-            size=16,
-            color='#ffffff'
-        ),
+        font=dict(size=16, color='#ffffff'),
         showarrow=False,
         xref="paper",
         yref="paper"
@@ -231,4 +276,3 @@ def _create_error_figure(message: str) -> go.Figure:
     )
     
     return fig
-
