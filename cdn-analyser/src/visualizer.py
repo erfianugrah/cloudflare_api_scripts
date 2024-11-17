@@ -1,22 +1,23 @@
-from dash import Dash, dcc, html, Input, Output
+from dash import Dash, dcc, html
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import pandas as pd
-import numpy as np
-from datetime import datetime
 import logging
 from pathlib import Path
 import traceback
-import sys
 from threading import Timer
-from .origin_visualizer import OriginVisualizer
+
 from .dashboards import (
     create_cache_dashboard,
     create_error_dashboard,
     create_performance_dashboard,
     create_geographic_dashboard,
-    create_rps_dashboard
+    create_rps_dashboard,
+    create_origin_response_time_dashboard,
+    create_origin_error_dashboard,
+    create_origin_geographic_dashboard,
+    create_origin_endpoint_dashboard,
+    create_origin_asn_dashboard
 )
 
 logger = logging.getLogger(__name__)
@@ -44,11 +45,9 @@ class Visualizer:
             external_stylesheets=[dbc.themes.DARKLY]
         )
         
-        # Initialize origin visualizer
-        self.origin_visualizer = OriginVisualizer(config)
-        
         # Store for generated figures
         self.figures = {}
+        self.zone_figures = {}
 
     def create_visualizations(
         self, 
@@ -65,24 +64,25 @@ class Visualizer:
             output_dir = self.config.images_dir / zone_name 
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Initialize figures dictionary for this zone if not exists
-            if not hasattr(self, 'zone_figures'):
-                self.zone_figures = {}
+            # Initialize zone figures if not exists
             if zone_name not in self.zone_figures:
                 self.zone_figures[zone_name] = {}
 
             # Create visualization groups for this zone
             try:
-                # Create main dashboards
-                self.zone_figures[zone_name]['performance'] = create_performance_dashboard(df, analysis, self.colors)
-                self.zone_figures[zone_name]['cache'] = create_cache_dashboard(df, analysis, self.colors)
-                self.zone_figures[zone_name]['error'] = create_error_dashboard(df, analysis, self.colors)
-                self.zone_figures[zone_name]['geographic'] = create_geographic_dashboard(df, analysis, self.colors)
-                self.zone_figures[zone_name]['rps'] = create_rps_dashboard(df, analysis, self.colors)
-                
-                # Create origin visualizations
-                origin_figures = self.origin_visualizer.create_origin_visualizations(df, analysis, zone_name)
-                self.zone_figures[zone_name].update(origin_figures)
+                # Main dashboards
+                self.zone_figures[zone_name].update({
+                    'performance': create_performance_dashboard(df, analysis, self.colors),
+                    'cache': create_cache_dashboard(df, analysis, self.colors),
+                    'error': create_error_dashboard(df, analysis, self.colors),
+                    'geographic': create_geographic_dashboard(df, analysis, self.colors),
+                    'rps': create_rps_dashboard(df, analysis, self.colors),
+                    'origin_response_time': create_origin_response_time_dashboard(df, analysis, self.colors),
+                    'origin_error': create_origin_error_dashboard(df, analysis, self.colors),
+                    'origin_geographic': create_origin_geographic_dashboard(df, analysis, self.colors),
+                    'origin_endpoints': create_origin_endpoint_dashboard(df, analysis, self.colors),
+                    'origin_asn': create_origin_asn_dashboard(df, analysis, self.colors)
+                })
 
             except Exception as e:
                 logger.error(f"Error creating dashboards for zone {zone_name}: {str(e)}")
@@ -90,18 +90,7 @@ class Visualizer:
 
             # Save visualizations
             try:
-                for name, fig in self.zone_figures[zone_name].items():
-                    html_path = output_dir / f"{name}_dashboard.html"
-                    fig.write_html(
-                        str(html_path),
-                        include_plotlyjs='cdn',
-                        full_html=True,
-                        config={
-                            'displayModeBar': True,
-                            'responsive': True
-                        }
-                    )
-                    logger.info(f"Saved {name} dashboard for zone {zone_name} to {html_path}")
+                self._save_visualizations(zone_name, output_dir)
             except Exception as e:
                 logger.error(f"Error saving visualizations for zone {zone_name}: {str(e)}")
 
@@ -116,13 +105,14 @@ class Visualizer:
             logger.error(traceback.format_exc())
 
     def _create_dashboard(self, zone_name: str) -> None:
-        """Create zone-specific dashboard including origin metrics."""
+        """Create zone-specific dashboard including all metrics."""
         try:
             zone_figures = self.zone_figures.get(zone_name, {})
             port = 8050 + abs(hash(zone_name)) % 1000
             
             logger.info(f"Creating dashboard for zone {zone_name} on port {port}")
 
+            # Define tab styles
             tab_style = {
                 'backgroundColor': '#1e1e1e',
                 'color': '#ffffff',
@@ -148,10 +138,9 @@ class Visualizer:
                 'borderBottom': '2px solid #3498db'
             }
 
-            # Create graph containers with individual legends
+            # Create graph containers
             def create_graph_container(figure, tab_name):
                 return html.Div([
-                    # Title container
                     html.Div(
                         tab_name,
                         style={
@@ -162,7 +151,6 @@ class Visualizer:
                             'color': 'white'
                         }
                     ),
-                    # Graph container
                     dcc.Graph(
                         figure=figure,
                         style={'height': '2000px'},
@@ -175,16 +163,6 @@ class Visualizer:
                                 'autoScale2d'
                             ],
                         }
-                    ),
-                    # Legend container
-                    html.Div(
-                        style={
-                            'backgroundColor': 'rgba(0,0,0,0.5)',
-                            'padding': '10px',
-                            'marginTop': '10px',
-                            'borderRadius': '4px',
-                            'border': '1px solid rgba(255,255,255,0.2)'
-                        }
                     )
                 ], style={
                     'marginBottom': '40px',
@@ -193,6 +171,7 @@ class Visualizer:
                     'borderRadius': '8px'
                 })
 
+            # Create app layout with all dashboards
             app_layout = html.Div([
                 html.H1(
                     f"Cloudflare Analytics - {zone_name}",
@@ -209,111 +188,61 @@ class Visualizer:
                     dcc.Tabs([
                         dcc.Tab(
                             label='Performance',
-                            children=[
-                                create_graph_container(
-                                    zone_figures.get('performance', self._create_error_figure("No performance data available")),
-                                    "Performance Metrics"
-                                )
-                            ],
+                            children=[create_graph_container(zone_figures['performance'], "Performance Metrics")],
                             style=tab_style,
                             selected_style=selected_tab_style
                         ),
                         dcc.Tab(
                             label='Cache',
-                            children=[
-                                create_graph_container(
-                                    zone_figures.get('cache', self._create_error_figure("No cache data available")),
-                                    "Cache Analysis"
-                                )
-                            ],
+                            children=[create_graph_container(zone_figures['cache'], "Cache Analysis")],
                             style=tab_style,
                             selected_style=selected_tab_style
                         ),
                         dcc.Tab(
                             label='Errors',
-                            children=[
-                                create_graph_container(
-                                    zone_figures.get('error', self._create_error_figure("No error data available")),
-                                    "Error Analysis"
-                                )
-                            ],
+                            children=[create_graph_container(zone_figures['error'], "Error Analysis")],
                             style=tab_style,
                             selected_style=selected_tab_style
                         ),
                         dcc.Tab(
                             label='Geographic',
-                            children=[
-                                create_graph_container(
-                                    zone_figures.get('geographic', self._create_error_figure("No geographic data available")),
-                                    "Geographic Analysis"
-                                )
-                            ],
+                            children=[create_graph_container(zone_figures['geographic'], "Geographic Analysis")],
                             style=tab_style,
                             selected_style=selected_tab_style
                         ),
                         dcc.Tab(
                             label='RPS Analysis',
-                            children=[
-                                create_graph_container(
-                                    zone_figures.get('rps', self._create_error_figure("No RPS data available")),
-                                    "Requests Per Second Analysis"
-                                )
-                            ],
+                            children=[create_graph_container(zone_figures['rps'], "Requests Per Second Analysis")],
                             style=tab_style,
                             selected_style=selected_tab_style
                         ),
                         dcc.Tab(
                             label='Origin Response Time',
-                            children=[
-                                create_graph_container(
-                                    zone_figures.get('origin_response_time', self._create_error_figure("No origin response time data available")),
-                                    "Origin Response Time Analysis"
-                                )
-                            ],
-                            style=tab_style,
-                            selected_style=selected_tab_style
-                        ),
-                        dcc.Tab(
-                            label='Origin ASN Analysis',
-                            children=[
-                                create_graph_container(
-                                    zone_figures.get('origin_asn', self._create_error_figure("No ASN analysis data available")),
-                                    "Origin ASN Analysis"
-                                )
-                            ],
+                            children=[create_graph_container(zone_figures['origin_response_time'], "Origin Response Time Analysis")],
                             style=tab_style,
                             selected_style=selected_tab_style
                         ),
                         dcc.Tab(
                             label='Origin Errors',
-                            children=[
-                                create_graph_container(
-                                    zone_figures.get('origin_error', self._create_error_figure("No origin error data available")),
-                                    "Origin Error Analysis"
-                                )
-                            ],
+                            children=[create_graph_container(zone_figures['origin_error'], "Origin Error Analysis")],
                             style=tab_style,
                             selected_style=selected_tab_style
                         ),
                         dcc.Tab(
                             label='Origin Geographic',
-                            children=[
-                                create_graph_container(
-                                    zone_figures.get('origin_geographic', self._create_error_figure("No origin geographic data available")),
-                                    "Origin Geographic Analysis"
-                                )
-                            ],
+                            children=[create_graph_container(zone_figures['origin_geographic'], "Origin Geographic Analysis")],
                             style=tab_style,
                             selected_style=selected_tab_style
                         ),
                         dcc.Tab(
                             label='Origin Endpoints',
-                            children=[
-                                create_graph_container(
-                                    zone_figures.get('origin_endpoints', self._create_error_figure("No origin endpoint data available")),
-                                    "Origin Endpoints Analysis"
-                                )
-                            ],
+                            children=[create_graph_container(zone_figures['origin_endpoints'], "Origin Endpoints Analysis")],
+                            style=tab_style,
+                            selected_style=selected_tab_style
+                        ),
+                        dcc.Tab(
+                            label='Origin ASN',
+                            children=[create_graph_container(zone_figures['origin_asn'], "Origin ASN Analysis")],
                             style=tab_style,
                             selected_style=selected_tab_style
                         )
@@ -339,6 +268,24 @@ class Visualizer:
         except Exception as e:
             logger.error(f"Error creating dashboard for zone {zone_name}: {str(e)}")
             logger.error(traceback.format_exc())
+
+    def _save_visualizations(self, zone_name: str, output_dir: Path) -> None:
+        """Save all visualizations for a zone as HTML files."""
+        try:
+            for name, fig in self.zone_figures[zone_name].items():
+                html_path = output_dir / f"{name}_dashboard.html"
+                fig.write_html(
+                    str(html_path),
+                    include_plotlyjs='cdn',
+                    full_html=True,
+                    config={
+                        'displayModeBar': True,
+                        'responsive': True
+                    }
+                )
+                logger.info(f"Saved {name} dashboard for zone {zone_name} to {html_path}")
+        except Exception as e:
+            logger.error(f"Error saving visualizations: {str(e)}")
 
     def _create_error_figure(self, message: str) -> go.Figure:
         """Create an error figure with improved styling."""
@@ -367,42 +314,17 @@ class Visualizer:
         
         return fig
 
-    def _save_visualizations(self, output_dir: Path) -> None:
-        """Save all visualizations as HTML files."""
-        try:
-            for name, fig in self.figures.items():
-                html_path = output_dir / f"{name}_dashboard.html"
-                fig.write_html(
-                    str(html_path),
-                    include_plotlyjs='cdn',
-                    full_html=True,
-                    config={
-                        'displayModeBar': True,
-                        'responsive': True
-                    }
-                )
-                logger.info(f"Saved {name} dashboard to {html_path}")
-        except Exception as e:
-            logger.error(f"Error saving visualizations: {str(e)}")
-
     def cleanup(self):
         """Clean up resources and shutdown dashboard properly."""
         try:
             # Clear all figures to free memory
             if hasattr(self, 'figures'):
                 self.figures.clear()
+                
+            if hasattr(self, 'zone_figures'):
+                self.zone_figures.clear()
             
-            # Close all open matplotlib figures
-            plt.close('all')
-            
-            # Reset matplotlib settings if needed
-            plt.style.use('default')
-            
-            # Clean up origin visualizer
-            if hasattr(self, 'origin_visualizer'):
-                self.origin_visualizer.cleanup()
-            
-            # Clear any cached data
+            # Clean up any cached data
             if hasattr(self, 'app') and self.app:
                 if hasattr(self.app, 'server'):
                     try:
