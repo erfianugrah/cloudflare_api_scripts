@@ -229,7 +229,7 @@ def create_origin_response_time_dashboard(df: pd.DataFrame, analysis: dict, colo
             
             # Position legends for each subplot
             legend1=dict(
-                x=0.45,
+                x=0.43,
                 y=0.95,
                 xanchor="left",
                 yanchor="top",
@@ -239,7 +239,7 @@ def create_origin_response_time_dashboard(df: pd.DataFrame, analysis: dict, colo
                 font=dict(size=12)
             ),
             legend2=dict(
-                x=0.95,
+                x=0.96,
                 y=0.95,
                 xanchor="left",
                 yanchor="top",

@@ -154,8 +154,8 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
             
             # Position legends to the right of each subplot with adjusted x-coordinates
             legend1=dict(
-                x=0.45,    # Right side of first plot
-                y=0.95,    # Top of first plot
+                x=0.44,    # Right side of first plot
+                y=0.96,    # Top of first plot
                 xanchor="left",
                 yanchor="top",
                 bgcolor='rgba(0,0,0,0.5)',
@@ -164,8 +164,8 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
                 font=dict(size=12)
             ),
             legend2=dict(
-                x=0.95,    # Moved slightly left to avoid overlap
-                y=0.95,    # Top of second plot
+                x=0.94,    # Moved slightly left to avoid overlap
+                y=0.96,    # Top of second plot
                 xanchor="left",
                 yanchor="top",
                 bgcolor='rgba(0,0,0,0.5)',
@@ -174,8 +174,8 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
                 font=dict(size=12)
             ),
             legend3=dict(
-                x=0.45,    # Right side of third plot
-                y=0.45,    # Top of third plot
+                x=0.43,    # Right side of third plot
+                y=0.43,    # Top of third plot
                 xanchor="left",
                 yanchor="top",
                 bgcolor='rgba(0,0,0,0.5)',
@@ -185,7 +185,7 @@ def create_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go
             ),
             legend4=dict(
                 x=0.95,    # Moved slightly left to avoid overlap
-                y=0.45,    # Top of fourth plot
+                y=0.43,    # Top of fourth plot
                 xanchor="left",
                 yanchor="top",
                 bgcolor='rgba(0,0,0,0.5)',
