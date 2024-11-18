@@ -109,7 +109,7 @@ def create_origin_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict
         )
 
         # 3. Error Rate by Response Time
-        error_bins = pd.qcut(df['origin_time_avg'], q=10)
+        error_bins = pd.qcut(df['origin_time_avg'], q=10, duplicates='drop')
         error_by_time = df.groupby(error_bins).agg({
             'error_rate_4xx': 'mean',
             'error_rate_5xx': 'mean',
