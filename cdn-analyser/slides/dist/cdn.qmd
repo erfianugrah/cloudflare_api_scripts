@@ -13,6 +13,7 @@ format:
     show-slide-number: print
     preview-links: auto
     code-block-height: 800px
+    incremental: true
     chalkboard:
       theme: whiteboard
       boardmarker-width: 5
