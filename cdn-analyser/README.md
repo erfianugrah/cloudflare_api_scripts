@@ -1,4 +1,4 @@
-# Cloudflare Analytics Tool
+# Cloudflare CDN Analytics Tool
 
 An advanced analytics tool for analyzing Cloudflare zone performance metrics with emphasis on cache efficiency, response times, and comprehensive performance analysis. The tool handles sampling rate considerations and provides detailed insights through various visualization methods.
 
@@ -10,13 +10,17 @@ An advanced analytics tool for analyzing Cloudflare zone performance metrics wit
 - Geographic cache performance patterns
 - Temporal cache efficiency analysis
 - Content-type specific caching patterns
+- Bandwidth savings tracking
+- Cache purge impact analysis
 
 ### Performance Metrics
-- Time to First Byte (TTFB) analysis
-- Origin response time tracking
+- Edge vs Origin response time analysis
+- Time to First Byte (TTFB) metrics
+- Origin server performance tracking
 - Performance percentiles (p50, p95, p99)
 - Geographic performance distribution
 - Protocol and device type impact analysis
+- ASN-level performance tracking
 
 ### Error Analytics
 - Status code distribution tracking
@@ -24,6 +28,8 @@ An advanced analytics tool for analyzing Cloudflare zone performance metrics wit
 - Geographic error distribution
 - Temporal error analysis
 - Error correlation with performance metrics
+- Origin error tracking
+- Error rate trending
 
 ### Advanced Analysis Features
 - Automatic sampling rate adjustment
@@ -32,6 +38,7 @@ An advanced analytics tool for analyzing Cloudflare zone performance metrics wit
 - Rate limit management
 - Comprehensive error tracking
 - Origin server performance analysis
+- Request volume impact assessment
 
 ### Visualization Capabilities
 - Interactive performance dashboards
@@ -40,6 +47,7 @@ An advanced analytics tool for analyzing Cloudflare zone performance metrics wit
 - Temporal trend analysis
 - Error rate visualization
 - Protocol performance comparison
+- Origin response time analysis
 
 ## Installation
 
@@ -60,15 +68,14 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-4. Set up environment variables:
+## Configuration
+
+1. Copy the example environment file:
 ```bash
 cp .env.example .env
 ```
 
-## Configuration
-
-Edit `.env` with your Cloudflare credentials:
-
+2. Edit `.env` with your Cloudflare credentials:
 ```plaintext
 CLOUDFLARE_ACCOUNT_ID=your_account_id
 CLOUDFLARE_API_KEY=your_api_key
@@ -82,18 +89,58 @@ CLOUDFLARE_EMAIL=your_email
 python -m src.main
 ```
 
-### Custom Analysis Parameters
-```bash
-python -m src.main --start-time "2024-01-01T00:00:00Z" --end-time "2024-01-02T00:00:00Z" --sample-interval 10
-```
+The tool will guide you through an interactive setup:
 
-### Interactive Mode
-The tool will:
-1. Display available zones
-2. Allow zone selection
-3. Configure analysis parameters
-4. Process and analyze metrics
-5. Generate comprehensive reports
+1. **Time Range Selection:**
+   - Last 3 hours
+   - Last 24 hours
+   - Last 7 days
+   - Last 30 days
+   - Custom range
+
+2. **Sampling Configuration:**
+   - Auto (Cloudflare optimized)
+   - High precision (100% sampling)
+   - Balanced (10% sampling)
+   - Low precision (1% sampling)
+   - Custom sampling rate
+
+3. **Zone Selection:**
+   - View available zones
+   - Select specific zones or analyze all
+   - Confirm selection
+
+### Analysis Process
+
+The tool will then:
+1. Fetch metrics using Cloudflare's GraphQL API
+2. Process data with appropriate sampling rates
+3. Generate performance visualizations
+4. Create interactive dashboards
+5. Save detailed reports
+
+### Output
+
+Analysis results are saved in the `reports` directory:
+```
+reports/
+├── json/
+│   ├── raw_response_{zone_id}_{timestamp}.json
+│   ├── {zone_name}_cache_analysis.json
+│   └── {zone_name}_performance_analysis.json
+├── images/
+│   └── {zone_name}/
+│       ├── cache/
+│       │   ├── cache_hit_ratio.png
+│       │   ├── cache_distribution.png
+│       │   └── geographic_cache.png
+│       └── performance/
+│           ├── ttfb_distribution.png
+│           ├── performance_trends.png
+│           └── geo_performance.png
+└── logs/
+    └── cloudflare_analytics.log
+```
 
 ## Understanding Results
 
@@ -122,28 +169,6 @@ Provides insights into:
 - Geographic error distribution
 - Temporal error trends
 - Error impact on performance
-
-## Output Structure
-
-```
-reports/
-├── json/
-│   ├── raw_response_{zone_id}_{timestamp}.json
-│   ├── {zone_name}_cache_analysis.json
-│   └── {zone_name}_performance_analysis.json
-├── images/
-│   └── {zone_name}/
-│       ├── cache/
-│       │   ├── cache_hit_ratio.png
-│       │   ├── cache_distribution.png
-│       │   └── geographic_cache.png
-│       └── performance/
-│           ├── ttfb_distribution.png
-│           ├── performance_trends.png
-│           └── geo_performance.png
-└── logs/
-    └── cloudflare_analytics.log
-```
 
 ## Development Guide
 

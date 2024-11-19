@@ -11,6 +11,7 @@ from threading import Lock
 from queue import Queue
 import asyncio
 import traceback
+import argparse
 
 from .config import Config, setup_logging
 from .api_client import CloudflareAPIClient
@@ -318,13 +319,53 @@ def configure_analysis() -> tuple:
         start_time = end_time - timedelta(hours=24)
         return start_time, end_time, None
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description='Cloudflare Analytics Tool')
+    
+    # Time range arguments
+    parser.add_argument('--start-time', type=str, help='Start time in ISO format')
+    parser.add_argument('--end-time', type=str, help='End time in ISO format')
+    parser.add_argument('--sample-interval', type=int, help='Sample interval in minutes')
+    
+    # Authentication arguments
+    auth_group = parser.add_mutually_exclusive_group()
+    auth_group.add_argument('--use-bearer', action='store_true', 
+                           help='Use Bearer token authentication (requires CLOUDFLARE_BEARER_TOKEN env var)')
+    auth_group.add_argument('--bearer-token', type=str,
+                           help='Bearer token for authentication (overrides env var)')
+    
+    return parser.parse_args()
+
 def main():
-    """Main execution function."""
+    """Main execution function with authentication handling."""
     setup_logging()
     
     try:
+        args = parse_args()
+        
+        # Update environment if bearer token provided
+        if args.bearer_token:
+            os.environ['CLOUDFLARE_AUTH_TYPE'] = 'bearer'
+            os.environ['CLOUDFLARE_BEARER_TOKEN'] = args.bearer_token
+        elif args.use_bearer:
+            os.environ['CLOUDFLARE_AUTH_TYPE'] = 'bearer'
+        
         analytics = CloudflareAnalytics()
-        start_time, end_time, sample_interval = configure_analysis()
+        
+        # Parse time arguments if provided
+        start_time = None
+        end_time = None
+        
+        if args.start_time:
+            start_time = datetime.fromisoformat(args.start_time.replace('Z', '+00:00'))
+        if args.end_time:
+            end_time = datetime.fromisoformat(args.end_time.replace('Z', '+00:00'))
+        
+        if not (start_time and end_time):
+            start_time, end_time, sample_interval = configure_analysis()
+        else:
+            sample_interval = args.sample_interval
         
         analytics.run_analysis(
             start_time=start_time,
