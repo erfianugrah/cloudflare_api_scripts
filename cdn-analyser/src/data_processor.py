@@ -12,11 +12,15 @@ logger = logging.getLogger(__name__)
 class DataProcessor:
     def __init__(self):
         self.cache_statuses = {
-            'HIT': ['hit', 'stale', 'revalidated'],
-            'MISS': ['miss', 'expired', 'updating'],
-            'BYPASS': ['bypass', 'ignored'],
-            'ERROR': ['error'],
-            'UNKNOWN': ['unknown']
+            'HIT': ['hit'],  # Cached resource served
+            'MISS': ['miss'],  # Resource not in cache, served from origin
+            'EXPIRED': ['expired'],  # Cached but expired, served from origin
+            'STALE': ['stale'],  # Cached but expired, served from cache
+            'BYPASS': ['bypass'],  # Explicitly instructed to bypass cache
+            'REVALIDATED': ['revalidated'],  # Cached but revalidated with origin
+            'UPDATING': ['updating'],  # Cached, but origin is updating resource
+            'DYNAMIC': ['dynamic'],  # Not cached, served from origin
+            'NONE': ['none', 'unknown'],  # Asset not eligible for caching
         }
 
     def process_zone_metrics(self, raw_data: Dict) -> Optional[pd.DataFrame]:
@@ -158,31 +162,16 @@ Error Rates: 4xx={df['error_rate_4xx'].mean()*100:.2f}%, 5xx={df['error_rate_5xx
             sample_interval = avg_metrics.get('sampleInterval', 1)
             sampling_rate = 1 / sample_interval if sample_interval > 0 else 1
 
-            # Log raw metrics for debugging
-            logger.debug(f"""
-    Raw Metric Data:
-    -------------
-    Timestamp: {datetime_str}
-    Requests: {requests}
-    Visits: {visits}
-    Sample Interval: {sample_interval}
-    Sampling Rate: {sampling_rate}
-    Status: {dimensions.get('edgeResponseStatus')}
-    Cache: {dimensions.get('cacheStatus')}
-    Path: {dimensions.get('clientRequestPath')}
-    Upper Tier: {dimensions.get('upperTierColoName', 'None')}
-    ASN: {dimensions.get('clientAsn', 'None')}
-    Protocol: {dimensions.get('clientRequestHTTPProtocol', 'None')}
-    Country: {dimensions.get('clientCountryName', 'None')}
-    """)
-
-            # Categorize cache status
-            cache_status = dimensions.get('cacheStatus', 'unknown').lower()
+            # Categorize cache status with robust mapping
+            cache_status = dimensions.get('cacheStatus', 'unknown').strip().lower()
             cache_category = next(
-                (cat for cat, statuses in self.cache_statuses.items() 
-                 if cache_status in statuses),
-                'UNKNOWN'
+                (cat for cat, statuses in self.cache_statuses.items() if cache_status in statuses),
+                'NONE'  # Default to 'NONE' for unmapped statuses
             )
+
+            # Log unmapped statuses for debugging
+            if cache_category == 'NONE' and cache_status not in ['none', 'unknown']:
+                logger.warning(f"Unmapped cache status found: {cache_status}")
 
             return {
                 # Temporal dimensions

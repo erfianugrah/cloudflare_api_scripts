@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 import logging
 from datetime import datetime, timezone
 import traceback
+from typing import Dict, List, Optional, Union, Any
 
 logger = logging.getLogger(__name__)
 
@@ -166,9 +167,9 @@ Confidence Score: {metrics['metadata']['confidence_score']:.2f}
     def _analyze_temporal_patterns(self, df: pd.DataFrame) -> Dict:
         """Analyze temporal patterns with improved statistical analysis."""
         try:
-            # Resample to 5-minute intervals with explicit observed parameter
+            # Resample to 5-minute intervals
             df_time = df.set_index('timestamp')
-            temporal_metrics = df_time.resample('5min', observed=True).agg({
+            temporal_metrics = df_time.resample('5min').agg({
                 'origin_time_avg': 'mean',
                 'requests_adjusted': 'sum',
                 'bytes_adjusted': 'sum',
@@ -177,9 +178,17 @@ Confidence Score: {metrics['metadata']['confidence_score']:.2f}
                 'cache_status': lambda x: x.isin(self.cache_categories['ERROR']).mean() * 100
             }).reset_index()
 
-            # Use iloc for single element float conversion
-            peak_load_idx = temporal_metrics['requests_adjusted'].idxmax()
-            peak_latency_idx = temporal_metrics['origin_time_avg'].idxmax()
+            # Calculate moving averages
+            temporal_metrics['response_time_ma'] = temporal_metrics['origin_time_avg'].rolling(
+                window=3, min_periods=1
+            ).mean()
+
+            # Calculate trend using simple linear regression
+            temporal_metrics['response_time_trend'] = temporal_metrics['origin_time_avg'].diff()
+
+            # Find peak periods
+            peak_load_idx = temporal_metrics['requests_adjusted'].idxmax() if not temporal_metrics.empty else None
+            peak_latency_idx = temporal_metrics['origin_time_avg'].idxmax() if not temporal_metrics.empty else None
             
             peak_load = temporal_metrics.iloc[peak_load_idx] if peak_load_idx is not None else None
             peak_latency = temporal_metrics.iloc[peak_latency_idx] if peak_latency_idx is not None else None
@@ -187,26 +196,26 @@ Confidence Score: {metrics['metadata']['confidence_score']:.2f}
             return {
                 'time_series': {
                     str(row['timestamp']): {
-                        'response_time': float(row['origin_time_avg'].iloc[0] if isinstance(row['origin_time_avg'], pd.Series) else row['origin_time_avg']),
-                        'response_time_ma': float(row['response_time_ma'].iloc[0] if isinstance(row['response_time_ma'], pd.Series) else row['response_time_ma']),
-                        'trend': float(row['response_time_trend'].iloc[0] if isinstance(row['response_time_trend'], pd.Series) and not pd.isna(row['response_time_trend']) else 0.0),
-                        'requests': int(row['requests_adjusted'].iloc[0] if isinstance(row['requests_adjusted'], pd.Series) else row['requests_adjusted']),
-                        'error_rate': float(row['status'].iloc[0] if isinstance(row['status'], pd.Series) else row['status']),
-                        'bytes_transferred': float(row['bytes_adjusted'].iloc[0] if isinstance(row['bytes_adjusted'], pd.Series) else row['bytes_adjusted']),
-                        'p95_response_time': float(row['origin_p95'].iloc[0] if isinstance(row['origin_p95'], pd.Series) else row['origin_p95'])
+                        'response_time': float(self._safe_numeric(row['origin_time_avg'])),
+                        'response_time_ma': float(self._safe_numeric(row['response_time_ma'])),
+                        'trend': float(self._safe_numeric(row['response_time_trend'])),
+                        'requests': int(self._safe_numeric(row['requests_adjusted'])),
+                        'error_rate': float(self._safe_numeric(row['status'])),
+                        'bytes_transferred': float(self._safe_numeric(row['bytes_adjusted'])),
+                        'p95_response_time': float(self._safe_numeric(row['origin_p95']))
                     }
                     for _, row in temporal_metrics.iterrows()
                 },
                 'peak_periods': {
                     'highest_load': {
-                        'timestamp': str(peak_load['timestamp'].iloc[0] if isinstance(peak_load['timestamp'], pd.Series) else peak_load['timestamp']) if peak_load is not None else None,
-                        'requests': int(peak_load['requests_adjusted'].iloc[0] if isinstance(peak_load['requests_adjusted'], pd.Series) else peak_load['requests_adjusted']) if peak_load is not None else 0,
-                        'response_time': float(peak_load['origin_time_avg'].iloc[0] if isinstance(peak_load['origin_time_avg'], pd.Series) else peak_load['origin_time_avg']) if peak_load is not None else 0.0
+                        'timestamp': str(peak_load['timestamp']) if peak_load is not None else None,
+                        'requests': int(peak_load['requests_adjusted']) if peak_load is not None else 0,
+                        'response_time': float(peak_load['origin_time_avg']) if peak_load is not None else 0.0
                     },
                     'worst_performance': {
-                        'timestamp': str(peak_latency['timestamp'].iloc[0] if isinstance(peak_latency['timestamp'], pd.Series) else peak_latency['timestamp']) if peak_latency is not None else None,
-                        'response_time': float(peak_latency['origin_time_avg'].iloc[0] if isinstance(peak_latency['origin_time_avg'], pd.Series) else peak_latency['origin_time_avg']) if peak_latency is not None else 0.0,
-                        'requests': int(peak_latency['requests_adjusted'].iloc[0] if isinstance(peak_latency['requests_adjusted'], pd.Series) else peak_latency['requests_adjusted']) if peak_latency is not None else 0
+                        'timestamp': str(peak_latency['timestamp']) if peak_latency is not None else None,
+                        'response_time': float(peak_latency['origin_time_avg']) if peak_latency is not None else 0.0,
+                        'requests': int(peak_latency['requests_adjusted']) if peak_latency is not None else 0
                     }
                 }
             }
@@ -221,6 +230,7 @@ Confidence Score: {metrics['metadata']['confidence_score']:.2f}
                     'worst_performance': {'timestamp': None, 'response_time': 0.0, 'requests': 0}
                 }
             }
+
 
     def _analyze_geographic_patterns(self, df: pd.DataFrame) -> Dict:
         """Analyze geographic patterns with enhanced metrics."""
@@ -333,7 +343,7 @@ Confidence Score: {metrics['metadata']['confidence_score']:.2f}
             })
 
             # Analyze error patterns over time
-            hourly_errors = df.set_index('timestamp').resample('1H').agg({
+            hourly_errors = df.set_index('timestamp').resample('1h').agg({
                 'error_rate_5xx': 'mean',
                 'requests_adjusted': 'sum'
             })
@@ -479,82 +489,131 @@ Confidence Score: {metrics['metadata']['confidence_score']:.2f}
             }
 
     def _analyze_protocol_impact(self, df: pd.DataFrame) -> Dict:
-        """Analyze impact of different protocols on origin performance."""
+        """Analyze protocol impact with accurate request share calculations."""
         try:
+            if df.empty:
+                return self._empty_protocol_metrics()
+
+            # Clean protocol values and remove any nulls
+            df['protocol'] = df['protocol'].fillna('unknown').str.strip().str.upper()
+            
+            # Group by protocol for main metrics
             protocol_metrics = df.groupby('protocol').agg({
                 'origin_time_avg': ['mean', 'std', 'count'],
+                'ttfb_avg': ['mean', 'std'],
+                'ttfb_p95': 'mean',
+                'ttfb_p99': 'mean',
+                'origin_p95': 'mean',
+                'origin_p99': 'mean',
                 'requests_adjusted': 'sum',
+                'visits_adjusted': 'sum',
                 'bytes_adjusted': 'sum',
                 'error_rate_4xx': 'mean',
                 'error_rate_5xx': 'mean',
-                'origin_p95': 'mean'
+                'cache_status': lambda x: x.str.lower().isin(['hit', 'stale', 'revalidated']).mean() * 100
             }).reset_index()
 
-            if protocol_metrics.empty:
-                return {
-                    'protocols': {},
-                    'protocol_comparison': {
-                        'fastest_protocol': 'unknown',
-                        'most_reliable': 'unknown',
-                        'most_used': 'unknown'
+            total_requests = float(protocol_metrics['requests_adjusted'].sum().sum())
+            
+            # Build detailed protocol data
+            protocols = {}
+            for _, row in protocol_metrics.iterrows():
+                protocol = str(row['protocol'])
+                requests = float(row[('requests_adjusted', 'sum')])
+                
+                protocols[protocol] = {
+                    'performance': {
+                        'avg_response_time': float(self._safe_numeric(row[('origin_time_avg', 'mean')])),
+                        'std_dev': float(self._safe_numeric(row[('origin_time_avg', 'std')])),
+                        'sample_size': int(self._safe_numeric(row[('origin_time_avg', 'count')])),
+                        'ttfb': {
+                            'avg': float(self._safe_numeric(row[('ttfb_avg', 'mean')])),
+                            'std': float(self._safe_numeric(row[('ttfb_avg', 'std')])),
+                            'p95': float(self._safe_numeric(row['ttfb_p95'])),
+                            'p99': float(self._safe_numeric(row['ttfb_p99']))
+                        },
+                        'origin': {
+                            'p95': float(self._safe_numeric(row['origin_p95'])),
+                            'p99': float(self._safe_numeric(row['origin_p99']))
+                        }
+                    },
+                    'usage': {
+                        'request_count': int(requests),
+                        'visit_count': int(self._safe_numeric(row[('visits_adjusted', 'sum')])),
+                        'bytes_transferred': float(self._safe_numeric(row[('bytes_adjusted', 'sum')])),
+                        'bandwidth_gb': float(self._safe_numeric(row[('bytes_adjusted', 'sum')])) / (1024**3),
+                        'request_share': float(requests / total_requests * 100) if total_requests > 0 else 0
+                    },
+                    'reliability': {
+                        'error_rate_4xx': float(self._safe_numeric(row['error_rate_4xx']) * 100),
+                        'error_rate_5xx': float(self._safe_numeric(row['error_rate_5xx']) * 100),
+                        'total_error_rate': float(self._safe_numeric(row['error_rate_4xx'] + row['error_rate_5xx']) * 100),
+                        'cache_hit_ratio': float(self._safe_numeric(row['cache_status']))
                     }
-            }
+                }
 
-            # Calculate additional metrics
-            protocol_metrics['total_error_rate'] = (
-                protocol_metrics['error_rate_4xx'] + 
-                protocol_metrics['error_rate_5xx']
-            )
+            # Calculate time-based protocol metrics
+            time_metrics = df.set_index('timestamp').groupby([
+                pd.Grouper(freq='5min'), 'protocol'
+            ]).agg({
+                'requests_adjusted': 'sum',
+                'ttfb_avg': 'mean',
+                'error_rate_4xx': 'mean',
+                'error_rate_5xx': 'mean'
+            }).reset_index()
+
+            # Add temporal analysis
+            temporal_analysis = {}
+            for protocol in protocols.keys():
+                protocol_data = time_metrics[time_metrics['protocol'] == protocol]
+                if not protocol_data.empty:
+                    temporal_analysis[protocol] = {
+                        str(row['timestamp']): {
+                            'requests': int(self._safe_numeric(row['requests_adjusted'])),
+                            'avg_ttfb': float(self._safe_numeric(row['ttfb_avg'])),
+                            'error_rate': float(self._safe_numeric(row['error_rate_4xx'] + row['error_rate_5xx']) * 100)
+                        }
+                        for _, row in protocol_data.iterrows()
+                    }
+
+            # Identify best performing protocols
+            if not protocol_metrics.empty:
+                best_performers = {
+                    'response_time': str(protocol_metrics.loc[
+                        protocol_metrics[('origin_time_avg', 'mean')].idxmin(), 'protocol'
+                    ]),
+                    'reliability': str(protocol_metrics.loc[
+                        (protocol_metrics['error_rate_4xx'] + protocol_metrics['error_rate_5xx']).idxmin(), 'protocol'
+                    ]),
+                    'throughput': str(protocol_metrics.loc[
+                        protocol_metrics[('requests_adjusted', 'sum')].idxmax(), 'protocol'
+                    ]),
+                    'cache_performance': str(protocol_metrics.loc[
+                        protocol_metrics['cache_status'].idxmax(), 'protocol'
+                    ])
+                }
+            else:
+                best_performers = {
+                    'response_time': 'unknown',
+                    'reliability': 'unknown',
+                    'throughput': 'unknown',
+                    'cache_performance': 'unknown'
+                }
 
             return {
-                'protocols': {
-                    str(row['protocol']): {
-                        'performance': {
-                            'avg_response_time': float(row[('origin_time_avg', 'mean')]),
-                            'std_dev': float(row[('origin_time_avg', 'std')]),
-                            'sample_size': int(row[('origin_time_avg', 'count')]),
-                            'p95_response_time': float(row['origin_p95'])
-                        },
-                        'usage': {
-                            'request_count': int(row[('requests_adjusted', 'sum')]),
-                            'bytes_transferred': float(row[('bytes_adjusted', 'sum')])
-                        },
-                        'reliability': {
-                            'error_rate_4xx': float(row['error_rate_4xx']),
-                            'error_rate_5xx': float(row['error_rate_5xx']),
-                            'total_error_rate': float(row['total_error_rate'])
-                        }
-                    }
-                    for _, row in protocol_metrics.iterrows()
-                },
+                'protocols': protocols,
                 'protocol_comparison': {
-                    'fastest_protocol': str(
-                        protocol_metrics.loc[
-                            protocol_metrics[('origin_time_avg', 'mean')].idxmin(), 
-                            'protocol'
-                        ]
-                    ),
-                    'most_reliable': str(
-                        protocol_metrics.loc[
-                            protocol_metrics['total_error_rate'].idxmin(),
-                            'protocol'
-                        ]
-                    ),
-                    'most_used': str(
-                        protocol_metrics.loc[
-                            protocol_metrics[('requests_adjusted', 'sum')].idxmax(),
-                            'protocol'
-                        ]
-                    )
+                    'fastest_protocol': best_performers['response_time'],
+                    'most_reliable': best_performers['reliability'],
+                    'most_used': best_performers['throughput'],
+                    'best_cache_performance': best_performers['cache_performance']
                 },
+                'temporal_analysis': temporal_analysis,
                 'summary': {
-                    'total_protocols': len(protocol_metrics),
+                    'total_protocols': len(protocols),
                     'protocol_distribution': {
-                        str(row['protocol']): float(
-                            row[('requests_adjusted', 'sum')] / 
-                            protocol_metrics[('requests_adjusted', 'sum')].sum() * 100
-                        )
-                        for _, row in protocol_metrics.iterrows()
+                        protocol: float(metrics['usage']['request_share'])
+                        for protocol, metrics in protocols.items()
                     }
                 }
             }
@@ -562,7 +621,39 @@ Confidence Score: {metrics['metadata']['confidence_score']:.2f}
         except Exception as e:
             logger.error(f"Error analyzing protocol impact: {str(e)}")
             logger.error(traceback.format_exc())
-            return {}
+            return self._empty_protocol_metrics()
+
+    def _empty_protocol_metrics(self) -> Dict:
+        """Return empty protocol metrics structure."""
+        return {
+            'protocols': {},
+            'protocol_comparison': {
+                'fastest_protocol': 'unknown',
+                'most_reliable': 'unknown',
+                'most_used': 'unknown',
+                'best_cache_performance': 'unknown'
+            },
+            'temporal_analysis': {},
+            'summary': {
+                'total_protocols': 0,
+                'protocol_distribution': {}
+            }
+        }
+
+    def _safe_numeric(self, value: Any, default: Union[int, float] = 0) -> Union[int, float]:
+        """Safely convert value to number."""
+        try:
+            if pd.isna(value):
+                return default
+            elif isinstance(value, pd.Series):
+                return float(value.iloc[0]) if len(value) > 0 else default
+            return float(value)
+        except (ValueError, TypeError):
+            return default
+
+    def _safe_int(self, value: Any, default: int = 0) -> int:
+        """Safely convert value to integer."""
+        return int(self._safe_numeric(value, default))
 
     def _calculate_health_status(self, avg_response_time: float, error_rate: float) -> str:
         """Calculate overall health status based on response time and error rate."""

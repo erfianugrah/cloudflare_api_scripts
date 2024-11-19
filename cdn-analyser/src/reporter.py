@@ -28,20 +28,26 @@ class Reporter:
         try:
             end_time = datetime.now(timezone.utc)
             duration = end_time - start_time
-            
+
+            # Filter for successful zones
             successful_zones = [r for r in results if self._validate_result(r)]
-            
+
             if not successful_zones:
                 logger.warning("No successful zone analysis completed")
                 return self._format_empty_summary()
 
-            # Calculate overall metrics
+            # Calculate metrics
             total_metrics = self._calculate_total_metrics(successful_zones)
             performance_metrics = self._calculate_performance_metrics(successful_zones)
             cache_metrics = self._calculate_cache_metrics(successful_zones)
             error_metrics = self._calculate_error_metrics(successful_zones)
             tiered_cache_metrics = self._calculate_tiered_cache_metrics(successful_zones)
-            
+
+            # Log metrics for debugging
+            logger.info(f"Total Metrics: {total_metrics}")
+            logger.info(f"Cache Metrics: {cache_metrics}")
+            logger.info(f"Tiered Cache Metrics: {tiered_cache_metrics}")
+
             # Generate main summary
             summary = self._format_detailed_summary(
                 duration=duration,
@@ -86,9 +92,9 @@ class Reporter:
 
             # Save summary to file
             self._save_summary(summary)
-            
+
             return summary
-            
+
         except Exception as e:
             logger.error(f"Error generating summary: {str(e)}")
             logger.error(traceback.format_exc())
@@ -200,37 +206,48 @@ class Reporter:
             }
 
     def _calculate_cache_metrics(self, zones: List[Dict]) -> Dict:
-        """Calculate cache performance metrics weighted by requests."""
         try:
-            total_requests = sum(
-                z['cache_analysis']['overall']['total_requests']
-                for z in zones
-            )
-            
-            if total_requests == 0:
+            if not zones:
+                logger.error("No zones provided to _calculate_cache_metrics.")
                 return {
                     'hit_ratio': 0,
                     'bandwidth_saving': 0,
-                    'cache_status_distribution': {}
+                    'status_distribution': {}
                 }
 
-            # Calculate weighted hit ratio by requests
-            weighted_hit_ratio = sum(
+            total_requests = sum(
+                z['cache_analysis']['overall']['total_requests']
+                for z in zones if 'cache_analysis' in z and 'overall' in z['cache_analysis']
+            )
+
+            if total_requests == 0:
+                logger.warning("No total requests found across zones!")
+                return {
+                    'hit_ratio': 0,
+                    'bandwidth_saving': 0,
+                    'status_distribution': {}
+                }
+
+            # Weighted metrics calculation
+            weighted_hit_ratio = round(sum(
                 z['cache_analysis']['overall']['hit_ratio'] *
                 z['cache_analysis']['overall']['total_requests']
-                for z in zones
-            ) / total_requests
+                for z in zones if 'cache_analysis' in z and 'overall' in z['cache_analysis']
+            ) / total_requests, 2)
 
-            # Calculate overall bandwidth saving
-            weighted_bandwidth_saving = sum(
+            weighted_bandwidth_saving = round(sum(
                 z['cache_analysis']['overall']['bandwidth_saving'] *
                 z['cache_analysis']['overall']['total_requests']
-                for z in zones
-            ) / total_requests
+                for z in zones if 'cache_analysis' in z and 'overall' in z['cache_analysis']
+            ) / total_requests, 2)
 
             # Aggregate cache status distribution
             cache_distribution = {}
             for zone in zones:
+                if 'status_distribution' not in zone['cache_analysis']:
+                    logger.warning(f"Missing 'status_distribution' in zone: {zone.get('zone_name', 'unknown')}")
+                    continue
+
                 for status, metrics in zone['cache_analysis']['status_distribution'].items():
                     if status not in cache_distribution:
                         cache_distribution[status] = {
@@ -238,27 +255,28 @@ class Reporter:
                             'bytes': 0,
                             'percentage': 0
                         }
-                    cache_distribution[status]['requests'] += metrics['requests']
-                    cache_distribution[status]['bytes'] += metrics['bytes']
+                    cache_distribution[status]['requests'] += metrics.get('requests', 0)
+                    cache_distribution[status]['bytes'] += metrics.get('bytes', 0)
 
             # Calculate percentages
             for status in cache_distribution:
-                cache_distribution[status]['percentage'] = (
-                    cache_distribution[status]['requests'] / total_requests * 100
-                )
+                cache_distribution[status]['percentage'] = round(
+                    cache_distribution[status]['requests'] / total_requests * 100, 2
+                ) if total_requests > 0 else 0
 
             return {
                 'hit_ratio': weighted_hit_ratio,
                 'bandwidth_saving': weighted_bandwidth_saving,
-                'cache_status_distribution': cache_distribution
+                'status_distribution': cache_distribution
             }
-            
+
         except Exception as e:
             logger.error(f"Error calculating cache metrics: {str(e)}")
+            logger.error(traceback.format_exc())
             return {
                 'hit_ratio': 0,
                 'bandwidth_saving': 0,
-                'cache_status_distribution': {}
+                'status_distribution': {}
             }
 
     def _calculate_tiered_cache_metrics(self, zones: List[Dict]) -> Dict:
@@ -396,81 +414,95 @@ class Reporter:
         tiered_cache_metrics: Dict,
         zones: List[Dict]
     ) -> str:
-        """Format detailed analysis summary with tiered cache insights."""
         try:
             zone_summaries = []
             for zone in zones:
+                cache_analysis = zone.get('cache_analysis', {}).get('overall', {})
+                latency_analysis = zone.get('latency_analysis', {}).get('basic_metrics', {})
+                error_analysis = zone.get('error_analysis', {}).get('overall', {})
+
                 zone_summary = f"""
-    Zone: {zone['zone_name']}
-    ------------------
-    • Requests: {zone['cache_analysis']['overall']['total_requests']:,}
-    • Visits: {zone['cache_analysis']['overall']['total_visits']:,}
-    • Cache Hit Ratio: {zone['cache_analysis']['overall']['hit_ratio']:.2f}%
-    • Avg TTFB: {zone['latency_analysis']['basic_metrics']['ttfb']['avg']:.2f}ms
-    • Error Rate: {error_metrics['error_rate_4xx'] + error_metrics['error_rate_5xx']:.2f}%
-    • Bandwidth: {zone['cache_analysis']['overall']['total_bytes']:.2f} GB"""
-                
+Zone: {zone.get('zone_name', 'Unknown Zone')}
+------------------
+• Requests: {cache_analysis.get('total_requests', 0):,}
+• Visits: {cache_analysis.get('total_visits', 0):,}
+• Cache Hit Ratio: {cache_analysis.get('hit_ratio', 0):.2f}%
+• Avg TTFB: {latency_analysis.get('ttfb', {}).get('avg', 0):.2f}ms
+• Error Rate: {error_analysis.get('error_rate_4xx', 0) + error_analysis.get('error_rate_5xx', 0):.2f}%
+• Bandwidth: {cache_analysis.get('total_bytes', 0):.2f} GB"""
+                    
                 # Add tiered cache metrics if available
-                if 'tiered_cache_analysis' in zone:
-                    tc_analysis = zone['tiered_cache_analysis']
-                    tc_ratio = tc_analysis.get('overall', {}).get('tiered_requests_ratio', 0)
-                    zone_summary += f"\n• Tiered Cache Usage: {tc_ratio:.1f}%"
-                
+                tc_analysis = zone.get('tiered_cache_analysis', {})
+                tc_ratio = tc_analysis.get('overall', {}).get('tiered_request_ratio', 0)
+                zone_summary += f"\n• Tiered Cache Usage: {tc_ratio:.1f}%"
+                    
                 zone_summaries.append(zone_summary)
 
+            # Cache Status Distribution
+            status_distribution = cache_metrics.get('status_distribution', {})
+            formatted_status_distribution = "\n".join(
+                f"  - {status.capitalize()}: {metrics.get('requests_percentage', 0):.4f}% "
+                f"({metrics.get('requests', 0):,} requests, {metrics.get('bytes_percentage', 0):.4f}% of bandwidth)"
+                for status, metrics in status_distribution.items()
+            )
+            if not formatted_status_distribution:
+                formatted_status_distribution = "  - No data available"
+
+            # Overall Cache Hit Ratio and Bandwidth Savings
+            overall_cache = cache_metrics.get('overall', {})
+            overall_hit_ratio = overall_cache.get('hit_ratio', 0)
+            bandwidth_saving = overall_cache.get('bandwidth_saving', 0)
+
             return f"""
-    Cloudflare Analytics Summary
-    ==========================
-    Analysis Duration: {str(duration).split('.')[0]}
-    Zones Analyzed: {len(zones)}
+Cloudflare Analytics Summary
+==========================
+Analysis Duration: {str(duration).split('.')[0]}
+Zones Analyzed: {len(zones)}
 
-    Overall Metrics
-    --------------
-    • Total Requests: {total_metrics['total_requests']:,}
-    • Total Visits: {total_metrics['total_visits']:,}
-    • Total Bandwidth: {total_metrics['total_bytes_gb']:.2f} GB
-    • Average Sampling Rate: {total_metrics['avg_sampling_rate']:.1f}%
+Overall Metrics
+--------------
+• Total Requests: {total_metrics.get('total_requests', 0):,}
+• Total Visits: {total_metrics.get('total_visits', 0):,}
+• Total Bandwidth: {total_metrics.get('total_bytes_gb', 0):.2f} GB
+• Average Sampling Rate: {total_metrics.get('avg_sampling_rate', 0):.1f}%
 
-    Performance Metrics
-    -----------------
-    • Average TTFB: {performance_metrics['avg_ttfb']:.2f}ms
-    • 95th Percentile TTFB: {performance_metrics['p95_ttfb']:.2f}ms
-    • Average Origin Time: {performance_metrics['avg_origin_time']:.2f}ms
-    • 95th Percentile Origin Time: {performance_metrics['p95_origin_time']:.2f}ms
+Performance Metrics
+-----------------
+• Average TTFB: {performance_metrics.get('avg_ttfb', 0):.2f}ms
+• 95th Percentile TTFB: {performance_metrics.get('p95_ttfb', 0):.2f}ms
+• Average Origin Time: {performance_metrics.get('avg_origin_time', 0):.2f}ms
+• 95th Percentile Origin Time: {performance_metrics.get('p95_origin_time', 0):.2f}ms
 
-    Cache Performance
-    ---------------
-    • Overall Hit Ratio: {cache_metrics['hit_ratio']:.2f}%
-    • Bandwidth Savings: {cache_metrics['bandwidth_saving']:.2f}%
-    • Cache Status Distribution:
-      - HIT: {cache_metrics['status_distribution'].get('hit', {}).get('requests_percentage', 0):.1f}%
-      - MISS: {cache_metrics['status_distribution'].get('miss', {}).get('requests_percentage', 0):.1f}%
-      - BYPASS: {cache_metrics['status_distribution'].get('bypass', {}).get('requests_percentage', 0):.1f}%
-      - Other: {cache_metrics['status_distribution'].get('other', {}).get('requests_percentage', 0):.1f}%
+Cache Performance
+---------------
+• Overall Hit Ratio: {overall_hit_ratio:.2f}%
+• Bandwidth Savings: {bandwidth_saving:.2f}%
+• Cache Status Distribution:
+{formatted_status_distribution}
 
-    Error Analysis
-    ------------
-    • 4xx Error Rate: {error_metrics['error_rate_4xx']:.2f}%
-    • 5xx Error Rate: {error_metrics['error_rate_5xx']:.2f}%
-    • Total Errors: {error_metrics['total_errors']:,}
-    • Error/Request Ratio: {error_metrics['error_request_percentage']:.2f}%
+Error Analysis
+------------
+• 4xx Error Rate: {error_metrics.get('error_rate_4xx', 0):.2f}%
+• 5xx Error Rate: {error_metrics.get('error_rate_5xx', 0):.2f}%
+• Total Errors: {error_metrics.get('total_errors', 0):,}
+• Error/Request Ratio: {error_metrics.get('error_request_percentage', 0):.2f}%
 
-    Tiered Cache Performance
-    ---------------------
-    • Tiered Requests: {tiered_cache_metrics['overall']['total_tiered_requests']:,} ({tiered_cache_metrics['overall']['tiered_request_ratio']:.1f}%)
-    • Performance Comparison:
-      - Tiered TTFB: {tiered_cache_metrics['performance']['tiered_avg_ttfb']:.2f}ms
-      - Direct TTFB: {tiered_cache_metrics['performance']['direct_avg_ttfb']:.2f}ms
-    • Cache Effectiveness:
-      - Tiered Hit Ratio: {tiered_cache_metrics['performance']['tiered_cache_hit_ratio']:.1f}%
-      - Direct Hit Ratio: {tiered_cache_metrics['performance']['direct_cache_hit_ratio']:.1f}%
-    • Upper Tiers Active: {len(tiered_cache_metrics['upper_tiers'])}
-    • Upper Tier Locations: {', '.join(tiered_cache_metrics['upper_tiers']) if tiered_cache_metrics['upper_tiers'] else 'None'}
+Tiered Cache Performance
+---------------------
+• Tiered Requests: {tiered_cache_metrics.get('overall', {}).get('total_tiered_requests', 0):,} ({tiered_cache_metrics.get('overall', {}).get('tiered_request_ratio', 0):.1f}%)
+• Performance Comparison:
+  - Tiered TTFB: {tiered_cache_metrics.get('performance', {}).get('tiered_avg_ttfb', 0):.2f}ms
+  - Direct TTFB: {tiered_cache_metrics.get('performance', {}).get('direct_avg_ttfb', 0):.2f}ms
+• Cache Effectiveness:
+  - Tiered Hit Ratio: {tiered_cache_metrics.get('performance', {}).get('tiered_cache_hit_ratio', 0):.1f}%
+  - Direct Hit Ratio: {tiered_cache_metrics.get('performance', {}).get('direct_cache_hit_ratio', 0):.1f}%
+• Upper Tiers Active: {len(tiered_cache_metrics.get('upper_tiers', []))}
+• Upper Tier Locations: {', '.join(tiered_cache_metrics.get('upper_tiers', [])) if tiered_cache_metrics.get('upper_tiers') else 'None'}
 
-    Zone Details
-    -----------
-    {"".join(zone_summaries)}
-    """
+Zone Details
+-----------
+{"".join(zone_summaries)}
+        """
         except Exception as e:
             logger.error(f"Error formatting detailed summary: {str(e)}")
             return self._format_empty_summary()
