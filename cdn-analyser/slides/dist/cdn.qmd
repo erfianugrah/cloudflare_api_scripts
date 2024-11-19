@@ -102,16 +102,17 @@ graph TB
 %%{init: {
   'theme': 'dark',
   'themeVariables': {
-    'primaryColor': '#ff9800',
+    'primaryColor': '#ff9800',  /* Orange for main nodes */
     'primaryTextColor': '#fff',
     'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
+    'lineColor': '#fff',        /* Ensure lines are white */
+    'secondaryColor': '#006064',  /* Blue-green for Response Times */
+    'tertiaryColor': '#4caf50',   /* Green for Geographic Distribution */
+    'quaternaryColor': '#8e44ad', /* Purple for Resource Utilization */
     'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
+    'nodeBorder': '#fff',
     'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
+    'clusterBorder': '#fff'
   }
 }}%%
 graph LR
@@ -132,57 +133,74 @@ graph LR
     Resource --> Bottlenecks[Application Bottlenecks]
 
     classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
-    class Performance,Response,Geographic,Resource orange;
-    class TTFB,Origin,Cache,Latency,Efficiency,Errors,Load,Bottlenecks orange;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef purple fill:#8e44ad,stroke:#fff,stroke-width:2px,color:#fff;
+
+    class Performance orange;
+    class Response,TTFB,Origin,Cache blue;
+    class Geographic,Latency,Efficiency,Errors green;
+    class Resource,Load,Bottlenecks purple;
 ```
 </div>
-
 ---
 
-## Common Performance Bottlenecks 
+## Common Performance Bottlenecks
 
 <div class="mermaid-container">
 ```{mermaid}
 %%{init: {
   'theme': 'dark',
   'themeVariables': {
-    'primaryColor': '#ff9800',
+    'primaryColor': '#ff9800',  /* Orange for main categories */
     'primaryTextColor': '#fff',
     'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
+    'lineColor': '#fff',        /* Ensure lines are white */
+    'secondaryColor': '#4caf50',   /* Green for Cache Issues */
+    'tertiaryColor': '#006064',    /* Blue for Network Problems */
+    'quaternaryColor': '#8e44ad',  /* Purple for Origin Issues */
     'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
+    'nodeBorder': '#fff',
     'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
+    'clusterBorder': '#fff'
   }
 }}%%
-graph TD
-    Bottlenecks[Performance Bottlenecks]
-    Bottlenecks --> Cache[Cache Issues]
-    Bottlenecks --> Network[Network Problems]
-    Bottlenecks --> Origin[Origin Issues]
+graph TB
+    Performance[Performance Bottlenecks]
 
-    Cache --> HitRatio[Low Cache Hit Ratios]
+    %% First Level
+    Performance --> Cache[Cache Issues]
+    Performance --> Network[Network Problems]
+    Performance --> Origin[Origin Issues]
+
+    %% Cache Issues (Compact Layout)
+    Cache --> LowCache[Low Cache Hit Ratios]
     Cache --> TTL[Ineffective/Low TTLs]
     Cache --> Rules[Missing Cache Rules]
     Cache --> Design[Poor Cache Key Design]
 
+    %% Network Problems (Compact Layout)
     Network --> Latency[High Origin Latency]
     Network --> Routing[Poor Routing Paths]
     Network --> Connectivity[Regional Connectivity]
     Network --> Limits[Connection Limits]
 
+    %% Origin Issues (Compact Layout)
     Origin --> Overload[Server Overload]
     Origin --> Database[Database Bottlenecks]
     Origin --> Resources[Resource Exhaustion]
     Origin --> Timeouts[Timeout Configuration]
 
+    %% Class Definitions
     classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
-    class Bottlenecks orange;
-    class Cache,Network,Origin orange;
-    class HitRatio,TTL,Rules,Design,Latency,Routing,Connectivity,Limits,Overload,Database,Resources,Timeouts orange;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef purple fill:#8e44ad,stroke:#fff,stroke-width:2px,color:#fff;
+
+    class Performance orange;
+    class Cache,LowCache,TTL,Rules,Design green;
+    class Network,Latency,Routing,Connectivity,Limits blue;
+    class Origin,Overload,Database,Resources,Timeouts purple;
 ```
 </div>
 
@@ -366,6 +384,9 @@ Be aware for Cloudflare's GraphQL API [limits](https://developers.cloudflare.com
 
 ---
 
+## Take a Break ☕ {.center}
+
+
 ## Ruleset Engine with Terraform {.center}
 
 - Dashboard demo into rule building
@@ -539,47 +560,59 @@ resource "cloudflare_ruleset" "regional_cache" {
 
 ---
 
-## Things to look out for {.smaller}
+## Things to Look Out For
 
 <div class="mermaid-container">
 ```{mermaid}
 %%{init: {
   'theme': 'dark',
   'themeVariables': {
-    'primaryColor': '#ff9800',
+    'primaryColor': '#ff9800',  /* Orange for main categories */
     'primaryTextColor': '#fff',
     'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
+    'lineColor': '#fff',        /* Ensure lines are white */
+    'secondaryColor': '#4caf50',   /* Green for Cache Optimization */
+    'tertiaryColor': '#006064',    /* Blue for Network Optimization */
+    'quaternaryColor': '#8e44ad',  /* Purple for Origin Optimization */
     'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
+    'nodeBorder': '#fff',
     'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
+    'clusterBorder': '#fff'
   }
 }}%%
-graph TD
+graph TB
     Solutions[Optimization Solutions]
-    Solutions --> CacheOptim[Cache Optimization]
-    Solutions --> NetworkOptim[Network Optimization]
-    Solutions --> OriginOptim[Origin Optimization]
 
-    CacheOptim --> TTL[Appropriate TTLs]
-    CacheOptim --> Keys[Custom Cache Keys]
-    CacheOptim --> Tiered[Tiered Caching]
+    %% Categories
+    Solutions --> Cache[Cache Optimization]
+    Solutions --> Network[Network Optimization]
+    Solutions --> Origin[Origin Optimization]
 
-    NetworkOptim --> Argo[Argo Smart Routing]
-    NetworkOptim --> Load[Load Balancing]
-    NetworkOptim --> Latency[Latency Monitoring]
+    %% Cache Optimization (Compact Layout)
+    Cache --> TTL[Appropriate TTLs]
+    Cache --> Keys[Custom Cache Keys]
+    Cache --> Tiered[Tiered Caching]
 
-    OriginOptim --> Errors[Error Handling]
-    OriginOptim --> Monitoring[Service Monitoring]
-    OriginOptim --> Stale[Serve Stale Content]
+    %% Network Optimization (Compact Layout)
+    Network --> Argo[Argo Smart Routing]
+    Network --> Balancing[Load Balancing]
+    Network --> Monitoring[Latency Monitoring]
 
+    %% Origin Optimization (Compact Layout)
+    Origin --> Errors[Error Handling]
+    Origin --> Services[Service Monitoring]
+    Origin --> Stale[Serve Stale Content]
+
+    %% Class Definitions
     classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef purple fill:#8e44ad,stroke:#fff,stroke-width:2px,color:#fff;
+
     class Solutions orange;
-    class CacheOptim,NetworkOptim,OriginOptim blue;
-    class TTL,Keys,Tiered,Argo,Load,Latency,Errors,Monitoring,Stale green;
+    class Cache,TTL,Keys,Tiered green;
+    class Network,Argo,Balancing,Monitoring blue;
+    class Origin,Errors,Services,Stale purple;
 ```
 </div>
 

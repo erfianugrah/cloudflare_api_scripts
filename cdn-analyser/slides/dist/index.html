@@ -499,16 +499,17 @@ graph TB
 <pre class="mermaid mermaid-js">%%{init: {
   'theme': 'dark',
   'themeVariables': {
-    'primaryColor': '#ff9800',
+    'primaryColor': '#ff9800',  /* Orange for main nodes */
     'primaryTextColor': '#fff',
     'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
+    'lineColor': '#fff',        /* Ensure lines are white */
+    'secondaryColor': '#006064',  /* Blue-green for Response Times */
+    'tertiaryColor': '#4caf50',   /* Green for Geographic Distribution */
+    'quaternaryColor': '#8e44ad', /* Purple for Resource Utilization */
     'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
+    'nodeBorder': '#fff',
     'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
+    'clusterBorder': '#fff'
   }
 }}%%
 graph LR
@@ -529,8 +530,14 @@ graph LR
     Resource --&gt; Bottlenecks[Application Bottlenecks]
 
     classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
-    class Performance,Response,Geographic,Resource orange;
-    class TTFB,Origin,Cache,Latency,Efficiency,Errors,Load,Bottlenecks orange;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef purple fill:#8e44ad,stroke:#fff,stroke-width:2px,color:#fff;
+
+    class Performance orange;
+    class Response,TTFB,Origin,Cache blue;
+    class Geographic,Latency,Efficiency,Errors green;
+    class Resource,Load,Bottlenecks purple;
 </pre>
 </div>
 <p></p></figure><p></p>
@@ -550,43 +557,55 @@ graph LR
 <pre class="mermaid mermaid-js">%%{init: {
   'theme': 'dark',
   'themeVariables': {
-    'primaryColor': '#ff9800',
+    'primaryColor': '#ff9800',  /* Orange for main categories */
     'primaryTextColor': '#fff',
     'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
+    'lineColor': '#fff',        /* Ensure lines are white */
+    'secondaryColor': '#4caf50',   /* Green for Cache Issues */
+    'tertiaryColor': '#006064',    /* Blue for Network Problems */
+    'quaternaryColor': '#8e44ad',  /* Purple for Origin Issues */
     'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
+    'nodeBorder': '#fff',
     'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
+    'clusterBorder': '#fff'
   }
 }}%%
-graph TD
-    Bottlenecks[Performance Bottlenecks]
-    Bottlenecks --&gt; Cache[Cache Issues]
-    Bottlenecks --&gt; Network[Network Problems]
-    Bottlenecks --&gt; Origin[Origin Issues]
+graph TB
+    Performance[Performance Bottlenecks]
 
-    Cache --&gt; HitRatio[Low Cache Hit Ratios]
+    %% First Level
+    Performance --&gt; Cache[Cache Issues]
+    Performance --&gt; Network[Network Problems]
+    Performance --&gt; Origin[Origin Issues]
+
+    %% Cache Issues (Compact Layout)
+    Cache --&gt; LowCache[Low Cache Hit Ratios]
     Cache --&gt; TTL[Ineffective/Low TTLs]
     Cache --&gt; Rules[Missing Cache Rules]
     Cache --&gt; Design[Poor Cache Key Design]
 
+    %% Network Problems (Compact Layout)
     Network --&gt; Latency[High Origin Latency]
     Network --&gt; Routing[Poor Routing Paths]
     Network --&gt; Connectivity[Regional Connectivity]
     Network --&gt; Limits[Connection Limits]
 
+    %% Origin Issues (Compact Layout)
     Origin --&gt; Overload[Server Overload]
     Origin --&gt; Database[Database Bottlenecks]
     Origin --&gt; Resources[Resource Exhaustion]
     Origin --&gt; Timeouts[Timeout Configuration]
 
+    %% Class Definitions
     classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
-    class Bottlenecks orange;
-    class Cache,Network,Origin orange;
-    class HitRatio,TTL,Rules,Design,Latency,Routing,Connectivity,Limits,Overload,Database,Resources,Timeouts orange;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef purple fill:#8e44ad,stroke:#fff,stroke-width:2px,color:#fff;
+
+    class Performance orange;
+    class Cache,LowCache,TTL,Rules,Design green;
+    class Network,Latency,Routing,Connectivity,Limits blue;
+    class Origin,Overload,Database,Resources,Timeouts purple;
 </pre>
 </div>
 <p></p></figure><p></p>
@@ -773,6 +792,9 @@ graph TB
 <aside><div>
 <p>Be aware for Cloudflare’s GraphQL API <a href="https://developers.cloudflare.com/analytics/graphql-api/limits/">limits</a></p>
 </div></aside></section>
+<section id="take-a-break" class="slide level2 center">
+<h2>Take a Break ☕</h2>
+</section>
 <section id="ruleset-engine-with-terraform" class="slide level2 center">
 <h2>Ruleset Engine with Terraform</h2>
 <ul>
@@ -925,8 +947,8 @@ graph TB
 <span id="cb8-24"><a href=""></a>  }</span>
 <span id="cb8-25"><a href=""></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </section>
-<section id="things-to-look-out-for" class="slide level2 smaller">
-<h2>Things to look out for</h2>
+<section id="things-to-look-out-for" class="slide level2">
+<h2>Things to Look Out For</h2>
 <div class="mermaid-container">
 <div class="cell" data-reveal="true" data-layout-align="default">
 <div class="cell-output-display">
@@ -936,40 +958,52 @@ graph TB
 <pre class="mermaid mermaid-js">%%{init: {
   'theme': 'dark',
   'themeVariables': {
-    'primaryColor': '#ff9800',
+    'primaryColor': '#ff9800',  /* Orange for main categories */
     'primaryTextColor': '#fff',
     'primaryBorderColor': '#fff',
-    'lineColor': '#fff',
-    'secondaryColor': '#006064',
-    'tertiaryColor': '#4caf50',
+    'lineColor': '#fff',        /* Ensure lines are white */
+    'secondaryColor': '#4caf50',   /* Green for Cache Optimization */
+    'tertiaryColor': '#006064',    /* Blue for Network Optimization */
+    'quaternaryColor': '#8e44ad',  /* Purple for Origin Optimization */
     'mainBkg': '#2d3436',
-    'nodeBorder': '#ff9800',
+    'nodeBorder': '#fff',
     'clusterBkg': '#2d3436',
-    'clusterBorder': '#ff9800'
+    'clusterBorder': '#fff'
   }
 }}%%
-graph TD
+graph TB
     Solutions[Optimization Solutions]
-    Solutions --&gt; CacheOptim[Cache Optimization]
-    Solutions --&gt; NetworkOptim[Network Optimization]
-    Solutions --&gt; OriginOptim[Origin Optimization]
 
-    CacheOptim --&gt; TTL[Appropriate TTLs]
-    CacheOptim --&gt; Keys[Custom Cache Keys]
-    CacheOptim --&gt; Tiered[Tiered Caching]
+    %% Categories
+    Solutions --&gt; Cache[Cache Optimization]
+    Solutions --&gt; Network[Network Optimization]
+    Solutions --&gt; Origin[Origin Optimization]
 
-    NetworkOptim --&gt; Argo[Argo Smart Routing]
-    NetworkOptim --&gt; Load[Load Balancing]
-    NetworkOptim --&gt; Latency[Latency Monitoring]
+    %% Cache Optimization (Compact Layout)
+    Cache --&gt; TTL[Appropriate TTLs]
+    Cache --&gt; Keys[Custom Cache Keys]
+    Cache --&gt; Tiered[Tiered Caching]
 
-    OriginOptim --&gt; Errors[Error Handling]
-    OriginOptim --&gt; Monitoring[Service Monitoring]
-    OriginOptim --&gt; Stale[Serve Stale Content]
+    %% Network Optimization (Compact Layout)
+    Network --&gt; Argo[Argo Smart Routing]
+    Network --&gt; Balancing[Load Balancing]
+    Network --&gt; Monitoring[Latency Monitoring]
 
+    %% Origin Optimization (Compact Layout)
+    Origin --&gt; Errors[Error Handling]
+    Origin --&gt; Services[Service Monitoring]
+    Origin --&gt; Stale[Serve Stale Content]
+
+    %% Class Definitions
     classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef purple fill:#8e44ad,stroke:#fff,stroke-width:2px,color:#fff;
+
     class Solutions orange;
-    class CacheOptim,NetworkOptim,OriginOptim blue;
-    class TTL,Keys,Tiered,Argo,Load,Latency,Errors,Monitoring,Stale green;
+    class Cache,TTL,Keys,Tiered green;
+    class Network,Argo,Balancing,Monitoring blue;
+    class Origin,Errors,Services,Stale purple;
 </pre>
 </div>
 <p></p></figure><p></p>
