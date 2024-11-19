@@ -24,95 +24,12 @@ format:
 
 **What we'll cover:**
 
-1. Key Performance Metrics to Monitor
-2. Common Performance Bottlenecks
-3. Analysis Methodology
-4. GraphQL Data Collection
-5. Troubleshooting Workflow
-6. Implementation Solutions
-
----
-
-## Key Performance Metrics
-
-::: {.columns}
-
-::: {.column width="30%"}
-### 1. Response Times
-
-- **Edge TTFB**
-
-- **Origin Response Time**
-
-- **Cache Performance**
-
-:::
-
-::: {.column width="30%"}
-### 2. Geographic Distribution
-- **Regional Latency**
-
-- **Cache Efficiency**
-
-- **Error Distribution**
-
-:::
-
-::: {.column width="30%"}
-### 3. Resource Utilization
-
-- **Origin Load**
-- **Application Bottlenecks**
-
-:::
-
-:::
-
----
-
-## Common Performance Bottlenecks 
-
-::: {.columns}
-
-::: {.column width="30%"}
-### 1. Cache Issues
-- Low cache hit ratios
-- Frequent cache BYPASS/MISS
-- Ineffective/low TTLs
-- Poor cache key design
-- Missing cache rules
-- Dynamic content handling
-:::
-
-::: {.column width="30%"}
-### 2. Network Problems
-- High origin latency
-- Poor routing paths
-- Regional connectivity
-- Connection limits
-:::
-
-::: {.column width="30%"}
-### 3. Origin Issues
-- Server overload
-- Database bottlenecks
-- Resource exhaustion
-- Timeout configuration
-- Error handling
-:::
-
-:::
-
----
-
-## Analysis Workflow
-
 <style>
 .mermaid-container {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 100%;
+  height: 90%;
 }
 .reveal .slide-number {
   font-size: 20px;
@@ -127,7 +44,152 @@ format:
 #mermaid-1 {
   width: 2000px;
 }
+
+#mermaid-2 {
+  width: 1800px;
+}
+#mermaid-3 {
+  width: 1800px;
+}
+#mermaid-4 {
+  width: 1800px;
+}
+#mermaid-5 {
+  width: 1800px;
+}
 </style>
+
+<div class="mermaid-container">
+```{mermaid}
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph TB
+    Start[Key Performance Metrics] --> Bottlenecks[Common Bottlenecks]
+    Bottlenecks --> Analysis[Analysis Methodology]
+    Analysis --> Data[GraphQL Data Collection]
+    Data --> Troubleshoot[Troubleshooting Workflow]
+    Troubleshoot --> Solution[Implementation Solutions]
+    
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+
+    class Start,Bottlenecks orange;
+    class Analysis,Data blue;
+    class Troubleshoot,Solution green;
+```
+</div>
+
+---
+
+## Key Performance Metrics
+
+<div class="mermaid-container">
+```{mermaid}
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph LR
+    Performance[Performance Metrics]
+    Performance --> Response[Response Times]
+    Performance --> Geographic[Geographic Distribution]
+    Performance --> Resource[Resource Utilization]
+
+    Response --> TTFB[Edge TTFB]
+    Response --> Origin[Origin Response Time]
+    Response --> Cache[Cache Performance]
+
+    Geographic --> Latency[Regional Latency]
+    Geographic --> Efficiency[Cache Efficiency]
+    Geographic --> Errors[Error Distribution]
+
+    Resource --> Load[Origin Load]
+    Resource --> Bottlenecks[Application Bottlenecks]
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    class Performance,Response,Geographic,Resource orange;
+    class TTFB,Origin,Cache,Latency,Efficiency,Errors,Load,Bottlenecks orange;
+```
+</div>
+
+---
+
+## Common Performance Bottlenecks 
+
+<div class="mermaid-container">
+```{mermaid}
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph TD
+    Bottlenecks[Performance Bottlenecks]
+    Bottlenecks --> Cache[Cache Issues]
+    Bottlenecks --> Network[Network Problems]
+    Bottlenecks --> Origin[Origin Issues]
+
+    Cache --> HitRatio[Low Cache Hit Ratios]
+    Cache --> TTL[Ineffective/Low TTLs]
+    Cache --> Rules[Missing Cache Rules]
+    Cache --> Design[Poor Cache Key Design]
+
+    Network --> Latency[High Origin Latency]
+    Network --> Routing[Poor Routing Paths]
+    Network --> Connectivity[Regional Connectivity]
+    Network --> Limits[Connection Limits]
+
+    Origin --> Overload[Server Overload]
+    Origin --> Database[Database Bottlenecks]
+    Origin --> Resources[Resource Exhaustion]
+    Origin --> Timeouts[Timeout Configuration]
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    class Bottlenecks orange;
+    class Cache,Network,Origin orange;
+    class HitRatio,TTL,Rules,Design,Latency,Routing,Connectivity,Limits,Overload,Database,Resources,Timeouts orange;
+```
+</div>
+
+
+---
+
+## Analysis Workflow
 
 <div class="mermaid-container">
 ```{mermaid}
@@ -209,6 +271,12 @@ graph TB
 - Performance profiling
 
 ---
+
+## GraphQL Demo {.center}
+
+- Performance analysis walkthrough
+- Common issue resolution
+- Implementation guidance
 
 ## GraphQL Performance Analysis {.scrollable} 
 
@@ -297,6 +365,11 @@ Be aware for Cloudflare's GraphQL API [limits](https://developers.cloudflare.com
 :::
 
 ---
+
+## Ruleset Engine with Terraform {.center}
+
+- Dashboard demo into rule building
+- Implementation guidance
 
 ## Cache Optimization Solutions {.scrollable}
 
@@ -468,26 +541,50 @@ resource "cloudflare_ruleset" "regional_cache" {
 
 ## Things to look out for {.smaller}
 
-### 1. Cache Optimisation
-- Implement appropriate TTLs
-- Use custom cache keys when appropriate
-- Implement tiered caching
-- Monitor cache hit ratios
+<div class="mermaid-container">
+```{mermaid}
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph TD
+    Solutions[Optimization Solutions]
+    Solutions --> CacheOptim[Cache Optimization]
+    Solutions --> NetworkOptim[Network Optimization]
+    Solutions --> OriginOptim[Origin Optimization]
 
-### 2. Network Performance
-- Enable Argo Smart Routing
-- Configure load balancing
-- Monitor latency metrics
+    CacheOptim --> TTL[Appropriate TTLs]
+    CacheOptim --> Keys[Custom Cache Keys]
+    CacheOptim --> Tiered[Tiered Caching]
 
-### 3. Error Handling
-- Configure origin error pages
-- Implement service monitoring
-- Serve stale content if applicable
-- Monitor error rates
-- Track origin health
+    NetworkOptim --> Argo[Argo Smart Routing]
+    NetworkOptim --> Load[Load Balancing]
+    NetworkOptim --> Latency[Latency Monitoring]
 
-## Demo and Q&A {.center}
+    OriginOptim --> Errors[Error Handling]
+    OriginOptim --> Monitoring[Service Monitoring]
+    OriginOptim --> Stale[Serve Stale Content]
 
-- Performance analysis walkthrough
-- Common issue resolution
-- Implementation guidance
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    class Solutions orange;
+    class CacheOptim,NetworkOptim,OriginOptim blue;
+    class TTL,Keys,Tiered,Argo,Load,Latency,Errors,Monitoring,Stale green;
+```
+</div>
+
+## Survey {.center}
+
+<div style="text-align: center;">
+  <img src="./survey.png" style="width: 50%;" />
+</div>

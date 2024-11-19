@@ -411,82 +411,12 @@ Erfi Anugrah
 <section id="overview" class="slide level2 larger">
 <h2>Overview</h2>
 <p><strong>What we’ll cover:</strong></p>
-<ol type="1">
-<li>Key Performance Metrics to Monitor</li>
-<li>Common Performance Bottlenecks</li>
-<li>Analysis Methodology</li>
-<li>GraphQL Data Collection</li>
-<li>Troubleshooting Workflow</li>
-<li>Implementation Solutions</li>
-</ol>
-</section>
-<section id="key-performance-metrics" class="slide level2">
-<h2>Key Performance Metrics</h2>
-<div class="columns">
-<div class="column" style="width:30%;">
-<h3 id="response-times">1. Response Times</h3>
-<ul>
-<li><p><strong>Edge TTFB</strong></p></li>
-<li><p><strong>Origin Response Time</strong></p></li>
-<li><p><strong>Cache Performance</strong></p></li>
-</ul>
-</div><div class="column" style="width:30%;">
-<h3 id="geographic-distribution">2. Geographic Distribution</h3>
-<ul>
-<li><p><strong>Regional Latency</strong></p></li>
-<li><p><strong>Cache Efficiency</strong></p></li>
-<li><p><strong>Error Distribution</strong></p></li>
-</ul>
-</div><div class="column" style="width:30%;">
-<h3 id="resource-utilization">3. Resource Utilization</h3>
-<ul>
-<li><strong>Origin Load</strong></li>
-<li><strong>Application Bottlenecks</strong></li>
-</ul>
-</div>
-</div>
-</section>
-<section id="common-performance-bottlenecks" class="slide level2">
-<h2>Common Performance Bottlenecks</h2>
-<div class="columns">
-<div class="column" style="width:30%;">
-<h3 id="cache-issues">1. Cache Issues</h3>
-<ul>
-<li>Low cache hit ratios</li>
-<li>Frequent cache BYPASS/MISS</li>
-<li>Ineffective/low TTLs</li>
-<li>Poor cache key design</li>
-<li>Missing cache rules</li>
-<li>Dynamic content handling</li>
-</ul>
-</div><div class="column" style="width:30%;">
-<h3 id="network-problems">2. Network Problems</h3>
-<ul>
-<li>High origin latency</li>
-<li>Poor routing paths</li>
-<li>Regional connectivity</li>
-<li>Connection limits</li>
-</ul>
-</div><div class="column" style="width:30%;">
-<h3 id="origin-issues">3. Origin Issues</h3>
-<ul>
-<li>Server overload</li>
-<li>Database bottlenecks</li>
-<li>Resource exhaustion</li>
-<li>Timeout configuration</li>
-<li>Error handling</li>
-</ul>
-</div>
-</div>
-</section>
-<section id="analysis-workflow" class="slide level2">
-<h2>Analysis Workflow</h2>
 <style>
 .mermaid-container {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 100%;
+  height: 90%;
 }
 .reveal .slide-number {
   font-size: 20px;
@@ -501,7 +431,172 @@ Erfi Anugrah
 #mermaid-1 {
   width: 2000px;
 }
+
+#mermaid-2 {
+  width: 1800px;
+}
+#mermaid-3 {
+  width: 1800px;
+}
+#mermaid-4 {
+  width: 1800px;
+}
+#mermaid-5 {
+  width: 1800px;
+}
 </style>
+<div class="mermaid-container">
+<div class="cell" data-reveal="true" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class=""><p></p>
+<div>
+<pre class="mermaid mermaid-js">%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph TB
+    Start[Key Performance Metrics] --&gt; Bottlenecks[Common Bottlenecks]
+    Bottlenecks --&gt; Analysis[Analysis Methodology]
+    Analysis --&gt; Data[GraphQL Data Collection]
+    Data --&gt; Troubleshoot[Troubleshooting Workflow]
+    Troubleshoot --&gt; Solution[Implementation Solutions]
+    
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef blue fill:#006064,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef green fill:#4caf50,stroke:#fff,stroke-width:2px,color:#fff;
+
+    class Start,Bottlenecks orange;
+    class Analysis,Data blue;
+    class Troubleshoot,Solution green;
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="key-performance-metrics" class="slide level2">
+<h2>Key Performance Metrics</h2>
+<div class="mermaid-container">
+<div class="cell" data-reveal="true" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class=""><p></p>
+<div>
+<pre class="mermaid mermaid-js">%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph LR
+    Performance[Performance Metrics]
+    Performance --&gt; Response[Response Times]
+    Performance --&gt; Geographic[Geographic Distribution]
+    Performance --&gt; Resource[Resource Utilization]
+
+    Response --&gt; TTFB[Edge TTFB]
+    Response --&gt; Origin[Origin Response Time]
+    Response --&gt; Cache[Cache Performance]
+
+    Geographic --&gt; Latency[Regional Latency]
+    Geographic --&gt; Efficiency[Cache Efficiency]
+    Geographic --&gt; Errors[Error Distribution]
+
+    Resource --&gt; Load[Origin Load]
+    Resource --&gt; Bottlenecks[Application Bottlenecks]
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    class Performance,Response,Geographic,Resource orange;
+    class TTFB,Origin,Cache,Latency,Efficiency,Errors,Load,Bottlenecks orange;
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="common-performance-bottlenecks" class="slide level2">
+<h2>Common Performance Bottlenecks</h2>
+<div class="mermaid-container">
+<div class="cell" data-reveal="true" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class=""><p></p>
+<div>
+<pre class="mermaid mermaid-js">%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph TD
+    Bottlenecks[Performance Bottlenecks]
+    Bottlenecks --&gt; Cache[Cache Issues]
+    Bottlenecks --&gt; Network[Network Problems]
+    Bottlenecks --&gt; Origin[Origin Issues]
+
+    Cache --&gt; HitRatio[Low Cache Hit Ratios]
+    Cache --&gt; TTL[Ineffective/Low TTLs]
+    Cache --&gt; Rules[Missing Cache Rules]
+    Cache --&gt; Design[Poor Cache Key Design]
+
+    Network --&gt; Latency[High Origin Latency]
+    Network --&gt; Routing[Poor Routing Paths]
+    Network --&gt; Connectivity[Regional Connectivity]
+    Network --&gt; Limits[Connection Limits]
+
+    Origin --&gt; Overload[Server Overload]
+    Origin --&gt; Database[Database Bottlenecks]
+    Origin --&gt; Resources[Resource Exhaustion]
+    Origin --&gt; Timeouts[Timeout Configuration]
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    class Bottlenecks orange;
+    class Cache,Network,Origin orange;
+    class HitRatio,TTL,Rules,Design,Latency,Routing,Connectivity,Limits,Overload,Database,Resources,Timeouts orange;
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="analysis-workflow" class="slide level2">
+<h2>Analysis Workflow</h2>
 <div class="mermaid-container">
 <div class="cell" data-reveal="true" data-layout-align="default">
 <div class="cell-output-display">
@@ -592,6 +687,14 @@ graph TB
 <li>Performance profiling</li>
 </ul>
 </section>
+<section id="graphql-demo" class="slide level2 center">
+<h2>GraphQL Demo</h2>
+<ul>
+<li>Performance analysis walkthrough</li>
+<li>Common issue resolution</li>
+<li>Implementation guidance</li>
+</ul>
+</section>
 <section id="graphql-performance-analysis" class="slide level2 scrollable">
 <h2>GraphQL Performance Analysis</h2>
 <div class="sourceCode" id="cb1"><pre class="sourceCode numberSource graphql number-lines code-with-copy"><code class="sourceCode graphql"><span id="cb1-1"><a href=""></a><span class="kw">query</span> ZoneMetricsBasic(<span class="va">$zoneTag</span>: <span class="dt">String</span>!, <span class="va">$filter</span>: ZoneHttpRequestsAdaptiveGroupsFilter!) {</span>
@@ -670,6 +773,13 @@ graph TB
 <aside><div>
 <p>Be aware for Cloudflare’s GraphQL API <a href="https://developers.cloudflare.com/analytics/graphql-api/limits/">limits</a></p>
 </div></aside></section>
+<section id="ruleset-engine-with-terraform" class="slide level2 center">
+<h2>Ruleset Engine with Terraform</h2>
+<ul>
+<li>Dashboard demo into rule building</li>
+<li>Implementation guidance</li>
+</ul>
+</section>
 <section id="cache-optimization-solutions" class="slide level2 scrollable">
 <h2>Cache Optimization Solutions</h2>
 <h4 id="static-content-caching">1. Static Content Caching</h4>
@@ -817,35 +927,62 @@ graph TB
 </section>
 <section id="things-to-look-out-for" class="slide level2 smaller">
 <h2>Things to look out for</h2>
-<h3 id="cache-optimisation">1. Cache Optimisation</h3>
-<ul>
-<li>Implement appropriate TTLs</li>
-<li>Use custom cache keys when appropriate</li>
-<li>Implement tiered caching</li>
-<li>Monitor cache hit ratios</li>
-</ul>
-<h3 id="network-performance">2. Network Performance</h3>
-<ul>
-<li>Enable Argo Smart Routing</li>
-<li>Configure load balancing</li>
-<li>Monitor latency metrics</li>
-</ul>
-<h3 id="error-handling">3. Error Handling</h3>
-<ul>
-<li>Configure origin error pages</li>
-<li>Implement service monitoring</li>
-<li>Serve stale content if applicable</li>
-<li>Monitor error rates</li>
-<li>Track origin health</li>
-</ul>
+<div class="mermaid-container">
+<div class="cell" data-reveal="true" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class=""><p></p>
+<div>
+<pre class="mermaid mermaid-js">%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#ff9800',
+    'primaryTextColor': '#fff',
+    'primaryBorderColor': '#fff',
+    'lineColor': '#fff',
+    'secondaryColor': '#006064',
+    'tertiaryColor': '#4caf50',
+    'mainBkg': '#2d3436',
+    'nodeBorder': '#ff9800',
+    'clusterBkg': '#2d3436',
+    'clusterBorder': '#ff9800'
+  }
+}}%%
+graph TD
+    Solutions[Optimization Solutions]
+    Solutions --&gt; CacheOptim[Cache Optimization]
+    Solutions --&gt; NetworkOptim[Network Optimization]
+    Solutions --&gt; OriginOptim[Origin Optimization]
+
+    CacheOptim --&gt; TTL[Appropriate TTLs]
+    CacheOptim --&gt; Keys[Custom Cache Keys]
+    CacheOptim --&gt; Tiered[Tiered Caching]
+
+    NetworkOptim --&gt; Argo[Argo Smart Routing]
+    NetworkOptim --&gt; Load[Load Balancing]
+    NetworkOptim --&gt; Latency[Latency Monitoring]
+
+    OriginOptim --&gt; Errors[Error Handling]
+    OriginOptim --&gt; Monitoring[Service Monitoring]
+    OriginOptim --&gt; Stale[Serve Stale Content]
+
+    classDef orange fill:#ff9800,stroke:#fff,stroke-width:2px,color:#fff;
+    class Solutions orange;
+    class CacheOptim,NetworkOptim,OriginOptim blue;
+    class TTL,Keys,Tiered,Argo,Load,Latency,Errors,Monitoring,Stale green;
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</div>
 </section>
-<section id="demo-and-qa" class="slide level2 center">
-<h2>Demo and Q&amp;A</h2>
-<ul>
-<li>Performance analysis walkthrough</li>
-<li>Common issue resolution</li>
-<li>Implementation guidance</li>
-</ul>
+<section id="survey" class="slide level2 center">
+<h2>Survey</h2>
+<div style="text-align: center;">
+<p><img src="./survey.png" style="width: 50%;"></p>
+</div>
 <div class="quarto-auto-generated-content">
 <div class="footer footer-default">
 
