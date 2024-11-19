@@ -16,8 +16,6 @@ format:
     chalkboard:
       theme: whiteboard
       boardmarker-width: 5
-    mermaid:
-      theme: forest
 ---
 
 ## Overview {.larger}
@@ -73,7 +71,8 @@ format:
     'nodeBorder': '#ff9800',
     'clusterBkg': '#2d3436',
     'clusterBorder': '#ff9800'
-  }
+  },
+  'themeCSS': '.edgePath path { stroke: #fff !important; }'
 }}%%
 graph TB
     Start[Key Performance Metrics] --> Bottlenecks[Common Bottlenecks]
