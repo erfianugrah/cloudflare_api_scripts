@@ -441,7 +441,7 @@ Zone: {zone.get('zone_name', 'Unknown Zone')}
             # Cache Status Distribution
             status_distribution = cache_metrics.get('status_distribution', {})
             formatted_status_distribution = "\n".join(
-                f"  - {status.capitalize()}: {metrics.get('requests_percentage', 0):.4f}% "
+                f"  - {status.capitalize()}: {metrics.get('percentage', 0):.4f}% "
                 f"({metrics.get('requests', 0):,} requests, {metrics.get('bytes_percentage', 0):.4f}% of bandwidth)"
                 for status, metrics in status_distribution.items()
             )
@@ -502,7 +502,7 @@ Tiered Cache Performance
 Zone Details
 -----------
 {"".join(zone_summaries)}
-        """
+            """
         except Exception as e:
             logger.error(f"Error formatting detailed summary: {str(e)}")
             return self._format_empty_summary()

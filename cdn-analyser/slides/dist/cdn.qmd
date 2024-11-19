@@ -44,7 +44,6 @@ format:
 #mermaid-1 {
   width: 2000px;
 }
-
 #mermaid-2 {
   width: 1800px;
 }
