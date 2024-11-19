@@ -387,7 +387,6 @@
       margin-right: 0; 
     }
   </style>
-  <meta name="mermaid-theme" content="forest">
   <script src="cdn_files/libs/quarto-diagram/mermaid.min.js"></script>
   <script src="cdn_files/libs/quarto-diagram/mermaid-init.js"></script>
   <link href="cdn_files/libs/quarto-diagram/mermaid.css" rel="stylesheet">
@@ -431,7 +430,6 @@ Erfi Anugrah
 #mermaid-1 {
   width: 2000px;
 }
-
 #mermaid-2 {
   width: 1800px;
 }
@@ -464,7 +462,8 @@ Erfi Anugrah
     'nodeBorder': '#ff9800',
     'clusterBkg': '#2d3436',
     'clusterBorder': '#ff9800'
-  }
+  },
+  'themeCSS': '.edgePath path { stroke: #fff !important; }'
 }}%%
 graph TB
     Start[Key Performance Metrics] --&gt; Bottlenecks[Common Bottlenecks]
