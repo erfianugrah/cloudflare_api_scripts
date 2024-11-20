@@ -68,20 +68,6 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Configuration
-
-1. Copy the example environment file:
-```bash
-cp .env.example .env
-```
-
-2. Edit `.env` with your Cloudflare credentials:
-```plaintext
-CLOUDFLARE_ACCOUNT_ID=your_account_id
-CLOUDFLARE_API_KEY=your_api_key
-CLOUDFLARE_EMAIL=your_email
-```
-
 ## Usage
 
 ### Basic Analysis
