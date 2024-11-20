@@ -54,7 +54,7 @@ An advanced analytics tool for analyzing Cloudflare zone performance metrics wit
 1. Clone the repository:
 ```bash
 git clone https://github.com/erfianugrah/cloudflare_api_scripts.git
-cd cloudflare-api-scripts
+cd cloudflare-api-scripts/cdn-analyzer
 ```
 
 2. Create and activate a virtual environment:
