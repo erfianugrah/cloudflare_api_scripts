@@ -80,6 +80,9 @@ query ZoneMetricsDetailed($zoneTag: String!, $filter: ZoneHttpRequestsAdaptiveGr
         dimensions {
           datetimeMinute
           clientAsn
+          clientASNDescription
+          originASN
+          originASNDescription
           clientIP
           clientRefererHost
           clientRequestHTTPHost
@@ -87,6 +90,9 @@ query ZoneMetricsDetailed($zoneTag: String!, $filter: ZoneHttpRequestsAdaptiveGr
           clientRequestHTTPMethodName
         }
         quantiles {
+          edgeResponseBytesP50
+          edgeResponseBytesP95
+          edgeResponseBytesP99
           edgeTimeToFirstByteMsP50
           edgeTimeToFirstByteMsP95
           edgeTimeToFirstByteMsP99

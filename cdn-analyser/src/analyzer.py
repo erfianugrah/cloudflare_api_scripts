@@ -778,7 +778,9 @@ Error Rate: {analysis_result['error_analysis']['overall']['error_rate_4xx'] + an
             output_path = self.config.json_dir / filename
             
             def convert_to_native(obj):
-                if isinstance(obj, (np.integer, np.int64)):
+                if hasattr(obj, 'to_dict'):
+                    return obj.to_dict()
+                elif isinstance(obj, (np.integer, np.int64)):
                     return int(obj)
                 elif isinstance(obj, (np.floating, np.float64)):
                     return float(obj)
