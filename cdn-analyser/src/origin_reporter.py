@@ -492,23 +492,23 @@ High Impact Endpoints:
             response_time = metrics.get('response_time', {}).get('avg', 0)
             if response_time > self.thresholds['response_time']['critical']:
                 recommendations.append(f"""
-    {critical} Critical Performance Issues
-    - Current average response time: {response_time:.2f}ms (threshold: {self.thresholds['response_time']['critical']}ms)
-    - Actions:
-        {bullet} Immediate origin server optimization required
-        {bullet} Review server resources and scaling
-        {bullet} Check database query performance
-        {bullet} Implement aggressive caching
-        {bullet} Consider CDN configuration optimization""")
+{critical} Critical Performance Issues
+- Current average response time: {response_time:.2f}ms (threshold: {self.thresholds['response_time']['critical']}ms)
+- Actions:
+    {bullet} Immediate origin server optimization required
+    {bullet} Review server resources and scaling
+    {bullet} Check database query performance
+    {bullet} Implement aggressive caching
+    {bullet} Consider CDN configuration optimization""")
             elif response_time > self.thresholds['response_time']['warning']:
                 recommendations.append(f"""
-    {warning} Performance Optimization Required
-    - Current average response time: {response_time:.2f}ms (threshold: {self.thresholds['response_time']['warning']}ms)
-    - Actions:
-        {bullet} Review origin server configuration
-        {bullet} Optimize application code
-        {bullet} Consider implementing edge computing
-        {bullet} Monitor server resources""")
+{warning} Performance Optimization Required
+- Current average response time: {response_time:.2f}ms (threshold: {self.thresholds['response_time']['warning']}ms)
+- Actions:
+    {bullet} Review origin server configuration
+    {bullet} Optimize application code
+    {bullet} Consider implementing edge computing
+    {bullet} Monitor server resources""")
 
             # Error rate recommendations
             error_rates = metrics.get('failure_rates', {})
@@ -517,13 +517,13 @@ High Impact Endpoints:
             
             if error_rate > self.thresholds['error_rate']['warning']:
                 recommendations.append(f"""
-    {warning} High Error Rate Detected
-    - Current error rate: {error_rate:.2f}% (threshold: {self.thresholds['error_rate']['warning']}%)
-    - Actions:
-        {bullet} Review server error logs
-        {bullet} Implement circuit breakers
-        {bullet} Set up automated error monitoring
-        {bullet} Review error handling logic""")
+{warning} High Error Rate Detected
+- Current error rate: {error_rate:.2f}% (threshold: {self.thresholds['error_rate']['warning']}%)
+- Actions:
+    {bullet} Review server error logs
+    {bullet} Implement circuit breakers
+    {bullet} Set up automated error monitoring
+    {bullet} Review error handling logic""")
 
             # Network recommendations
             network_summary = network_analysis.get('summary', {})
@@ -531,39 +531,39 @@ High Impact Endpoints:
                 avg_latency = network_summary.get('avg_path_latency', 0)
                 if avg_latency > 200:  # 200ms threshold for network latency
                     recommendations.append(f"""
-    {warning} High Network Latency
-    - Current average path latency: {avg_latency:.2f}ms
-    - Actions:
-        {bullet} Review network path configuration
-        {bullet} Consider additional edge locations
-        {bullet} Optimize routing configuration
-        {bullet} Monitor network performance""")
+{warning} High Network Latency
+- Current average path latency: {avg_latency:.2f}ms
+- Actions:
+    {bullet} Review network path configuration
+    {bullet} Consider additional edge locations
+    {bullet} Optimize routing configuration
+    {bullet} Monitor network performance""")
 
             # Health check recommendations
             health_status = metrics.get('health_status', 'unknown')
             if health_status.lower() == 'critical':
                 recommendations.append(f"""
-    {critical} Critical Health Status
-    - Actions:
-        {bullet} Implement immediate health checks
-        {bullet} Set up automated alerts
-        {bullet} Review system capacity
-        {bullet} Prepare incident response plan""")
+{critical} Critical Health Status
+- Actions:
+    {bullet} Implement immediate health checks
+    {bullet} Set up automated alerts
+    {bullet} Review system capacity
+    {bullet} Prepare incident response plan""")
 
             # If no issues detected, provide maintenance recommendations
             if not recommendations:
                 recommendations.append(f"""
-    {bullet} No Critical Issues Detected
-    - Current Performance:
-        {bullet} Response Time: {response_time:.2f}ms
-        {bullet} Error Rate: {error_rate:.2f}%
-        {bullet} Timeout Rate: {timeout_rate:.2f}%
+{bullet} No Critical Issues Detected
+- Current Performance:
+    {bullet} Response Time: {response_time:.2f}ms
+    {bullet} Error Rate: {error_rate:.2f}%
+    {bullet} Timeout Rate: {timeout_rate:.2f}%
     
-    - Recommendations for Maintenance:
-        {bullet} Continue monitoring key metrics
-        {bullet} Implement proactive alerting
-        {bullet} Schedule regular performance reviews
-        {bullet} Document baseline performance""")
+- Recommendations for Maintenance:
+    {bullet} Continue monitoring key metrics
+    {bullet} Implement proactive alerting
+    {bullet} Schedule regular performance reviews
+    {bullet} Document baseline performance""")
 
             return "\n".join(recommendations)
 

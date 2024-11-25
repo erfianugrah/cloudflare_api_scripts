@@ -94,19 +94,19 @@ class OriginAnalyzer:
             confidence_score = min(1.0, len(origin_requests) / self.min_requests)
             
             logger.info(f"""
-        Origin Analysis Starting:
-        ---------------------
-        Total Records: {len(df):,}
-        Origin Records: {len(origin_requests):,}
-        Time Range: {df['timestamp'].min()} to {df['timestamp'].max()}
-        Confidence Score: {confidence_score:.2f}
-        
-        Basic Metrics:
-        - Average TTFB: {origin_requests['ttfb_avg'].mean():.2f}ms
-        - Average Origin Time: {origin_requests['origin_time_avg'].mean():.2f}ms
-        - Error Rate (4xx): {origin_requests['error_rate_4xx'].mean():.2f}%
-        - Error Rate (5xx): {origin_requests['error_rate_5xx'].mean():.2f}%
-        """)
+Origin Analysis Starting:
+---------------------
+Total Records: {len(df):,}
+Origin Records: {len(origin_requests):,}
+Time Range: {df['timestamp'].min()} to {df['timestamp'].max()}
+Confidence Score: {confidence_score:.2f}
+
+Basic Metrics:
+- Average TTFB: {origin_requests['ttfb_avg'].mean():.2f}ms
+- Average Origin Time: {origin_requests['origin_time_avg'].mean():.2f}ms
+- Error Rate (4xx): {origin_requests['error_rate_4xx'].mean():.2f}%
+- Error Rate (5xx): {origin_requests['error_rate_5xx'].mean():.2f}%
+""")
 
             return {
                 'overall_metrics': self._calculate_overall_metrics(origin_requests),
