@@ -2,119 +2,79 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Union, Any
 import logging
-from datetime import datetime, timezone, timedelta
-import json
-from pathlib import Path
+from datetime import datetime, timezone
 import traceback
 
-logger = logging.getLogger(__name__)
+from .edge_analyzer import EdgeAnalyzer
 from .origin_analyzer import OriginAnalyzer
+from .types import NetworkPathMetrics, PerformanceMetrics, ErrorMetrics, ProcessedMetrics
+
+logger = logging.getLogger(__name__)
 
 class Analyzer:
+    """Main analyzer that coordinates edge and origin analysis"""
+    
     def __init__(self, config):
         self.config = config
-        self.cache_categories = {
-            'HIT': ['hit'],  # Cached resource served
-            'MISS': ['miss'],  # Resource not in cache, served from origin
-            'EXPIRED': ['expired'],  # Cached but expired, served from origin
-            'STALE': ['stale'],  # Cached but expired, served from cache
-            'BYPASS': ['bypass'],  # Explicitly instructed to bypass cache
-            'REVALIDATED': ['revalidated'],  # Cached but revalidated with origin
-            'UPDATING': ['updating'],  # Cached, but origin is updating resource
-            'DYNAMIC': ['dynamic'],  # Not cached, served from origin
-            'NONE': ['none', 'unknown'],  # Asset not eligible for caching
-        }
+        self.edge_analyzer = EdgeAnalyzer()
         self.origin_analyzer = OriginAnalyzer()
 
-    def _safe_numeric(self, value: Any, default: Union[int, float] = 0) -> Union[int, float]:
-        """Safely convert value to number."""
-        try:
-            if pd.isna(value):
-                return default
-            elif isinstance(value, pd.Series):
-                return float(value.iloc[0]) if len(value) > 0 else default
-            return float(value)
-        except (ValueError, TypeError):
-            return default
-
-    def _safe_int(self, value: Any, default: int = 0) -> int:
-        """Safely convert value to integer."""
-        return int(self._safe_numeric(value, default))
-
-    def analyze_metrics(self, df: pd.DataFrame, zone_name: str) -> Dict:
-        """Main analysis entry point with enhanced error handling."""
+    def analyze_metrics(self, df: pd.DataFrame, zone_name: str) -> Optional[Dict]:
+        """Main analysis entry point that coordinates edge and origin analysis"""
         try:
             if df is None or df.empty:
                 logger.error(f"No data available for analysis of zone {zone_name}")
                 return None
 
-            # Log DataFrame information for debugging
+            # Log analysis start
             logger.info(f"""
 Analysis Starting:
 ---------------
 Zone: {zone_name}
 Total Records: {len(df)}
-Total Raw Requests: {len(df):,} (each record = 1 request)
-Total Raw Visits: {df['visits'].sum():,}
-Total Adjusted Requests: {df['requests_adjusted'].sum():,}
-Total Adjusted Visits: {df['visits_adjusted'].sum():,}
 Time Range: {df['timestamp'].min()} to {df['timestamp'].max()}
 """)
 
-            # Ensure required columns exist
-            required_columns = [
-                'cache_status', 'requests_adjusted', 'visits_adjusted', 'bytes_adjusted',
-                'ttfb_avg', 'status', 'error_rate_4xx', 'error_rate_5xx', 'timestamp',
-                'endpoint'
-            ]
-            
-            missing_columns = [col for col in required_columns if col not in df.columns]
-            if missing_columns:
-                logger.error(f"Missing required columns: {missing_columns}")
+            # Calculate sampling metrics first
+            sampling_metrics = self._calculate_sampling_metrics(df)
+
+            # Perform edge analysis
+            edge_analysis = self.edge_analyzer.analyze_edge_performance(df)
+            if not edge_analysis:
+                logger.error("Edge analysis failed")
                 return None
 
-            # Perform analysis components
+            # Perform origin analysis
+            origin_analysis = self.origin_analyzer.analyze_origin_performance(df)
+            if not origin_analysis:
+                logger.error("Origin analysis failed")
+                return None
+
+            # Calculate cache metrics
+            cache_analysis = self._calculate_cache_metrics(df)
+
+            # Combine results
             analysis_result = {
                 'zone_name': zone_name,
-                'cache_analysis': self._analyze_cache_metrics(df),
-                'latency_analysis': self._analyze_latency_metrics(df),
-                'error_analysis': self._analyze_error_metrics(df),
-                'time_trends': self._analyze_time_trends(df),
-                'geographic_metrics': self._analyze_geographic_metrics(df),
-                'endpoint_metrics': self._analyze_endpoint_metrics(df),
-                'sampling_metrics': self._analyze_sampling_distribution(df),
-                'tiered_cache_analysis': self._analyze_tiered_cache(df)
+                'edge_analysis': edge_analysis,
+                'origin_analysis': origin_analysis,
+                'cache_analysis': cache_analysis,
+                'sampling_metrics': sampling_metrics,
+                'raw_data': df,
+                'metadata': {
+                    'analysis_time': datetime.now(timezone.utc).isoformat(),
+                    'total_records': len(df),
+                    'total_requests': int(df['requests_adjusted'].sum()),
+                    'time_range': {
+                        'start': df['timestamp'].min().isoformat(),
+                        'end': df['timestamp'].max().isoformat()
+                    }
+                }
             }
 
-            # Add origin analysis
-            origin_analysis = self.origin_analyzer.analyze_origin_performance(df)
-            if origin_analysis:
-                analysis_result['origin_analysis'] = origin_analysis
+            # Log analysis completion
+            self._log_analysis_summary(analysis_result)
 
-            # Validate results
-            valid_result = all(
-                v is not None for k, v in analysis_result.items()
-                if k != 'zone_name'
-            )
-
-            if not valid_result:
-                logger.error("One or more analysis components failed")
-                return None
-
-            # Log analysis summary
-            logger.info(f"""
-Analysis Complete:
----------------
-Zone: {zone_name}
-Cache Hit Ratio: {analysis_result['cache_analysis']['overall']['hit_ratio']:.2f}%
-Total Requests: {analysis_result['cache_analysis']['overall']['total_requests']}
-Total Visits: {analysis_result['cache_analysis']['overall']['total_visits']}
-Avg TTFB: {analysis_result['latency_analysis']['basic_metrics']['ttfb']['avg']:.2f}ms
-Error Rate: {analysis_result['error_analysis']['overall']['error_rate_4xx'] + analysis_result['error_analysis']['overall']['error_rate_5xx']:.2f}%
-""")
-
-            # Save analysis results
-            self._save_analysis(analysis_result, f"{zone_name}_analysis.json")
             return analysis_result
 
         except Exception as e:
@@ -122,615 +82,29 @@ Error Rate: {analysis_result['error_analysis']['overall']['error_rate_4xx'] + an
             logger.error(traceback.format_exc())
             return None
 
-    def _analyze_cache_metrics(self, df: pd.DataFrame) -> Dict:
+    def _calculate_sampling_metrics(self, df: pd.DataFrame) -> Dict:
+        """Calculate sampling-related metrics with confidence scores"""
         try:
-            if df is None or df.empty:
-                return self._empty_cache_metrics()
-
-            # Map cache statuses to categories
-            df['cache_category'] = df['cache_status'].apply(
-                lambda x: next(
-                    (cat for cat, statuses in self.cache_categories.items() 
-                     if str(x).lower() in statuses), 
-                    'UNKNOWN'
-                )
-            )
-
-            # Log cache category distribution
-            logger.info(f"Cache Category Distribution:\n{df['cache_category'].value_counts()}")
-
-            # Aggregate metrics by category
-            category_metrics = df.groupby('cache_category').agg({
-                'requests_adjusted': 'sum',
-                'visits_adjusted': 'sum',
-                'bytes_adjusted': 'sum'
-            }).reset_index()
-
-            logger.info(f"Aggregated Metrics by Category:\n{category_metrics}")
-
-            total_requests = category_metrics['requests_adjusted'].sum()
-            total_visits = category_metrics['visits_adjusted'].sum()
-            total_bytes = category_metrics['bytes_adjusted'].sum()
-
-            # Build status distribution
-            status_distribution = {
-                row['cache_category']: {
-                    'requests': int(row['requests_adjusted']),
-                    'requests_percentage': row['requests_adjusted'] / total_requests * 100 if total_requests > 0 else 0,
-                    'visits': int(row['visits_adjusted']),
-                    'visits_percentage': row['visits_adjusted'] / total_visits * 100 if total_visits > 0 else 0,
-                    'bytes': float(row['bytes_adjusted']),
-                    'bytes_percentage': row['bytes_adjusted'] / total_bytes * 100 if total_bytes > 0 else 0,
-                }
-                for _, row in category_metrics.iterrows()
-            }
-
-            # Ensure categories with zero values are included
-            for category in ['HIT', 'MISS', 'EXPIRED', 'DYNAMIC', 'NONE', 'STALE', 'BYPASS', 'REVALIDATED', 'UPDATING']:
-                if category not in status_distribution:
-                    status_distribution[category] = {
-                        'requests': 0,
-                        'requests_percentage': 0,
-                        'visits': 0,
-                        'visits_percentage': 0,
-                        'bytes': 0,
-                        'bytes_percentage': 0,
-                    }
-
-            # Calculate overall hit ratio and bandwidth savings
-            hit_requests = df[df['cache_category'] == 'HIT']['requests_adjusted'].sum()
-            hit_bytes = df[df['cache_category'] == 'HIT']['bytes_adjusted'].sum()
-
-            hit_ratio = hit_requests / total_requests * 100 if total_requests > 0 else 0
-            bandwidth_saving = hit_bytes / total_bytes * 100 if total_bytes > 0 else 0
-
-            return {
-                'overall': {
-                    'hit_ratio': round(hit_ratio, 2),
-                    'total_requests': int(total_requests),
-                    'total_visits': int(total_visits),
-                    'total_bytes': float(total_bytes / (1024 ** 3)),  # Convert to GB
-                    'bandwidth_saving': round(bandwidth_saving, 2)
-                },
-                'status_distribution': status_distribution
-            }
-
-        except Exception as e:
-            logger.error(f"Error analyzing cache metrics: {str(e)}")
-            logger.error(traceback.format_exc())
-            return self._empty_cache_metrics()
-
-    def _empty_cache_metrics(self) -> Dict:
-        """Return empty cache metrics structure."""
-        return {
-            'overall': {
-                'hit_ratio': 0,
-                'total_requests': 0,
-                'total_visits': 0,
-                'total_bytes': 0,
-                'bandwidth_saving': 0
-            },
-            'status_distribution': {},
-            'content_type_metrics': {}
-        }
-
-    def _analyze_tiered_cache(self, df: pd.DataFrame) -> Dict:
-        """Analyze tiered cache performance with comprehensive metrics."""
-        try:
-            if df is None or df.empty:
-                return self._empty_tiered_metrics()
-
-            # Filter for requests with tiered cache information
-            tiered_requests = df[df['upperTierColoName'].notna()]
-            direct_requests = df[df['upperTierColoName'].isna()]
+            # Calculate sampling rates
+            sampling_rates = df['sampling_rate'].agg(['min', 'max', 'mean', 'median'])
+            total_raw = df['requests'].sum()
+            total_adjusted = df['requests_adjusted'].sum()
             
-            total_requests = len(df)
-            
-            tiered_metrics = {
-                'overall': {
-                    'total_requests': int(total_requests),
-                    'tiered_requests_ratio': float(len(tiered_requests) / total_requests * 100 if total_requests > 0 else 0),
-                    'tiered_requests_count': int(len(tiered_requests)),
-                    'direct_requests_count': int(len(direct_requests))
-                },
-                'performance': {
-                    'tiered_requests': {
-                        'avg_ttfb': float(self._safe_numeric(tiered_requests['ttfb_avg'].mean())),
-                        'p95_ttfb': float(self._safe_numeric(tiered_requests['ttfb_p95'].mean())),
-                        'cache_hit_ratio': float(
-                            tiered_requests['cache_status']
-                            .str.lower()
-                            .isin(['hit', 'stale', 'revalidated'])
-                            .mean() * 100
-                        ) if not tiered_requests.empty else 0
-                    },
-                    'direct_requests': {
-                        'avg_ttfb': float(self._safe_numeric(direct_requests['ttfb_avg'].mean())),
-                        'p95_ttfb': float(self._safe_numeric(direct_requests['ttfb_p95'].mean())),
-                        'cache_hit_ratio': float(
-                            direct_requests['cache_status']
-                            .str.lower()
-                            .isin(['hit', 'stale', 'revalidated'])
-                            .mean() * 100
-                        ) if not direct_requests.empty else 0
-                    }
-                }
-            }
-
-            # Analyze performance by upper tier location
-            tier_distribution = {}
-            if not tiered_requests.empty:
-                tier_metrics = tiered_requests.groupby('upperTierColoName').agg({
-                    'ttfb_avg': 'mean',
-                    'origin_time_avg': 'mean',
-                    'requests_adjusted': 'sum',
-                    'visits_adjusted': 'sum',
-                    'bytes_adjusted': 'sum',
-                    'cache_status': lambda x: x.str.lower().isin(['hit', 'stale', 'revalidated']).mean() * 100
-                }).reset_index()
-
-                tier_distribution = {
-                    str(row['upperTierColoName']): {
-                        'performance': {
-                            'ttfb': float(self._safe_numeric(row['ttfb_avg'])),
-                            'origin_time': float(self._safe_numeric(row['origin_time_avg'])),
-                            'cache_hit_ratio': float(self._safe_numeric(row['cache_status']))
-                        },
-                        'traffic': {
-                            'requests': int(self._safe_numeric(row['requests_adjusted'])),
-                            'visits': int(self._safe_numeric(row['visits_adjusted'])),
-                            'bandwidth_gb': float(self._safe_numeric(row['bytes_adjusted'])) / (1024**3)
-                        }
-                    }
-                    for _, row in tier_metrics.iterrows()
-                    if not pd.isna(row['upperTierColoName'])
-                }
-
-            # Analyze geographic distribution of tiered requests
-            geo_distribution = {}
-            if not tiered_requests.empty:
-                geo_metrics = tiered_requests.groupby(['country', 'upperTierColoName']).agg({
-                    'requests_adjusted': 'sum',
-                    'ttfb_avg': 'mean'
-                }).reset_index()
-
-                # For each country, find the primary tier and metrics
-                for country, country_data in geo_metrics.groupby('country'):
-                    primary_tier_idx = country_data['requests_adjusted'].idxmax()
-                    primary_tier = country_data.loc[primary_tier_idx]
-
-                    geo_distribution[str(country)] = {
-                        'primary_tier': str(primary_tier['upperTierColoName']),
-                        'avg_ttfb': float(self._safe_numeric(country_data['ttfb_avg'].mean())),
-                        'request_count': int(self._safe_numeric(country_data['requests_adjusted'].sum()))
-                    }
-
-            tiered_metrics['tier_distribution'] = tier_distribution
-            tiered_metrics['geographic_distribution'] = geo_distribution
-
-            return tiered_metrics
-
-        except Exception as e:
-            logger.error(f"Error analyzing tiered cache metrics: {str(e)}")
-            logger.error(traceback.format_exc())
-            return self._empty_tiered_metrics()
-
-    def _empty_tiered_metrics(self) -> Dict:
-        """Return empty tiered cache metrics structure."""
-        return {
-            'overall': {
-                'total_requests': 0,
-                'tiered_requests_ratio': 0,
-                'tiered_requests_count': 0,
-                'direct_requests_count': 0
-            },
-            'performance': {
-                'tiered_requests': {
-                    'avg_ttfb': 0,
-                    'p95_ttfb': 0,
-                    'cache_hit_ratio': 0
-                },
-                'direct_requests': {
-                    'avg_ttfb': 0,
-                    'p95_ttfb': 0,
-                    'cache_hit_ratio': 0
-                }
-            },
-            'tier_distribution': {},
-            'geographic_distribution': {}
-        }
-
-    def _analyze_latency_metrics(self, df: pd.DataFrame) -> Dict:
-        """Analyze latency and performance metrics with request weighting."""
-        try:
-            # Basic latency statistics weighted by request count
-            basic_metrics = {
-                'ttfb': {
-                    'avg': float(np.average(df['ttfb_avg'], weights=df['requests_adjusted'])),
-                    'p50': float(df['ttfb_p50'].mean()),
-                    'p95': float(df['ttfb_p95'].mean()),
-                    'p99': float(df['ttfb_p99'].mean()),
-                    'std': float(df['ttfb_avg'].std())
-                },
-                'origin_time': {
-                    'avg': float(np.average(df['origin_time_avg'], weights=df['requests_adjusted'])),
-                    'p50': float(df['origin_p50'].mean()),
-                    'p95': float(df['origin_p95'].mean()),
-                    'p99': float(df['origin_p99'].mean()),
-                    'std': float(df['origin_time_avg'].std())
-                }
-            }
-
-            # Cache status impact on latency
-            cache_impact = df.groupby('cache_status').agg({
-                'ttfb_avg': ['mean', 'std'],
-                'requests_adjusted': 'sum',
-                'origin_time_avg': ['mean', 'std'],
-                'visits_adjusted': 'sum'
-            }).round(2)
-
-            # Protocol impact on latency
-            protocol_impact = df.groupby('protocol').agg({
-                'ttfb_avg': ['mean', 'std'],
-                'requests_adjusted': 'sum',
-                'origin_time_avg': ['mean', 'std'],
-                'visits_adjusted': 'sum'
-            }).round(2)
-
-            return {
-                'basic_metrics': basic_metrics,
-                'cache_impact': {
-                    status: {
-                        'ttfb': {
-                            'avg': float(metrics['ttfb_avg']['mean']),
-                            'std': float(metrics['ttfb_avg']['std']),
-                            'requests': int(metrics['requests_adjusted']['sum']),
-                            'visits': int(metrics['visits_adjusted']['sum'])
-                        },
-                        'origin_time': {
-                            'avg': float(metrics['origin_time_avg']['mean']),
-                            'std': float(metrics['origin_time_avg']['std'])
-                        }
-                    }
-                    for status, metrics in cache_impact.iterrows()
-                },
-                'protocol_impact': {
-                    protocol: {
-                        'ttfb': {
-                            'avg': float(metrics['ttfb_avg']['mean']),
-                            'std': float(metrics['ttfb_avg']['std']),
-                            'requests': int(metrics['requests_adjusted']['sum']),
-                            'visits': int(metrics['visits_adjusted']['sum'])
-                        },
-                        'origin_time': {
-                            'avg': float(metrics['origin_time_avg']['mean']),
-                            'std': float(metrics['origin_time_avg']['std'])
-                        }
-                    }
-                    for protocol, metrics in protocol_impact.iterrows()
-                }
-            }
-
-        except Exception as e:
-            logger.error(f"Error analyzing latency metrics: {str(e)}")
-            logger.error(traceback.format_exc())
-            return {
-                'basic_metrics': {
-                    'ttfb': {'avg': 0, 'p50': 0, 'p95': 0, 'p99': 0, 'std': 0},
-                    'origin_time': {'avg': 0, 'p50': 0, 'p95': 0, 'p99': 0, 'std': 0}
-                },
-                'cache_impact': {},
-                'protocol_impact': {}
-            }
-
-        def _empty_latency_metrics(self) -> Dict:
-            """Return empty latency metrics structure."""
-            return {
-                'basic_metrics': {
-                    'ttfb': {'avg': 0, 'p50': 0, 'p95': 0, 'p99': 0, 'std': 0},
-                    'origin_time': {'avg': 0, 'p50': 0, 'p95': 0, 'p99': 0, 'std': 0}
-                },
-                'cache_impact': {},
-                'protocol_impact': {}
-            }
-
-    def _analyze_error_metrics(self, df: pd.DataFrame) -> Dict:
-        """Analyze error metrics with separate request and visit tracking."""
-        try:
-            total_requests = df['requests_adjusted'].sum()
-            total_visits = df['visits_adjusted'].sum()
-            
-            # Status code distribution
-            status_dist = df.groupby('status').agg({
-                'requests_adjusted': 'sum',
-                'visits_adjusted': 'sum',
-                'ttfb_avg': 'mean',
-                'cache_status': lambda x: x.isin(self.cache_categories['HIT']).mean() * 100
-            }).reset_index()
-            
-            # Error patterns over time
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            error_trends = df.set_index('timestamp').resample('5min').agg({
-                'error_rate_4xx': 'mean',
-                'error_rate_5xx': 'mean',
-                'requests_adjusted': 'sum',
-                'visits_adjusted': 'sum'
-            }).reset_index()
-
-            # Calculate total errors
-            total_errors = df[df['status'] >= 400]['requests_adjusted'].sum()
-            error_request_percentage = (total_errors / total_requests * 100) if total_requests > 0 else 0
-            error_visit_percentage = (total_errors / total_visits * 100) if total_visits > 0 else 0
-            
-            return {
-                'overall': {
-                    'error_rate_4xx': float(df['error_rate_4xx'].mean() * 100),
-                    'error_rate_5xx': float(df['error_rate_5xx'].mean() * 100),
-                    'total_errors': int(total_errors),
-                    'error_request_percentage': float(error_request_percentage),
-                    'error_visit_percentage': float(error_visit_percentage)
-                },
-                'status_distribution': {
-                    str(int(row['status'])): {
-                        'requests': int(row['requests_adjusted']),
-                        'requests_percentage': float(row['requests_adjusted'] / total_requests * 100) if total_requests > 0 else 0,
-                        'visits': int(row['visits_adjusted']),
-                        'visits_percentage': float(row['visits_adjusted'] / total_visits * 100) if total_visits > 0 else 0,
-                        'avg_ttfb': float(row['ttfb_avg']),
-                        'cache_hit_ratio': float(row['cache_status'])
-                    }
-                    for _, row in status_dist.iterrows()
-                },
-                'trends': {
-                    str(timestamp): {
-                        'error_rate_4xx': float(row['error_rate_4xx']),
-                        'error_rate_5xx': float(row['error_rate_5xx']),
-                        'requests': int(row['requests_adjusted']),
-                        'visits': int(row['visits_adjusted'])
-                    }
-                    for timestamp, row in error_trends.iterrows()
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"Error analyzing error metrics: {str(e)}")
-            logger.error(traceback.format_exc())
-            return None
-
-    def _analyze_geographic_metrics(self, df: pd.DataFrame) -> Dict:
-        """Analyze metrics by geographic location with separate request and visit tracking."""
-        try:
-            geo_metrics = df.groupby('country').agg({
-                'ttfb_avg': ['mean', 'std'],
-                'origin_time_avg': ['mean', 'std'],
-                'cache_status': lambda x: x.isin(self.cache_categories['HIT']).mean() * 100,
-                'requests_adjusted': 'sum',
-                'visits_adjusted': 'sum',
-                'bytes_adjusted': 'sum',
-                'error_rate_4xx': 'mean',
-                'error_rate_5xx': 'mean',
-                'sampling_rate': 'mean'
-            })
-            
-            total_requests = geo_metrics['requests_adjusted']['sum'].sum()
-            total_visits = geo_metrics['visits_adjusted']['sum'].sum()
-            
-            return {
-                'countries': {
-                    country: {
-                        'performance': {
-                            'ttfb': {
-                                'avg': float(metrics['ttfb_avg'].iloc[0]),
-                                'std': float(metrics['ttfb_avg'].iloc[1])
-                            },
-                            'origin_time': {
-                                'avg': float(metrics['origin_time_avg'].iloc[0]),
-                                'std': float(metrics['origin_time_avg'].iloc[1])
-                            }
-                        },
-                        'cache': {
-                            'hit_ratio': float(metrics['cache_status'].iloc[0])
-                        },
-                        'traffic': {
-                            'requests': int(metrics['requests_adjusted'].iloc[0]),
-                            'requests_percentage': float(metrics['requests_adjusted'].iloc[0] / total_requests * 100) if total_requests > 0 else 0,
-                            'visits': int(metrics['visits_adjusted'].iloc[0]),
-                            'visits_percentage': float(metrics['visits_adjusted'].iloc[0] / total_visits * 100) if total_visits > 0 else 0,
-                            'bytes_gb': float(metrics['bytes_adjusted'].iloc[0] / (1024 ** 3))
-                        },
-                        'errors': {
-                            'error_rate_4xx': float(metrics['error_rate_4xx'].iloc[0] * 100),
-                            'error_rate_5xx': float(metrics['error_rate_5xx'].iloc[0] * 100)
-                        },
-                        'sampling': {
-                            'rate': float(metrics['sampling_rate'].iloc[0] * 100)
-                        }
-                    }
-                    for country, metrics in geo_metrics.iterrows()
-                },
-                'summary': {
-                    'total_countries': len(geo_metrics),
-                    'top_traffic_countries': list(
-                        geo_metrics.nlargest(5, ('requests_adjusted', 'sum')).index
-                    ),
-                    'top_visitor_countries': list(
-                        geo_metrics.nlargest(5, ('visits_adjusted', 'sum')).index
-                    ),
-                    'best_performing_countries': list(
-                        geo_metrics.nsmallest(5, ('ttfb_avg', 'mean')).index
-                    )
-                }
-            }
-        
-        except Exception as e:
-            logger.error(f"Error analyzing geographic metrics: {str(e)}")
-            logger.error(traceback.format_exc())
-            return None
-
-    def _analyze_endpoint_metrics(self, df: pd.DataFrame) -> Dict:
-        """Analyze metrics by endpoint with separate request and visit tracking."""
-        try:
-            endpoint_metrics = df.groupby('endpoint').agg({
-                'ttfb_avg': ['mean', 'std', 'count'],
-                'requests_adjusted': 'sum',
-                'visits_adjusted': 'sum',
-                'bytes_adjusted': 'sum',
-                'error_rate_4xx': 'mean',
-                'error_rate_5xx': 'mean',
-                'cache_status': lambda x: x.isin(['hit', 'stale', 'revalidated']).mean() * 100
-            })
-
-            total_requests = endpoint_metrics['requests_adjusted']['sum'].sum()
-            total_visits = endpoint_metrics['visits_adjusted']['sum'].sum()
-
-            return {
-                'endpoints': {
-                    str(endpoint): {
-                        'performance': {
-                            'ttfb_avg': float(metrics['ttfb_avg'].iloc[0]),
-                            'ttfb_std': float(metrics['ttfb_avg'].iloc[1]),
-                            'sample_count': int(metrics['ttfb_avg'].iloc[2])
-                        },
-                        'traffic': {
-                            'requests': int(metrics['requests_adjusted'].iloc[0]),
-                            'requests_percentage': float(metrics['requests_adjusted'].iloc[0] / total_requests * 100) if total_requests > 0 else 0,
-                            'visits': int(metrics['visits_adjusted'].iloc[0]),
-                            'visits_percentage': float(metrics['visits_adjusted'].iloc[0] / total_visits * 100) if total_visits > 0 else 0,
-                            'bytes_gb': float(metrics['bytes_adjusted'].iloc[0] / (1024 ** 3))
-                        },
-                        'cache': {
-                            'hit_ratio': float(metrics['cache_status'].iloc[0])
-                        },
-                        'errors': {
-                            'error_rate_4xx': float(metrics['error_rate_4xx'].iloc[0] * 100),
-                            'error_rate_5xx': float(metrics['error_rate_5xx'].iloc[0] * 100)
-                        }
-                    }
-                    for endpoint, metrics in endpoint_metrics.iterrows()
-                },
-                'summary': {
-                    'total_endpoints': len(endpoint_metrics),
-                    'top_request_endpoints': list(
-                        endpoint_metrics.nlargest(10, ('requests_adjusted', 'sum')).index
-                    ),
-                    'top_visitor_endpoints': list(
-                        endpoint_metrics.nlargest(10, ('visits_adjusted', 'sum')).index
-                    ),
-                    'highest_error_endpoints': list(
-                        endpoint_metrics.nlargest(
-                            10, 
-                            ('error_rate_4xx', 'mean')
-                        ).index
-                    )
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"Error analyzing endpoint metrics: {str(e)}")
-            logger.error(traceback.format_exc())
-            return None
-
-    def _analyze_time_trends(self, df: pd.DataFrame) -> Dict:
-        """Analyze metrics over time with separate request and visit tracking."""
-        try:
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            time_range = df['timestamp'].max() - df['timestamp'].min()
-            
-            # Determine appropriate time granularity
-            if time_range.total_seconds() <= 3600:  # 1 hour or less
-                freq = '1min'
-            elif time_range.total_seconds() <= 86400:  # 24 hours or less
-                freq = '5min'
-            else:
-                freq = '1H'
-            
-            # Resample and aggregate metrics
-            time_series = df.set_index('timestamp').resample(freq).agg({
-                'ttfb_avg': 'mean',
-                'origin_time_avg': 'mean',
-                'cache_status': lambda x: x.isin(self.cache_categories['HIT']).mean() * 100,
-                'requests_adjusted': 'sum',
-                'visits_adjusted': 'sum',
-                'bytes_adjusted': 'sum',
-                'error_rate_4xx': 'mean',
-                'error_rate_5xx': 'mean',
-                'sampling_rate': 'mean'
-            })
-            
-            # Calculate rolling averages for trend analysis
-            rolling_window = 5
-            rolling_metrics = time_series.rolling(window=rolling_window, min_periods=1).mean()
-            
-            return {
-                'intervals': {
-                    str(timestamp): {
-                        'ttfb': float(row['ttfb_avg']),
-                        'origin_time': float(row['origin_time_avg']),
-                        'cache_hit_ratio': float(row['cache_status']),
-                        'requests': int(row['requests_adjusted']),
-                        'visits': int(row['visits_adjusted']),
-                        'bytes_gb': float(row['bytes_adjusted'] / (1024**3)),
-                        'error_rate': float(row['error_rate_4xx'] + row['error_rate_5xx']),
-                        'sampling_rate': float(row['sampling_rate'])
-                    }
-                    for timestamp, row in time_series.iterrows()
-                },
-                'trends': {
-                    str(timestamp): {
-                        'ttfb_trend': float(row['ttfb_avg']),
-                        'cache_hit_ratio_trend': float(row['cache_status']),
-                        'error_rate_trend': float(row['error_rate_4xx'] + row['error_rate_5xx']),
-                        'requests_trend': float(row['requests_adjusted']),
-                        'visits_trend': float(row['visits_adjusted'])
-                    }
-                    for timestamp, row in rolling_metrics.iterrows()
-                },
-                'metadata': {
-                    'granularity': freq,
-                    'start_time': str(df['timestamp'].min()),
-                    'end_time': str(df['timestamp'].max()),
-                    'rolling_window': rolling_window
-                },
-                'summary': {
-                    'total_requests': int(time_series['requests_adjusted'].sum()),
-                    'total_visits': int(time_series['visits_adjusted'].sum()),
-                    'peak_request_time': str(time_series['requests_adjusted'].idxmax()),
-                    'peak_visit_time': str(time_series['visits_adjusted'].idxmax()),
-                    'peak_error_time': str(time_series['error_rate_4xx'].add(time_series['error_rate_5xx']).idxmax())
-                }
-            }
-        
-        except Exception as e:
-            logger.error(f"Error analyzing time trends: {str(e)}")
-            logger.error(traceback.format_exc())
-            return None
-
-    def _analyze_sampling_distribution(self, df: pd.DataFrame) -> Dict:
-        """Analyze sampling-specific metrics with request count focus."""
-        try:
-            sampling_stats = df.agg({
-                'sampling_rate': ['min', 'max', 'mean', 'median'],
-                'requests': 'sum',           # Raw requests (1 per record)
-                'requests_adjusted': 'sum',   # Adjusted requests
-                'visits': 'sum',            # Raw visits
-                'visits_adjusted': 'sum'     # Adjusted visits
-            })
-            
-            # Calculate confidence scores based on request counts
+            # Calculate confidence scores based on sampling and volume
             confidence_scores = df.apply(
                 lambda row: self._calculate_confidence_score(
-                    row['sampling_rate'], 
-                    int(row['requests'])  # Ensure integer sample count
+                    row['sampling_rate'],
+                    row['requests']
                 ),
                 axis=1
             )
             
             return {
                 'sampling_rates': {
-                    'min': float(sampling_stats['sampling_rate']['min'] * 100),
-                    'max': float(sampling_stats['sampling_rate']['max'] * 100),
-                    'mean': float(sampling_stats['sampling_rate']['mean'] * 100),
-                    'median': float(sampling_stats['sampling_rate']['median'] * 100)
+                    'min': float(sampling_rates['min'] * 100),
+                    'max': float(sampling_rates['max'] * 100),
+                    'mean': float(sampling_rates['mean'] * 100),
+                    'median': float(sampling_rates['median'] * 100)
                 },
                 'confidence_scores': {
                     'min': float(confidence_scores.min()),
@@ -738,72 +112,130 @@ Error Rate: {analysis_result['error_analysis']['overall']['error_rate_4xx'] + an
                     'mean': float(confidence_scores.mean()),
                     'median': float(confidence_scores.median())
                 },
-                'sample_counts': {
-                    'total_raw_requests': int(sampling_stats['requests']['sum']),
-                    'total_adjusted_requests': int(sampling_stats['requests_adjusted']['sum']),
-                    'total_raw_visits': int(sampling_stats['visits']['sum']),
-                    'total_adjusted_visits': int(sampling_stats['visits_adjusted']['sum'])
+                'requests': {
+                    'raw': int(total_raw),
+                    'adjusted': int(total_adjusted),
+                    'ratio': float(total_adjusted / total_raw if total_raw > 0 else 1)
                 }
             }
-            
         except Exception as e:
-            logger.error(f"Error analyzing sampling distribution: {str(e)}")
-            logger.error(traceback.format_exc())
-            return None
+            logger.error(f"Error calculating sampling metrics: {str(e)}")
+            return {
+                'sampling_rates': {'min': 0, 'max': 0, 'mean': 0, 'median': 0},
+                'confidence_scores': {'min': 0, 'max': 0, 'mean': 0, 'median': 0},
+                'requests': {'raw': 0, 'adjusted': 0, 'ratio': 1}
+            }
 
-    def _calculate_confidence_score(self, sampling_rate: float, sample_count: int) -> float:
-        """Calculate confidence score based on sampling rate and sample size."""
+    def _calculate_confidence_score(self, sampling_rate: float, requests: float) -> float:
+        """Calculate confidence score based on sampling rate and request volume"""
         try:
             # Base confidence from sampling rate
-            if sampling_rate >= 0.5:  # 50% or more sampling
+            if sampling_rate >= 0.5:
                 base_confidence = 0.99
-            elif sampling_rate >= 0.1:  # 10% or more sampling
-                base_confidence = 0.95 if sample_count >= 1000 else 0.90
-            elif sampling_rate >= 0.01:  # 1% or more sampling
-                base_confidence = 0.90 if sample_count >= 10000 else 0.85
+            elif sampling_rate >= 0.1:
+                base_confidence = 0.95 if requests >= 1000 else 0.90
+            elif sampling_rate >= 0.01:
+                base_confidence = 0.90 if requests >= 10000 else 0.85
             else:
-                base_confidence = 0.80 if sample_count >= 100000 else 0.75
+                base_confidence = 0.80 if requests >= 100000 else 0.75
             
             # Adjust for sample size
-            size_factor = min(1.0, np.log10(sample_count + 1) / 6)
+            size_factor = min(1.0, np.log10(float(requests) + 1) / 6)
             return base_confidence * size_factor
-            
+
         except Exception as e:
-            logger.warning(f"Error calculating confidence score: {str(e)}")
+            logger.error(f"Error calculating confidence score: {str(e)}")
             return 0.0
 
-    def _save_analysis(self, analysis: Dict, filename: str) -> None:
-        """Save analysis results to JSON file."""
+    def _calculate_cache_metrics(self, df: pd.DataFrame) -> Dict:
+        """Calculate cache-related metrics"""
         try:
-            output_path = self.config.json_dir / filename
-            
-            def convert_to_native(obj):
-                if hasattr(obj, 'to_dict'):
-                    return obj.to_dict()
-                elif isinstance(obj, (np.integer, np.int64)):
-                    return int(obj)
-                elif isinstance(obj, (np.floating, np.float64)):
-                    return float(obj)
-                elif isinstance(obj, np.ndarray):
-                    return obj.tolist()
-                elif isinstance(obj, dict):
-                    return {key: convert_to_native(value) for key, value in obj.items()}
-                elif isinstance(obj, (list, tuple)):
-                    return [convert_to_native(item) for item in obj]
-                elif pd.isna(obj):
-                    return None
-                elif isinstance(obj, pd.Timestamp):
-                    return obj.isoformat()
-                return obj
+            total_requests = df['requests_adjusted'].sum()
+            cache_hits = df[df['cache_status'].str.lower() == 'hit']['requests_adjusted'].sum()
+            total_bytes = df['bytes_adjusted'].sum()
+            cache_hit_bytes = df[df['cache_status'].str.lower() == 'hit']['bytes_adjusted'].sum()
 
-            converted_analysis = convert_to_native(analysis)
-            
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, 'w') as f:
-                json.dump(converted_analysis, f, indent=2)
-                
-            logger.info(f"Analysis results saved to {output_path}")
-            
+            return {
+                'overall': {
+                    'hit_ratio': float(cache_hits / total_requests * 100 if total_requests > 0 else 0),
+                    'total_requests': int(total_requests),
+                    'total_visits': int(df['visits_adjusted'].sum()),
+                    'total_bytes': float(total_bytes),
+                    'bandwidth_saving': float(cache_hit_bytes / total_bytes * 100 if total_bytes > 0 else 0)
+                },
+                'status_distribution': self._get_cache_distribution(df)
+            }
         except Exception as e:
-            logger.error(f"Error saving analysis results: {str(e)}")
+            logger.error(f"Error calculating cache metrics: {str(e)}")
+            return {
+                'overall': {
+                    'hit_ratio': 0,
+                    'total_requests': 0,
+                    'total_visits': 0,
+                    'total_bytes': 0,
+                    'bandwidth_saving': 0
+                },
+                'status_distribution': {}
+            }
+
+    def _get_cache_distribution(self, df: pd.DataFrame) -> Dict:
+        """Get cache status distribution"""
+        try:
+            total_requests = df['requests_adjusted'].sum()
+            total_bytes = df['bytes_adjusted'].sum()
+
+            distribution = {}
+            for status in df['cache_status'].unique():
+                status_df = df[df['cache_status'] == status]
+                requests = status_df['requests_adjusted'].sum()
+                bytes_val = status_df['bytes_adjusted'].sum()
+
+                distribution[str(status)] = {
+                    'requests': int(requests),
+                    'requests_percentage': float(requests / total_requests * 100 if total_requests > 0 else 0),
+                    'bytes': float(bytes_val),
+                    'bytes_percentage': float(bytes_val / total_bytes * 100 if total_bytes > 0 else 0)
+                }
+
+            return distribution
+
+        except Exception as e:
+            logger.error(f"Error calculating cache distribution: {str(e)}")
+            return {}
+
+    def _log_analysis_summary(self, analysis: Dict) -> None:
+        """Log analysis summary with both edge and origin metrics"""
+        try:
+            edge = analysis['edge_analysis'].get('edge_metrics', {})
+            edge_response = edge.get('edge_response_time', {})
+            cache = analysis['cache_analysis'].get('overall', {})
+            origin = analysis['origin_analysis'].get('overall_metrics', {})
+            
+            logger.info(f"""
+Analysis Complete:
+---------------
+Zone: {analysis['zone_name']}
+
+Edge Performance:
+• Avg TTFB: {edge_response.get('avg', 0):.2f}ms
+• Cache Hit Ratio: {cache.get('hit_ratio', 0):.2f}%
+• Edge Error Rate: {edge.get('error_rates', {}).get('total_error_rate', 0):.2f}%
+• Protocol Distribution: {analysis['edge_analysis'].get('protocol_metrics', {}).get('summary', {})}
+
+Origin Performance:
+• Avg Response Time: {origin.response_time.get('avg', 0):.2f}ms
+• Error Rate: {origin.failure_rates.get('error_rate', 0):.2f}%
+• Health Status: {origin.health_status}
+
+Traffic Metrics:
+• Total Requests: {analysis['metadata']['total_requests']:,}
+• Time Range: {analysis['metadata']['time_range']['start']} to {analysis['metadata']['time_range']['end']}
+""")
+
+        except Exception as e:
+            logger.error(f"Error logging analysis summary: {str(e)}")
             logger.error(traceback.format_exc())
+
+    def __str__(self) -> str:
+        """String representation of the analyzer"""
+        return f"Analyzer(edge_analyzer={self.edge_analyzer}, origin_analyzer={self.origin_analyzer})"

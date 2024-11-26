@@ -6,6 +6,7 @@ import json
 from prettytable import PrettyTable
 import traceback
 import pandas as pd
+import numpy as np
 from .types import (
     OriginPerformanceMetrics, OriginPathMetrics, NetworkPathMetrics,
     PerformanceMetrics, ErrorMetrics, ProcessedMetrics, SamplingMetrics
@@ -48,7 +49,6 @@ class OriginReporter:
             'up_arrow': "↑",
             'down_arrow': "↓"
         }
-
 
     def generate_origin_report(
         self,
@@ -160,7 +160,7 @@ Executive Summary
 {bullet} Overall Health Status: {health_status.upper()}
 {bullet} Average Origin Response Time: {response_time.get('avg', 0):.2f}ms
 {bullet} 95th Percentile Response Time: {response_time.get('p95', 0):.2f}ms
-{bullet} Total Origin Requests: {request_vol.get('total_requests', 0):,}
+{bullet} Total Origin Requests: {request_vol.get('total', 0):,}
 {bullet} Error Rate: {failure_rates.get('error_rate', 0):.2f}%
 {bullet} Total Bandwidth Processed: {bandwidth.get('total_bytes', 0) / (1024**3):.2f} GB
 
@@ -325,6 +325,151 @@ High Error Periods:
 
         return table.get_string()
 
+    def _create_geographic_section(self, analysis: Dict) -> str:
+        """Create geographic analysis section with proper error handling"""
+        try:
+            geo = analysis.get('geographic_analysis', {})
+            countries = geo.get('countries', {})
+            bullet = self.symbols['bullet']
+
+            if not countries:
+                return f"""
+Geographic Analysis
+-----------------
+No geographic data available"""
+
+            # Create performance table
+            perf_table = PrettyTable()
+            perf_table.field_names = ["Region", "Response Time", "Error Rate", "Requests", "Bandwidth"]
+            perf_table.align["Region"] = "l"
+            for align in ["Response Time", "Error Rate", "Requests", "Bandwidth"]:
+                perf_table.align[align] = "r"
+
+            # Get countries by request volume
+            sorted_countries = sorted(
+                [(k, v) for k, v in countries.items() if isinstance(v, dict)],
+                key=lambda x: x[1].get('traffic', {}).get('requests', 0),
+                reverse=True
+            )
+
+            for country, metrics in sorted_countries:
+                # Clean country name
+                country = self._clean_country_name(country)
+                perf = metrics.get('performance', {})
+                reliability = metrics.get('reliability', {})
+                traffic = metrics.get('traffic', {})
+                
+                # Calculate error rate
+                error_rate = (
+                    reliability.get('error_rate_4xx', 0) + 
+                    reliability.get('error_rate_5xx', 0)
+                )
+
+                # Format bandwidth
+                bytes_val = traffic.get('bytes', 0)
+                if bytes_val >= 1024**3:
+                    bandwidth = f"{bytes_val / (1024**3):.2f} GB"
+                elif bytes_val >= 1024**2:
+                    bandwidth = f"{bytes_val / (1024**2):.2f} MB"
+                else:
+                    bandwidth = f"{bytes_val / 1024:.2f} KB"
+
+                # Ensure response time is not negative
+                response_time = max(0, perf.get('avg_response_time', 0))
+
+                perf_table.add_row([
+                    country,
+                    f"{response_time:.2f}ms",
+                    f"{error_rate:.2f}%",
+                    f"{traffic.get('requests', 0):,}",
+                    bandwidth
+                ])
+
+            # Process summary data
+            summary = {}
+            if geo.get('summary', {}):
+                # Clean and deduplicate lists while preserving order
+                for key in ['fastest_regions', 'slowest_regions', 'highest_error_regions']:
+                    if key in geo['summary']:
+                        cleaned = [self._clean_country_name(r) for r in geo['summary'][key]]
+                        summary[key] = list(dict.fromkeys(cleaned))  # Remove duplicates while preserving order
+
+            summary_text = []
+            if summary:
+                for key, label in [
+                    ('fastest_regions', 'Fastest Regions'),
+                    ('slowest_regions', 'Slowest Regions'),
+                    ('highest_error_regions', 'Highest Error Rates')
+                ]:
+                    if key in summary:
+                        summary_text.append(f"{bullet} {label}: {', '.join(summary[key])}")
+
+            return f"""
+Geographic Analysis
+-----------------
+Performance by Region:
+{perf_table.get_string()}
+
+Regional Patterns:
+{chr(10).join(summary_text) if summary_text else f"{bullet} No significant patterns detected"}
+
+Geographic Distribution:
+{bullet} Total Countries: {len(countries)}
+{bullet} Top Traffic Sources: {', '.join(self._clean_country_name(c[0]) for c in sorted_countries[:5])}
+{bullet} Performance Variance: {self._calculate_geo_variance(countries):.2f}ms"""
+
+        except Exception as e:
+            logger.error(f"Error creating geographic section: {str(e)}")
+            logger.error(traceback.format_exc())
+            return "Geographic Analysis: Error generating analysis"
+
+    def _clean_country_name(self, value: str) -> str:
+        """Clean country name removing DataFrame metadata"""
+        try:
+            if not isinstance(value, str):
+                return str(value)
+            
+            # Remove pandas Series metadata
+            value = str(value).split('\n')[0].strip()
+            value = value.split('Name:')[0].strip()
+            value = value.split('dtype:')[0].strip()
+            
+            # Additional cleanup
+            value = value.replace('object', '').strip()
+            value = ' '.join(value.split())  # Normalize whitespace
+            
+            return value
+            
+        except Exception as e:
+            logger.error(f"Error cleaning country name: {str(e)}")
+            return str(value)
+
+    def _format_bandwidth(self, bytes_val: float) -> str:
+        """Format bandwidth in appropriate units"""
+        try:
+            if bytes_val >= 1024**3:
+                return f"{bytes_val / (1024**3):.2f} GB"
+            elif bytes_val >= 1024**2:
+                return f"{bytes_val / (1024**2):.2f} MB"
+            else:
+                return f"{bytes_val / 1024:.2f} KB"
+        except Exception as e:
+            logger.error(f"Error formatting bandwidth: {str(e)}")
+            return "0.00 KB"
+
+    def _calculate_geo_variance(self, countries: Dict) -> float:
+        """Calculate variance in response times across regions"""
+        try:
+            response_times = [
+                metrics.get('performance', {}).get('avg_response_time', 0)
+                for metrics in countries.values()
+                if isinstance(metrics, dict)
+            ]
+            return float(np.std(response_times)) if response_times else 0.0
+        except Exception as e:
+            logger.error(f"Error calculating geographic variance: {str(e)}")
+            return 0.0
+
     def _format_error_periods(self, periods: List[Tuple[str, Dict]]) -> str:
         """Format high error periods for display"""
         if not periods:
@@ -338,83 +483,8 @@ High Error Periods:
             for timestamp, data in periods
         )
 
-    def _create_geographic_section(self, analysis: Dict) -> str:
-        """Create geographic analysis section with regional performance"""
-        try:
-            geo = analysis.get('geographic_analysis', {})
-            countries = geo.get('countries', {})
-            summary = geo.get('summary', {})
-            bullet = self.symbols['bullet']
-
-            if not countries:
-                return f"""
-Geographic Analysis
------------------
-No geographic data available"""
-
-            # Create performance table
-            perf_table = PrettyTable()
-            perf_table.field_names = ["Region", "Avg Response", "Error Rate", "Requests"]
-            perf_table.align = "r"
-            perf_table.align["Region"] = "l"
-
-            for country, metrics in sorted(
-                countries.items(),
-                key=lambda x: x[1]['performance']['avg_response_time']
-            )[:5]:
-                perf_table.add_row([
-                    country,
-                    f"{metrics['performance']['avg_response_time']:.2f}ms",
-                    f"{(metrics['reliability']['error_rate_4xx'] + metrics['reliability']['error_rate_5xx']):.2f}%",
-                    f"{metrics['traffic']['requests']:,}"
-                ])
-
-            return f"""
-Geographic Analysis
------------------
-Best Performing Regions:
-{perf_table.get_string()}
-
-Regional Issues:
-{bullet} Slowest Regions: {', '.join(summary.get('slowest_regions', ['None']))}
-{bullet} Highest Error Rates: {', '.join(summary.get('highest_error_regions', ['None']))}
-
-Performance by Region Details:
-{self._create_region_details(countries)}"""
-
-        except Exception as e:
-            logger.error(f"Error creating geographic section: {str(e)}")
-            return "Geographic Analysis: Error generating analysis"
-
-    def _create_region_details(self, countries: Dict) -> str:
-        """Create detailed region-by-region analysis"""
-        try:
-            details = []
-            bullet = self.symbols['bullet']
-            
-            for country, metrics in sorted(
-                countries.items(),
-                key=lambda x: x[1]['traffic']['requests'],
-                reverse=True
-            )[:10]:  # Top 10 by traffic
-                perf = metrics['performance']
-                traffic = metrics['traffic']
-                reliability = metrics['reliability']
-                
-                details.append(f"""
-{bullet} {country}:
-  - Response Time: {perf['avg_response_time']:.2f}ms (P95: {perf['p95_response_time']:.2f}ms)
-  - Requests: {traffic['requests']:,}
-  - Error Rate: {(reliability['error_rate_4xx'] + reliability['error_rate_5xx']):.2f}%
-  - Performance Score: {metrics['perf_score']:.2f}""")
-                
-            return "\n".join(details)
-        except Exception as e:
-            logger.error(f"Error creating region details: {str(e)}")
-            return "Error generating region details"
-
     def _create_endpoint_section(self, analysis: Dict) -> str:
-        """Create endpoint analysis section with performance metrics"""
+        """Create endpoint analysis section with proper indentation"""
         try:
             endpoint_analysis = analysis.get('endpoint_analysis', {})
             endpoints = endpoint_analysis.get('endpoints', {})
@@ -422,10 +492,17 @@ Performance by Region Details:
             bullet = self.symbols['bullet']
             warning = self.symbols['warning']
 
-            if not endpoints:
-                return "Endpoint Analysis\n---------------\nNo endpoint data available"
+            # Create endpoint performance table with proper indentation
+            result = f"""
+Endpoint Analysis
+---------------
+Summary:
+{bullet} Total Endpoints: {summary.get('total_endpoints', 0)}
+{bullet} Average Response Time: {summary.get('avg_response_time', 0):.2f}ms
 
-            # Create endpoint performance table
+High Impact Endpoints:"""
+
+            # Create and add performance table
             perf_table = PrettyTable()
             perf_table.field_names = ["Endpoint", "Avg Response", "Requests", "Error Rate"]
             perf_table.align["Endpoint"] = "l"
@@ -433,43 +510,60 @@ Performance by Region Details:
             perf_table.align["Requests"] = "r"
             perf_table.align["Error Rate"] = "r"
 
-            # Add top impacting endpoints
-            for endpoint in summary.get('high_impact_endpoints', [])[:5]:
-                metrics = endpoints.get(endpoint, {})
+            # Add high impact endpoints
+            high_impact = summary.get('high_impact_endpoints', [])
+            for endpoint in high_impact:
+                if endpoint not in endpoints:
+                    continue
+                    
+                metrics = endpoints[endpoint]
                 perf = metrics.get('performance', {})
                 load = metrics.get('load', {})
                 reliability = metrics.get('reliability', {})
                 
+                error_rate = (
+                    reliability.get('error_rate_4xx', 0) + 
+                    reliability.get('error_rate_5xx', 0)
+                )
+                
+                # Clean endpoint name
+                clean_endpoint = endpoint.split('\n')[0].strip() if isinstance(endpoint, str) else str(endpoint)
+                clean_endpoint = clean_endpoint.split('Name:')[0].strip()
+                
                 perf_table.add_row([
-                    endpoint[:50] + "..." if len(endpoint) > 50 else endpoint,
-                    f"{perf['avg_response_time']:.2f}ms",
-                    f"{load['requests']:,}",
-                    f"{(reliability['error_rate_4xx'] + reliability['error_rate_5xx']):.2f}%"
+                    clean_endpoint[:50] + "..." if len(clean_endpoint) > 50 else clean_endpoint,
+                    f"{perf.get('avg_response_time', 0):.2f}ms",
+                    f"{load.get('requests', 0):,}",
+                    f"{error_rate:.2f}%"
                 ])
 
-            # Add problematic endpoints section
-            problematic = summary.get('problematic_endpoints', [])
-            problematic_section = "\nProblematic Endpoints:" if problematic else ""
-            for endpoint in problematic:
-                metrics = endpoints.get(endpoint, {})
+            result += f"\n{perf_table.get_string()}\n\nProblematic Endpoints:"
+
+            # Add problematic endpoints
+            for endpoint in summary.get('problematic_endpoints', []):
+                if endpoint not in endpoints:
+                    continue
+                    
+                metrics = endpoints[endpoint]
                 perf = metrics.get('performance', {})
                 reliability = metrics.get('reliability', {})
                 
-                problematic_section += f"""
-{warning} {endpoint}
-  - Response Time: {perf['avg_response_time']:.2f}ms
-  - Error Rate: {(reliability['error_rate_4xx'] + reliability['error_rate_5xx']):.2f}%
-  - Reliability Score: {reliability['reliability_score']:.2f}"""
+                error_rate = (
+                    reliability.get('error_rate_4xx', 0) + 
+                    reliability.get('error_rate_5xx', 0)
+                )
+                
+                # Clean endpoint name
+                clean_endpoint = endpoint.split('\n')[0].strip() if isinstance(endpoint, str) else str(endpoint)
+                clean_endpoint = clean_endpoint.split('Name:')[0].strip()
+                
+                result += f"""
+{warning} {clean_endpoint}:
+  - Response Time: {perf.get('avg_response_time', 0):.2f}ms
+  - Error Rate: {error_rate:.2f}%
+  - Reliability Score: {reliability.get('reliability_score', 0):.2f}"""
 
-            return f"""
-Endpoint Analysis
----------------
-Summary:
-{bullet} Total Endpoints: {summary.get('total_endpoints', 0)}
-{bullet} Average Response Time: {summary.get('avg_response_time', 0):.2f}ms
-
-High Impact Endpoints:
-{perf_table.get_string()}{problematic_section}"""
+            return result
 
         except Exception as e:
             logger.error(f"Error creating endpoint section: {str(e)}")
@@ -571,33 +665,7 @@ High Impact Endpoints:
             logger.error(f"Error creating recommendations: {str(e)}")
             logger.error(traceback.format_exc())
             return "Error generating recommendations"
-        
-    def _create_report_sections(
-        self,
-        df: pd.DataFrame,
-        analysis: Dict,
-        zone_name: str
-    ) -> str:
-        """Create detailed report sections"""
-        try:
-            sections = [
-                self._create_header(zone_name),
-                self._create_executive_summary(analysis),
-                self._create_performance_section(analysis),
-                self._create_network_path_section(analysis),
-                self._create_reliability_section(analysis),
-                self._create_geographic_section(analysis),
-                self._create_endpoint_section(analysis),
-                self._create_recommendations(analysis)
-            ]
 
-            # Filter out None sections and join with double newlines
-            return "\n\n".join(filter(None, sections))
-
-        except Exception as e:
-            logger.error(f"Error creating report sections: {str(e)}")
-            return "Error generating report. Please check logs for details."
-        
     def _save_report(self, report: str, zone_name: str, analysis_results: Dict) -> None:
         """Save report to multiple formats with proper error handling"""
         try:
@@ -627,3 +695,14 @@ High Impact Endpoints:
         if not items:
             return f"{self.symbols['bullet']} None available"
         return "\n".join(f"{self.symbols['bullet']} {item}" for item in items)
+
+    def _safe_series_value(self, series: pd.Series, default: Any = 0) -> Any:
+        """Safely get value from a Series without deprecation warning"""
+        try:
+            if isinstance(series, pd.Series):
+                if len(series) > 0:
+                    return series.iloc[0]
+                return default
+            return series
+        except Exception:
+            return default

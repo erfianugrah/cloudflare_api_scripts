@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 import traceback
 import json
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,55 @@ class DataProcessor:
             'UPDATING': ['updating'],  # Cached, but origin is updating resource
             'DYNAMIC': ['dynamic'],  # Not cached, served from origin
             'NONE': ['none', 'unknown'],  # Asset not eligible for caching
+        }
+
+        # Column mappings for standardization
+        self.column_mappings = {
+            # Dimensions mappings
+            'datetimeMinute': 'timestamp',
+            'clientAsn': 'client_asn',
+            'clientASNDescription': 'client_asn_desc',
+            'originASN': 'origin_asn',
+            'originASNDescription': 'origin_asn_desc',
+            'upperTierColoName': 'upper_tier_colo',
+            'coloCode': 'colo_code',
+            'clientCountryName': 'country',
+            'clientDeviceType': 'device_type',
+            'clientRequestHTTPProtocol': 'protocol',
+            'clientRequestHTTPMethodName': 'method',
+            'clientRequestHTTPHost': 'host',
+            'clientRequestPath': 'endpoint',
+            'edgeResponseContentTypeName': 'content_type',
+            'edgeResponseStatus': 'status_code',
+            'cacheStatus': 'cache_status',
+            
+            # Average metrics mappings
+            'edgeTimeToFirstByteMs': 'ttfb_avg',
+            'originResponseDurationMs': 'origin_time_avg',
+            'sampleInterval': 'sample_interval',
+            
+            # Sum metrics mappings
+            'visits': 'visits',
+            'edgeResponseBytes': 'bytes',
+            
+            # Quantile metrics mappings
+            'edgeTimeToFirstByteMsP50': 'ttfb_p50',
+            'edgeTimeToFirstByteMsP95': 'ttfb_p95',
+            'edgeTimeToFirstByteMsP99': 'ttfb_p99',
+            'originResponseDurationMsP50': 'origin_p50',
+            'originResponseDurationMsP95': 'origin_p95',
+            'originResponseDurationMsP99': 'origin_p99',
+            
+            # Ratio metrics mappings
+            'status4xx': 'error_rate_4xx',
+            'status5xx': 'error_rate_5xx'
+        }
+    
+        self.status_categories = {
+            'success': range(200, 300),
+            'redirect': range(300, 400),
+            'client_error': range(400, 500),
+            'server_error': range(500, 600)
         }
 
     def process_zone_metrics(self, raw_data: Dict) -> Optional[pd.DataFrame]:
@@ -127,7 +177,7 @@ Error Rates: 4xx={df['error_rate_4xx'].mean()*100:.2f}%, 5xx={df['error_rate_5xx
             return None
 
     def _process_metric_group(self, group: Dict) -> Optional[Dict]:
-        """Process individual metric group with endpoint information."""
+        """Process individual metric group with improved cache and performance handling"""
         try:
             dimensions = group.get('dimensions', {})
             if not dimensions:
@@ -154,32 +204,62 @@ Error Rates: 4xx={df['error_rate_4xx'].mean()*100:.2f}%, 5xx={df['error_rate_5xx
             sums = group.get('sum', {})
             ratios = group.get('ratio', {})
 
-            # Count both requests and visits
+            # Calculate request and visit metrics
             requests = group.get('count', 0)  # Total request count
             visits = sums.get('visits', 0)    # Unique visitor count
 
-            # Calculate sampling rate
+            # Calculate sampling rate and interval
             sample_interval = avg_metrics.get('sampleInterval', 1)
             sampling_rate = 1 / sample_interval if sample_interval > 0 else 1
 
-            # Categorize cache status with robust mapping
+            # Process cache status with improved handling
             cache_status = dimensions.get('cacheStatus', 'unknown').strip().lower()
             cache_category = next(
-                (cat for cat, statuses in self.cache_statuses.items() if cache_status in statuses),
-                'NONE'  # Default to 'NONE' for unmapped statuses
+                (cat for cat, statuses in self.cache_statuses.items() 
+                 if cache_status in statuses),
+                'NONE'
             )
 
-            # Log unmapped statuses for debugging
-            if cache_category == 'NONE' and cache_status not in ['none', 'unknown']:
-                logger.warning(f"Unmapped cache status found: {cache_status}")
+            # Calculate cache effectiveness
+            is_cache_hit = cache_category == 'HIT'
+            is_cache_miss = cache_category == 'MISS'
+            is_dynamic = cache_category == 'DYNAMIC'
+
+            # Handle response status
+            status_code = dimensions.get('edgeResponseStatus', 0)
+            status_category = next(
+                (cat for cat, range_obj in self.status_categories.items() 
+                 if status_code in range_obj),
+                'unknown'
+            )
+
+            # Get performance metrics with proper defaults
+            ttfb_avg = avg_metrics.get('edgeTimeToFirstByteMs', 0)
+            origin_time = avg_metrics.get('originResponseDurationMs', 0)
+            bytes_sent = sums.get('edgeResponseBytes', 0)
+
+            # Calculate performance percentiles
+            ttfb_percentiles = {
+                'p50': quantiles.get('edgeTimeToFirstByteMsP50', ttfb_avg),
+                'p95': quantiles.get('edgeTimeToFirstByteMsP95', ttfb_avg),
+                'p99': quantiles.get('edgeTimeToFirstByteMsP99', ttfb_avg)
+            }
+
+            origin_percentiles = {
+                'p50': quantiles.get('originResponseDurationMsP50', origin_time),
+                'p95': quantiles.get('originResponseDurationMsP95', origin_time),
+                'p99': quantiles.get('originResponseDurationMsP99', origin_time)
+            }
 
             return {
                 # Temporal dimensions
                 'datetime': metric_datetime.isoformat(),
+                'timestamp': metric_datetime,
                 
                 # Request metadata
                 'country': dimensions.get('clientCountryName', 'Unknown'),
                 'clientAsn': dimensions.get('clientAsn', 'Unknown'),
+                'clientASNDescription': dimensions.get('clientASNDescription', 'Unknown'),
                 'device_type': dimensions.get('clientDeviceType', 'Unknown'),
                 'protocol': dimensions.get('clientRequestHTTPProtocol', 'Unknown'),
                 'content_type': dimensions.get('edgeResponseContentTypeName', 'Unknown'),
@@ -187,32 +267,41 @@ Error Rates: 4xx={df['error_rate_4xx'].mean()*100:.2f}%, 5xx={df['error_rate_5xx
                 'clientRequestPath': dimensions.get('clientRequestPath', '/'),
                 'clientRequestMethod': dimensions.get('clientRequestHTTPMethodName', 'GET'),
                 'clientRequestHTTPHost': dimensions.get('clientRequestHTTPHost', 'unknown'),
-                'edgeResponseStatus': dimensions.get('edgeResponseStatus', 0),
+                'edgeResponseStatus': status_code,
+                'status_category': status_category,
                 'clientIP': dimensions.get('clientIP', 'Unknown'),
                 'clientRefererHost': dimensions.get('clientRefererHost', 'unknown'),
                 
-                # Cache and tier information
+                # Cache metrics
                 'cache_status': cache_status,
                 'cache_category': cache_category,
+                'is_cache_hit': is_cache_hit,
+                'is_cache_miss': is_cache_miss,
+                'is_dynamic': is_dynamic,
+                
+                # Network path information
                 'upperTierColoName': dimensions.get('upperTierColoName'),
+                'originASN': dimensions.get('originASN', 'Unknown'),
+                'originASNDescription': dimensions.get('originASNDescription', 'Unknown'),
                 
                 # Performance metrics
-                'ttfb_avg': avg_metrics.get('edgeTimeToFirstByteMs', 0),
-                'origin_time_avg': avg_metrics.get('originResponseDurationMs', 0),
+                'ttfb_avg': ttfb_avg,
+                'ttfb_p50': ttfb_percentiles['p50'],
+                'ttfb_p95': ttfb_percentiles['p95'],
+                'ttfb_p99': ttfb_percentiles['p99'],
+                'origin_time_avg': origin_time,
+                'origin_p50': origin_percentiles['p50'],
+                'origin_p95': origin_percentiles['p95'],
+                'origin_p99': origin_percentiles['p99'],
                 'dns_time_avg': avg_metrics.get('edgeDnsResponseTimeMs', 0),
                 
-                # Request and visit counts
+                # Request and response metrics
                 'requests': requests,
                 'visits': visits,
-                'bytes': sums.get('edgeResponseBytes', 0),
-                
-                # Percentile metrics
-                'ttfb_p50': quantiles.get('edgeTimeToFirstByteMsP50', 0),
-                'ttfb_p95': quantiles.get('edgeTimeToFirstByteMsP95', 0),
-                'ttfb_p99': quantiles.get('edgeTimeToFirstByteMsP99', 0),
-                'origin_p50': quantiles.get('originResponseDurationMsP50', 0),
-                'origin_p95': quantiles.get('originResponseDurationMsP95', 0),
-                'origin_p99': quantiles.get('originResponseDurationMsP99', 0),
+                'bytes': bytes_sent,
+                'requests_adjusted': requests / sampling_rate,
+                'visits_adjusted': visits / sampling_rate,
+                'bytes_adjusted': bytes_sent / sampling_rate,
                 
                 # Error rates
                 'error_rate_4xx': ratios.get('status4xx', 0),
@@ -229,44 +318,69 @@ Error Rates: 4xx={df['error_rate_4xx'].mean()*100:.2f}%, 5xx={df['error_rate_5xx
             return None
 
     def _normalize_path(self, path: str) -> str:
-        """Normalize path for grouping similar paths."""
+        """Normalize path with improved pattern recognition"""
         try:
             if not path or path == '/':
                 return '/'
                 
-            # Remove query parameters
-            path = path.split('?')[0]
+            # Remove query parameters but preserve the path
+            base_path = path.split('?')[0].rstrip('/')
             
-            # Remove trailing slash
-            path = path.rstrip('/')
-            
-            # Remove numeric IDs
-            parts = path.split('/')
+            # Split path into components
+            parts = base_path.split('/')
             normalized_parts = []
+            
             for part in parts:
-                # If part is purely numeric, replace with {id}
-                if part.isdigit():
-                    normalized_parts.append('{id}')
-                # If part contains UUID pattern, replace with {id}
-                elif len(part) == 36 and '-' in part:
+                if not part:
+                    continue
+                    
+                # Check for various ID patterns
+                if any(pattern.match(part) for pattern in [
+                    # UUID pattern
+                    re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
+                    # Numeric ID
+                    re.compile(r'^\d+$'),
+                    # Hash-like string
+                    re.compile(r'^[0-9a-f]{32}$'),
+                    # Base64-like string
+                    re.compile(r'^[A-Za-z0-9+/=]{22,}$')
+                ]):
                     normalized_parts.append('{id}')
                 else:
                     normalized_parts.append(part)
-                    
-            normalized_path = '/'.join(normalized_parts)
-            return normalized_path or '/'
             
+            normalized_path = '/' + '/'.join(normalized_parts)
+            
+            # Log path normalization for debugging
+            if normalized_path != path:
+                logger.debug(f"Normalized path: {path} -> {normalized_path}")
+                
+            return normalized_path
+                
         except Exception as e:
-            logger.warning(f"Error normalizing path {path}: {str(e)}")
+            logger.error(f"Error normalizing path {path}: {str(e)}")
             return '/'
 
     def _create_endpoint_identifier(self, path: str, host: str) -> str:
-        """Create a unique endpoint identifier from host and path."""
+        """Create a unique endpoint identifier without truncation"""
         try:
+            if not path or not host:
+                return "unknown"
+                
             normalized_path = self._normalize_path(path)
-            return f"{host}{normalized_path}"
+            full_endpoint = f"{host}{normalized_path}"
+            
+            # Create a hash for very long endpoints but preserve readability
+            if len(full_endpoint) > 100:
+                endpoint_hash = hashlib.md5(full_endpoint.encode()).hexdigest()[:8]
+                truncated_endpoint = f"{full_endpoint[:92]}_{endpoint_hash}"
+                logger.debug(f"Truncated long endpoint: {full_endpoint} -> {truncated_endpoint}")
+                return truncated_endpoint
+                
+            return full_endpoint
+                
         except Exception as e:
-            logger.warning(f"Error creating endpoint identifier: {str(e)}")
+            logger.error(f"Error creating endpoint identifier: {str(e)}")
             return "unknown"
 
     def _add_endpoint_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
