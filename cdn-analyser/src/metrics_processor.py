@@ -1,13 +1,14 @@
 from typing import Dict, List, Optional, Union, Any
 import pandas as pd
 import numpy as np
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import logging
 from pathlib import Path
 import json
 from .types import (
     NetworkPathMetrics, RequestDetails, PerformanceMetrics,
-    CacheMetrics, ErrorMetrics, ProcessedMetrics, SamplingMetrics
+    CacheMetrics, ErrorMetrics, ProcessedMetrics, SamplingMetrics,
+    MetricGroup, MetricDimensions
 )
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,6 @@ class MetricsProcessor:
             'NONE': ['none', 'unknown']
         }
         
-        # Column mappings for standardization
         self.column_mappings = {
             # Dimensions mappings
             'datetimeMinute': 'timestamp',
@@ -41,7 +41,9 @@ class MetricsProcessor:
             'clientRequestHTTPProtocol': 'protocol',
             'clientRequestHTTPMethodName': 'method',
             'clientRequestHTTPHost': 'host',
-            'clientRequestPath': 'endpoint',
+            'clientRequestPath': 'path',
+            'clientIP': 'client_ip',
+            'clientRefererHost': 'referer',
             'edgeResponseContentTypeName': 'content_type',
             'edgeResponseStatus': 'status_code',
             'cacheStatus': 'cache_status',
@@ -54,8 +56,13 @@ class MetricsProcessor:
             # Sum metrics mappings
             'visits': 'visits',
             'edgeResponseBytes': 'bytes',
+            'edgeTimeToFirstByteMs': 'ttfb_sum',
+            'originResponseDurationMs': 'origin_sum',
             
             # Quantile metrics mappings
+            'edgeResponseBytesP50': 'bytes_p50',
+            'edgeResponseBytesP95': 'bytes_p95',
+            'edgeResponseBytesP99': 'bytes_p99',
             'edgeTimeToFirstByteMsP50': 'ttfb_p50',
             'edgeTimeToFirstByteMsP95': 'ttfb_p95',
             'edgeTimeToFirstByteMsP99': 'ttfb_p99',
@@ -100,7 +107,6 @@ class MetricsProcessor:
 
         except Exception as e:
             logger.error(f"Error processing metrics: {str(e)}")
-            logger.error(traceback.format_exc())
             return None
 
     def _validate_raw_data(self, raw_data: Dict) -> bool:
@@ -118,92 +124,139 @@ class MetricsProcessor:
             
         return True
 
-    def _extract_request_groups(self, raw_data: Dict) -> List[Dict]:
-        """Extract request groups from raw data"""
-        return raw_data['data']['viewer']['zones'][0]['httpRequestsAdaptiveGroups']
+    def _parse_nested_json(self, raw_data: Dict) -> pd.DataFrame:
+        """Parse nested JSON structure into DataFrame"""
+        try:
+            request_groups = self._extract_request_groups(raw_data)
+            metrics = []
+            
+            for group in request_groups:
+                metric = self._process_metric_group(group)
+                if metric is not None:
+                    metrics.append(metric)
+            
+            if not metrics:
+                logger.warning("No valid metrics processed")
+                return pd.DataFrame()
+                
+            return pd.DataFrame(metrics)
+            
+        except Exception as e:
+            logger.error(f"Error parsing nested JSON: {str(e)}")
+            return pd.DataFrame()
 
     def _process_metric_group(self, group: Dict) -> Optional[Dict]:
         """Process individual metric group"""
         try:
-            metric = {}
+            metric_group = MetricGroup(group)
             
-            # Process dimensions directly from the dimensions object
-            dimensions = group.get('dimensions', {})
-            if dimensions:
-                # Map dimension fields directly
-                metric['timestamp'] = dimensions.get('datetimeMinute')
-                metric['client_asn'] = dimensions.get('clientAsn', 'unknown')
-                metric['client_asn_desc'] = dimensions.get('clientASNDescription', 'Unknown ASN')
-                metric['origin_asn'] = dimensions.get('originASN', 'unknown')
-                metric['origin_asn_desc'] = dimensions.get('originASNDescription', 'Unknown ASN')
-                metric['upper_tier_colo'] = dimensions.get('upperTierColoName')
-                metric['colo_code'] = dimensions.get('coloCode', 'unknown')
-                metric['country'] = dimensions.get('clientCountryName', 'unknown')
-                metric['device_type'] = dimensions.get('clientDeviceType', 'unknown')
-                metric['protocol'] = dimensions.get('clientRequestHTTPProtocol', 'unknown')
-                metric['host'] = dimensions.get('clientRequestHTTPHost', 'unknown')
-                metric['endpoint'] = dimensions.get('clientRequestPath', '/')
-                metric['content_type'] = dimensions.get('edgeResponseContentTypeName', 'unknown')
-                metric['status_code'] = dimensions.get('edgeResponseStatus', 0)
-                metric['cache_status'] = dimensions.get('cacheStatus', 'unknown')
-                metric['method'] = dimensions.get('clientRequestHTTPMethodName', 'unknown')
+            # Process dimensions
+            dimensions = metric_group.dimensions
             
-            # Process averages
-            averages = group.get('avg', {})
-            if averages:
-                metric['ttfb_avg'] = averages.get('edgeTimeToFirstByteMs', 0)
-                metric['origin_time_avg'] = averages.get('originResponseDurationMs', 0)
-                metric['sample_interval'] = averages.get('sampleInterval', 1)
-
-            # Process sums
-            sums = group.get('sum', {})
-            if sums:
-                metric['bytes'] = sums.get('edgeResponseBytes', 0)
-                metric['visits'] = sums.get('visits', 0)
+            # Calculate request metrics
+            requests = metric_group.count
+            visits = metric_group.sum.get('visits', 0)
             
-            # Process quantiles
-            quantiles = group.get('quantiles', {})
-            if quantiles:
-                metric['ttfb_p50'] = quantiles.get('edgeTimeToFirstByteMsP50', 0)
-                metric['ttfb_p95'] = quantiles.get('edgeTimeToFirstByteMsP95', 0)
-                metric['ttfb_p99'] = quantiles.get('edgeTimeToFirstByteMsP99', 0)
-                metric['origin_p50'] = quantiles.get('originResponseDurationMsP50', 0)
-                metric['origin_p95'] = quantiles.get('originResponseDurationMsP95', 0)
-                metric['origin_p99'] = quantiles.get('originResponseDurationMsP99', 0)
-
-            # Process ratios
-            ratios = group.get('ratio', {})
-            if ratios:
-                metric['error_rate_4xx'] = ratios.get('status4xx', 0)
-                metric['error_rate_5xx'] = ratios.get('status5xx', 0)
-
-            # Add count
-            metric['requests'] = group.get('count', 0)
-
-            # Calculate sampling-adjusted metrics
-            sample_interval = metric.get('sample_interval', 1)
-            if sample_interval > 0:
-                metric['sampling_rate'] = 1 / sample_interval
-                metric['requests_adjusted'] = metric['requests'] / sample_interval
-                metric['visits_adjusted'] = metric.get('visits', 0) / sample_interval
-                metric['bytes_adjusted'] = metric.get('bytes', 0) / sample_interval
-            else:
-                metric['sampling_rate'] = 1
-                metric['requests_adjusted'] = metric['requests']
-                metric['visits_adjusted'] = metric.get('visits', 0)
-                metric['bytes_adjusted'] = metric.get('bytes', 0)
-
-            # Add cache hit indicator
-            metric['cache_hit'] = (
-                metric.get('cache_status', '').lower() in self.cache_statuses['HIT']
-            )
-
-            return metric
+            # Calculate sampling rate
+            sample_interval = metric_group.avg.get('sampleInterval', 1)
+            sampling_rate = 1 / sample_interval if sample_interval > 0 else 1
+            
+            # Get performance metrics
+            ttfb_avg = metric_group.avg.get('edgeTimeToFirstByteMs', 0)
+            origin_time = metric_group.avg.get('originResponseDurationMs', 0)
+            
+            # Get sum metrics
+            ttfb_sum = metric_group.sum.get('edgeTimeToFirstByteMs', 0)
+            origin_sum = metric_group.sum.get('originResponseDurationMs', 0)
+            
+            # Get quantile metrics
+            quantiles = metric_group.quantiles
+            bytes_p50 = float(quantiles.get('edgeResponseBytesP50', 0))
+            bytes_p95 = float(quantiles.get('edgeResponseBytesP95', 0))
+            bytes_p99 = float(quantiles.get('edgeResponseBytesP99', 0))
+            
+            return {
+                'timestamp': dimensions.datetime,
+                'client_asn': dimensions.client_asn,
+                'client_asn_desc': dimensions.client_asn_desc,
+                'origin_asn': dimensions.origin_asn,
+                'origin_asn_desc': dimensions.origin_asn_desc,
+                'upper_tier_colo': dimensions.upper_tier,
+                'colo_code': dimensions.colo,
+                'country': dimensions.country,
+                'device_type': dimensions.device_type,
+                'protocol': dimensions.protocol,
+                'method': dimensions.method,
+                'host': dimensions.host,
+                'path': dimensions.path,
+                'client_ip': dimensions.client_ip,
+                'referer': dimensions.referer,
+                'content_type': dimensions.content_type,
+                'status_code': dimensions.status,
+                'cache_status': dimensions.cache_status,
+                
+                # Performance metrics
+                'ttfb_avg': ttfb_avg,
+                'origin_time_avg': origin_time,
+                'ttfb_sum': ttfb_sum,
+                'origin_sum': origin_sum,
+                'bytes_p50': bytes_p50,
+                'bytes_p95': bytes_p95,
+                'bytes_p99': bytes_p99,
+                'ttfb_p50': float(quantiles.get('edgeTimeToFirstByteMsP50', ttfb_avg)),
+                'ttfb_p95': float(quantiles.get('edgeTimeToFirstByteMsP95', ttfb_avg)),
+                'ttfb_p99': float(quantiles.get('edgeTimeToFirstByteMsP99', ttfb_avg)),
+                'origin_p50': float(quantiles.get('originResponseDurationMsP50', origin_time)),
+                'origin_p95': float(quantiles.get('originResponseDurationMsP95', origin_time)),
+                'origin_p99': float(quantiles.get('originResponseDurationMsP99', origin_time)),
+                
+                # Request metrics
+                'requests': requests,
+                'visits': visits,
+                'bytes': metric_group.sum.get('edgeResponseBytes', 0),
+                'requests_adjusted': requests / sampling_rate,
+                'visits_adjusted': visits / sampling_rate,
+                'bytes_adjusted': metric_group.sum.get('edgeResponseBytes', 0) / sampling_rate,
+                
+                # Error rates
+                'error_rate_4xx': metric_group.ratio.get('status4xx', 0),
+                'error_rate_5xx': metric_group.ratio.get('status5xx', 0),
+                
+                # Sampling metadata
+                'sampling_rate': sampling_rate,
+                'sample_interval': sample_interval,
+                
+                # Cache metrics
+                'cache_hit': dimensions.cache_status.lower() in self.cache_statuses['HIT'],
+                'is_dynamic': dimensions.cache_status.lower() in self.cache_statuses['DYNAMIC']
+            }
 
         except Exception as e:
             logger.error(f"Error processing metric group: {str(e)}")
-            logger.error(traceback.format_exc())
             return None
+
+    def _validate_and_map_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Validate and map columns using column mappings"""
+        try:
+            # Rename columns according to mapping
+            df = df.rename(columns=self.column_mappings)
+            
+            # Verify required columns exist
+            required_cols = [
+                'timestamp', 'client_asn', 'origin_asn', 'country',
+                'ttfb_avg', 'origin_time_avg', 'requests', 'bytes'
+            ]
+            
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                logger.error(f"Missing required columns: {missing_cols}")
+                return pd.DataFrame()
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error validating columns: {str(e)}")
+            return pd.DataFrame()
 
     def _add_derived_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
         """Add derived metrics to DataFrame"""
@@ -226,8 +279,15 @@ class MetricsProcessor:
             df['is_tiered'] = df['upper_tier_colo'].notna()
             df['path_latency'] = df['ttfb_avg'] - df['origin_time_avg']
             
+            # Calculate content type metrics
+            df['is_static'] = df['content_type'].str.lower().isin([
+                'text/css', 'text/javascript', 'application/javascript',
+                'image/jpeg', 'image/png', 'image/gif', 'image/svg+xml',
+                'text/html', 'application/x-font-ttf', 'application/x-font-woff'
+            ])
+            
             # Group metrics by endpoint
-            endpoint_metrics = df.groupby('endpoint', observed=True).agg({
+            endpoint_metrics = df.groupby('path', observed=True).agg({
                 'requests_adjusted': 'sum',
                 'bytes_adjusted': 'sum',
                 'ttfb_avg': 'mean',
@@ -238,7 +298,7 @@ class MetricsProcessor:
             # Add endpoint metrics back to main DataFrame
             df = df.merge(
                 endpoint_metrics.add_prefix('endpoint_'),
-                left_on='endpoint',
+                left_on='path',
                 right_index=True,
                 how='left'
             )
@@ -301,31 +361,31 @@ Metrics Summary:
 -------------
 Total Records: {len(df)}
 Total Raw Requests: {df['requests'].sum():,}
-Total Requests (Adjusted): {df['requests_adjusted'].sum():,}
+Total Adjusted Requests: {df['requests_adjusted'].sum():,}
 Total Raw Visits: {df['visits'].sum():,}
-Total Visits (Adjusted): {df['visits_adjusted'].sum():,}
+Total Adjusted Visits: {df['visits_adjusted'].sum():,}
 Time Range: {df['timestamp'].min()} to {df['timestamp'].max()}
 Error Rates: 4xx={df['is_client_error'].mean()*100:.2f}%, 5xx={df['is_server_error'].mean()*100:.2f}%
-""")
 
-            # Log endpoint metrics
-            top_endpoints = (
-                df.groupby('endpoint')
-                .agg({
-                    'requests_adjusted': 'sum',
-                    'visits_adjusted': 'sum'
-                })
-                .sort_values('requests_adjusted', ascending=False)
-                .head()
-            )
-            
-            logger.info(f"""
-Endpoint Metrics Summary:
----------------------
-Total Endpoints: {df['endpoint'].nunique()}
-Top Endpoints by Requests:
-{top_endpoints.to_string()}
+Cache Performance:
+- Hit Ratio: {df['cache_hit'].mean()*100:.2f}%
+- Dynamic Requests: {df['is_dynamic'].mean()*100:.2f}%
+- Static Content: {df['is_static'].mean()*100:.2f}%
+
+Performance Metrics:
+- Average TTFB: {df['ttfb_avg'].mean():.2f}ms
+- P95 TTFB: {df['ttfb_p95'].mean():.2f}ms
+- Average Origin Time: {df['origin_time_avg'].mean():.2f}ms
+- Average Path Latency: {df['path_latency'].mean():.2f}ms
 """)
 
         except Exception as e:
             logger.error(f"Error logging processing summary: {str(e)}")
+
+    def __str__(self) -> str:
+        """String representation of the processor"""
+        return f"MetricsProcessor(cache_statuses={len(self.cache_statuses)})"
+
+    def __repr__(self) -> str:
+        """Detailed string representation"""
+        return f"MetricsProcessor(mappings={len(self.column_mappings)})"

@@ -1,13 +1,12 @@
 from typing import Dict, List, Optional, Union
 from datetime import datetime, timezone, timedelta
 import logging
-from pathlib import Path
 import json
 import traceback
-
 from .edge_reporter import EdgeReporter
 from .origin_reporter import OriginReporter
-
+from prettytable import PrettyTable
+from .formatters import TableFormatter
 logger = logging.getLogger(__name__)
 
 class Reporter:
@@ -20,6 +19,19 @@ class Reporter:
         
         self.edge_reporter = EdgeReporter(config)
         self.origin_reporter = OriginReporter(config)
+        self.table_formatter = TableFormatter()
+
+    def safe_division(self, numerator: float, denominator: float) -> float:
+        """Safely perform division with proper error handling"""
+        try:
+            if pd.isna(numerator) or pd.isna(denominator):
+                return 0.0
+            if denominator == 0:
+                return 0.0
+            return float(numerator) / float(denominator)
+        except Exception as e:
+            logger.error(f"Error in safe division: {str(e)}")
+            return 0.0
 
     def generate_summary(self, results: List[Dict], start_time: datetime) -> Optional[str]:
         """Generate overall analysis summary combining edge and origin reports"""
@@ -88,41 +100,81 @@ class Reporter:
             return self._format_empty_summary()
 
     def _calculate_total_metrics(self, zones: List[Dict]) -> Dict:
-        """Calculate total metrics across all zones"""
+        """Calculate total metrics across all zones with proper error handling"""
         try:
-            total_requests = sum(z.get('cache_analysis', {}).get('overall', {}).get('total_requests', 0) for z in zones)
-            total_bytes = sum(z.get('cache_analysis', {}).get('overall', {}).get('total_bytes', 0) for z in zones)
-            total_hits = sum(
-                z.get('cache_analysis', {}).get('overall', {}).get('total_requests', 0) * 
-                z.get('cache_analysis', {}).get('overall', {}).get('hit_ratio', 0) / 100 
-                for z in zones
+            total_requests = sum(
+                zone.get('cache_analysis', {})
+                .get('overall', {})
+                .get('total_requests', 0) 
+                for zone in zones
             )
 
-            # Calculate weighted averages
-            weighted_edge_ttfb = sum(
-                z.get('edge_analysis', {}).get('edge_metrics', {}).get('edge_response_time', {}).get('avg', 0) *
-                z.get('cache_analysis', {}).get('overall', {}).get('total_requests', 0)
-                for z in zones
-            ) / (total_requests if total_requests > 0 else 1)
+            total_bytes = sum(
+                zone.get('cache_analysis', {})
+                .get('overall', {})
+                .get('total_bytes', 0) 
+                for zone in zones
+            )
 
-            weighted_origin_time = sum(
-                z.get('origin_analysis', {}).get('overall_metrics', {}).response_time.get('avg', 0) *
-                z.get('cache_analysis', {}).get('overall', {}).get('total_requests', 0)
-                for z in zones
-            ) / (total_requests if total_requests > 0 else 1)
+            # Calculate cache hits safely
+            total_hits = sum(
+                safe_division(
+                    zone.get('cache_analysis', {})
+                    .get('overall', {})
+                    .get('total_requests', 0) *
+                    zone.get('cache_analysis', {})
+                    .get('overall', {})
+                    .get('hit_ratio', 0),
+                    100
+                )
+                for zone in zones
+            )
+
+            # Calculate weighted averages for performance metrics
+            weighted_edge_ttfb = 0
+            weighted_origin_time = 0
+            
+            for zone in zones:
+                requests = zone.get('cache_analysis', {}).get('overall', {}).get('total_requests', 0)
+                
+                # Edge TTFB
+                edge_ttfb = (
+                    zone.get('edge_analysis', {})
+                    .get('edge_metrics', {})
+                    .get('edge_response_time', {})
+                    .get('avg', 0)
+                )
+                weighted_edge_ttfb += edge_ttfb * requests
+                
+                # Origin time
+                origin_time = (
+                    zone.get('origin_analysis', {})
+                    .get('overall_metrics', {})
+                    .get('response_time', {})
+                    .get('avg', 0)
+                )
+                weighted_origin_time += origin_time * requests
+
+            weighted_edge_ttfb = safe_division(weighted_edge_ttfb, total_requests)
+            weighted_origin_time = safe_division(weighted_origin_time, total_requests)
 
             return {
                 'requests': {
-                    'total': total_requests,
+                    'total': int(total_requests),
                     'cache_hits': int(total_hits),
-                    'hit_ratio': float(total_hits / total_requests * 100 if total_requests > 0 else 0)
+                    'hit_ratio': safe_division(total_hits, total_requests) * 100
                 },
                 'bandwidth': {
-                    'total_gb': float(total_bytes / (1024**3)),
-                    'saved_gb': float(total_bytes * sum(
-                        z.get('cache_analysis', {}).get('overall', {}).get('bandwidth_saving', 0) 
-                        for z in zones
-                    ) / (100 * len(zones)) / (1024**3))
+                    'total_gb': safe_division(total_bytes, (1024**3)),
+                    'saved_gb': safe_division(
+                        total_bytes * sum(
+                            zone.get('cache_analysis', {})
+                            .get('overall', {})
+                            .get('bandwidth_saving', 0)
+                            for zone in zones
+                        ),
+                        (100 * len(zones) * (1024**3))
+                    )
                 },
                 'performance': {
                     'edge_ttfb': float(weighted_edge_ttfb),
@@ -140,52 +192,74 @@ class Reporter:
                 'zones_analyzed': 0
             }
 
-    def _format_combined_summary(
-        self,
-        duration: timedelta,
-        zone_reports: List[Dict],
-        total_metrics: Dict
-    ) -> str:
+    def _format_zone_table(self, zone_reports: List[Dict]) -> PrettyTable:
+        """Create properly formatted zone summary table"""
+        try:
+            table_data = []
+            columns = ['Zone', 'Requests', 'Cache Hit Ratio', 'Sampling Rate']
+            column_types = {
+                'Zone': 'text',
+                'Requests': 'numeric',
+                'Cache Hit Ratio': 'percentage',
+                'Sampling Rate': 'percentage'
+            }
+
+            for report in zone_reports:
+                metrics = report.get('metrics', {})
+                table_data.append({
+                    'Zone': report.get('zone_name', 'Unknown'),
+                    'Requests': metrics.get('cache', {}).get('total_requests', 0),
+                    'Cache Hit Ratio': metrics.get('cache', {}).get('hit_ratio', 0),
+                    'Sampling Rate': metrics.get('sampling', {}).get('sampling_rates', {}).get('mean', 0)
+                })
+
+            return self.table_formatter.format_table(table_data, columns, column_types)
+
+        except Exception as e:
+            logger.error(f"Error formatting zone table: {str(e)}")
+            return PrettyTable()
+
+    def _format_combined_summary(self, 
+                               duration: timedelta,
+                               zone_reports: List[Dict],
+                               total_metrics: Dict) -> str:
         """Format comprehensive summary combining all reports"""
         try:
             # Create header with overall metrics
-            summary = f"""
-Cloudflare Analytics Summary
-==========================
-Analysis Duration: {str(duration).split('.')[0]}
-Zones Analyzed: {total_metrics['zones_analyzed']}
+            summary = [
+                "\nCloudflare Analytics Summary",
+                "==========================",
+                f"Analysis Duration: {str(duration).split('.')[0]}",
+                f"Zones Analyzed: {total_metrics['zones_analyzed']}",
+                "\nOverall Performance:",
+                "------------------",
+                f"• Total Requests: {total_metrics['requests']['total']:,}",
+                f"• Cache Hit Ratio: {total_metrics['requests']['hit_ratio']:.2f}%",
+                f"• Average Edge TTFB: {total_metrics['performance']['edge_ttfb']:.2f}ms",
+                f"• Average Origin Time: {total_metrics['performance']['origin_time']:.2f}ms",
+                f"• Total Bandwidth: {total_metrics['bandwidth']['total_gb']:.2f} GB",
+                f"• Bandwidth Saved: {total_metrics['bandwidth']['saved_gb']:.2f} GB",
+                "\nIndividual Zone Reports:",
+                "---------------------"
+            ]
 
-Overall Performance:
-------------------
-• Total Requests: {total_metrics['requests']['total']:,}
-• Cache Hit Ratio: {total_metrics['requests']['hit_ratio']:.2f}%
-• Average Edge TTFB: {total_metrics['performance']['edge_ttfb']:.2f}ms
-• Average Origin Time: {total_metrics['performance']['origin_time']:.2f}ms
-• Total Bandwidth: {total_metrics['bandwidth']['total_gb']:.2f} GB
-• Bandwidth Saved: {total_metrics['bandwidth']['saved_gb']:.2f} GB
-
-Individual Zone Reports:
----------------------
-"""
             # Add zone-specific reports
             for zone_report in zone_reports:
                 zone_metrics = zone_report['metrics']
-                summary += f"""
-Zone: {zone_report['zone_name']}
-{'-' * (len(zone_report['zone_name']) + 6)}
-• Requests: {zone_metrics['cache'].get('total_requests', 0):,}
-• Cache Hit Ratio: {zone_metrics['cache'].get('hit_ratio', 0):.2f}%
-• Sampling Rate: {zone_metrics['sampling'].get('sampling_rates', {}).get('mean', 0):.2f}%
+                summary.extend([
+                    f"\nZone: {zone_report['zone_name']}",
+                    "-" * (len(zone_report['zone_name']) + 6),
+                    f"• Requests: {zone_metrics['cache'].get('total_requests', 0):,}",
+                    f"• Cache Hit Ratio: {zone_metrics['cache'].get('hit_ratio', 0):.2f}%",
+                    f"• Sampling Rate: {zone_metrics['sampling'].get('sampling_rates', {}).get('mean', 0):.2f}%",
+                    "\nEdge Analysis:",
+                    zone_report['edge_report'],
+                    "\nOrigin Analysis:",
+                    zone_report['origin_report'],
+                    ""
+                ])
 
-Edge Analysis:
-{zone_report['edge_report']}
-
-Origin Analysis:
-{zone_report['origin_report']}
-
-"""
-
-            return summary
+            return "\n".join(summary)
 
         except Exception as e:
             logger.error(f"Error formatting combined summary: {str(e)}")
@@ -225,18 +299,68 @@ Possible reasons:
 Please check the logs for detailed error information and try again.
 """
 
+    def _parse_summary_sections(self, summary: str) -> Dict:
+        """Parse summary into structured sections with proper handling"""
+        try:
+            sections = {}
+            current_section = None
+            current_subsection = None
+            current_content = []
+            
+            for line in summary.split('\n'):
+                line = line.strip()
+                
+                # Handle section headers
+                if line and all(c == '=' for c in line):
+                    if current_section and current_content:
+                        if current_subsection:
+                            if current_section not in sections:
+                                sections[current_section] = {}
+                            sections[current_section][current_subsection] = current_content
+                        else:
+                            sections[current_section] = current_content
+                    current_section = current_content[-1] if current_content else None
+                    current_subsection = None
+                    current_content = []
+                    
+                # Handle subsection headers
+                elif line and all(c == '-' for c in line):
+                    if current_content:
+                        current_subsection = current_content[-1]
+                        current_content = []
+                        
+                # Collect content
+                else:
+                    if line or current_content:  # Preserve empty lines within content
+                        current_content.append(line)
+            
+            # Handle final section
+            if current_section and current_content:
+                if current_subsection:
+                    if current_section not in sections:
+                        sections[current_section] = {}
+                    sections[current_section][current_subsection] = current_content
+                else:
+                    sections[current_section] = current_content
+                    
+            return sections
+            
+        except Exception as e:
+            logger.error(f"Error parsing summary sections: {str(e)}")
+            return {'error': 'Failed to parse summary sections'}
+
     def _save_summary(self, summary: str) -> None:
-        """Save summary to file with proper error handling"""
+        """Save summary to multiple formats with proper error handling"""
         try:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             base_path = self.report_dir / f"analysis_summary_{timestamp}"
             
-            # Save as text
-            with open(f"{base_path}.txt", 'w', encoding='utf-8') as f:
+            # Save as text with proper line endings
+            with open(f"{base_path}.txt", 'w', encoding='utf-8', newline='\n') as f:
                 f.write(summary)
             
-            # Save as markdown
-            with open(f"{base_path}.md", 'w', encoding='utf-8') as f:
+            # Save as markdown with proper formatting
+            with open(f"{base_path}.md", 'w', encoding='utf-8', newline='\n') as f:
                 f.write(summary)
             
             # Save as JSON for programmatic access
@@ -245,7 +369,7 @@ Please check the logs for detailed error information and try again.
                 'content': summary,
                 'sections': self._parse_summary_sections(summary)
             }
-            with open(f"{base_path}.json", 'w', encoding='utf-8') as f:
+            with open(f"{base_path}.json", 'w', encoding='utf-8', newline='\n') as f:
                 json.dump(summary_dict, f, indent=2, ensure_ascii=False)
             
             logger.info(f"Summary saved to {base_path}")
@@ -253,39 +377,6 @@ Please check the logs for detailed error information and try again.
         except Exception as e:
             logger.error(f"Error saving summary: {str(e)}")
             logger.error(traceback.format_exc())
-
-    def _parse_summary_sections(self, summary: str) -> Dict:
-        """Parse summary into structured sections"""
-        try:
-            sections = {}
-            current_section = None
-            current_content = []
-            
-            for line in summary.split('\n'):
-                if line.strip() and all(c in '=' for c in line.strip()):
-                    if current_section and current_content:
-                        sections[current_section] = '\n'.join(current_content).strip()
-                    current_section = current_content[-1].strip()
-                    current_content = []
-                elif line.strip() and all(c == '-' for c in line.strip()):
-                    if len(current_content) > 0:
-                        subsection = current_content[-1].strip()
-                        if current_section:
-                            if current_section not in sections:
-                                sections[current_section] = {}
-                            sections[current_section][subsection] = []
-                else:
-                    current_content.append(line)
-            
-            # Add final section
-            if current_section and current_content:
-                sections[current_section] = '\n'.join(current_content).strip()
-                
-            return sections
-            
-        except Exception as e:
-            logger.error(f"Error parsing summary sections: {str(e)}")
-            return {'error': 'Failed to parse summary sections'}
 
     def generate_zone_report(self, zone_result: Dict, output_format: str = 'text') -> Optional[str]:
         """Generate detailed report for a single zone"""

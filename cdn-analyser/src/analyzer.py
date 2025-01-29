@@ -203,13 +203,17 @@ Time Range: {df['timestamp'].min()} to {df['timestamp'].max()}
             logger.error(f"Error calculating cache distribution: {str(e)}")
             return {}
 
+
     def _log_analysis_summary(self, analysis: Dict) -> None:
         """Log analysis summary with both edge and origin metrics"""
         try:
-            edge = analysis['edge_analysis'].get('edge_metrics', {})
+            edge = analysis.get('edge_analysis', {}).get('edge_metrics', {})
             edge_response = edge.get('edge_response_time', {})
-            cache = analysis['cache_analysis'].get('overall', {})
-            origin = analysis['origin_analysis'].get('overall_metrics', {})
+            cache = analysis.get('cache_analysis', {}).get('overall', {})
+            origin = analysis.get('origin_analysis', {}).get('overall_metrics', {})
+            
+            # Fix the origin response time access
+            origin_response_time = origin.get('response_time', {}).get('avg', 0)
             
             logger.info(f"""
 Analysis Complete:
@@ -217,19 +221,19 @@ Analysis Complete:
 Zone: {analysis['zone_name']}
 
 Edge Performance:
-• Avg TTFB: {edge_response.get('avg', 0):.2f}ms
-• Cache Hit Ratio: {cache.get('hit_ratio', 0):.2f}%
-• Edge Error Rate: {edge.get('error_rates', {}).get('total_error_rate', 0):.2f}%
-• Protocol Distribution: {analysis['edge_analysis'].get('protocol_metrics', {}).get('summary', {})}
+- Avg TTFB: {edge_response.get('avg', 0):.2f}ms
+- Cache Hit Ratio: {cache.get('hit_ratio', 0):.2f}%
+- Edge Error Rate: {edge.get('error_rates', {}).get('total_error_rate', 0):.2f}%
+- Protocol Distribution: {analysis['edge_analysis'].get('protocol_metrics', {}).get('summary', {})}
 
 Origin Performance:
-• Avg Response Time: {origin.response_time.get('avg', 0):.2f}ms
-• Error Rate: {origin.failure_rates.get('error_rate', 0):.2f}%
-• Health Status: {origin.health_status}
+- Avg Response Time: {origin_response_time:.2f}ms
+- Error Rate: {origin.get('failure_rates', {}).get('error_rate', 0):.2f}%
+- Health Status: {origin.get('health_status', 'unknown')}
 
 Traffic Metrics:
-• Total Requests: {analysis['metadata']['total_requests']:,}
-• Time Range: {analysis['metadata']['time_range']['start']} to {analysis['metadata']['time_range']['end']}
+- Total Requests: {analysis['metadata']['total_requests']:,}
+- Time Range: {analysis['metadata']['time_range']['start']} to {analysis['metadata']['time_range']['end']}
 """)
 
         except Exception as e:

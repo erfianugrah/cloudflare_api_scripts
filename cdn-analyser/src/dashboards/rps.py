@@ -63,14 +63,14 @@ def create_rps_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.F
         )
 
         # RPS by HTTP Method
-        method_rps = df.groupby('clientRequestMethod').agg({
+        method_rps = df.groupby('method').agg({
             'requests_adjusted': 'sum'
         }).reset_index()
         method_rps['rps'] = method_rps['requests_adjusted'] / (df['timestamp'].max() - df['timestamp'].min()).total_seconds()
 
         fig.add_trace(
             go.Bar(
-                x=method_rps['clientRequestMethod'],
+                x=method_rps['method'],
                 y=method_rps['rps'],
                 name='RPS by Method',
                 marker_color=colors['secondary'],
@@ -81,7 +81,7 @@ def create_rps_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.F
         )
 
         # Top Endpoints by RPS
-        endpoint_rps = df.groupby('endpoint').agg({
+        endpoint_rps = df.groupby('path').agg({
             'requests_adjusted': 'sum'
         }).reset_index()
         endpoint_rps['rps'] = endpoint_rps['requests_adjusted'] / (df['timestamp'].max() - df['timestamp'].min()).total_seconds()
@@ -89,7 +89,7 @@ def create_rps_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) -> go.F
 
         fig.add_trace(
             go.Bar(
-                x=top_endpoints['endpoint'],
+                x=top_endpoints['path'],
                 y=top_endpoints['rps'],
                 name='Top Endpoints',
                 marker_color=colors['primary'],

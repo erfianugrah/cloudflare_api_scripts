@@ -27,7 +27,7 @@ def create_origin_asn_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) 
         )
 
         # Get aggregated ASN metrics
-        asn_metrics = df.groupby('clientAsn').agg({
+        asn_metrics = df.groupby('client_asn').agg({
             'origin_time_avg': 'mean',
             'origin_p50': 'mean',
             'origin_p95': 'mean',
@@ -42,11 +42,11 @@ def create_origin_asn_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) 
 
         # 1. ASN Response Time Distribution
         # Filter data for top ASNs
-        asn_data = df[df['clientAsn'].isin(top_asns.index)]
+        asn_data = df[df['client_asn'].isin(top_asns.index)]
         
         fig.add_trace(
             go.Box(
-                x=asn_data['clientAsn'],
+                x=asn_data['client_asn'],
                 y=asn_data['origin_time_avg'],
                 name='Response Time',
                 marker_color=colors['origin'],
@@ -126,7 +126,7 @@ def create_origin_asn_dashboard(df: pd.DataFrame, analysis: dict, colors: dict) 
         # 3. ASN Response Time Trends
         df_time = df.set_index('timestamp')
         for asn in top_asns.head().index:
-            asn_data = df_time[df_time['clientAsn'] == asn]
+            asn_data = df_time[df_time['client_asn'] == asn]
             time_series = asn_data['origin_time_avg'].resample('5min').mean()
             
             fig.add_trace(

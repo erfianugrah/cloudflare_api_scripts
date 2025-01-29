@@ -27,7 +27,7 @@ def create_origin_endpoint_dashboard(df: pd.DataFrame, analysis: dict, colors: d
         )
 
         # Get top endpoints by request volume
-        top_endpoints = df.groupby('endpoint').agg({
+        top_endpoints = df.groupby('path').agg({
             'origin_time_avg': 'mean',
             'origin_p50': 'mean',
             'origin_p95': 'mean',
@@ -117,7 +117,7 @@ def create_origin_endpoint_dashboard(df: pd.DataFrame, analysis: dict, colors: d
         top_5_endpoints = top_endpoints.head().index
 
         for endpoint in top_5_endpoints:
-            endpoint_data = df_time[df_time['endpoint'] == endpoint]
+            endpoint_data = df_time[df_time['path'] == endpoint]
             endpoint_series = endpoint_data['origin_time_avg'].resample('5min').mean()
             
             fig.add_trace(

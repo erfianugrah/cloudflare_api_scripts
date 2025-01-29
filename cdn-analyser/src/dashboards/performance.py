@@ -137,15 +137,15 @@ def create_performance_dashboard(df: pd.DataFrame, analysis: dict, colors: dict)
         )
 
         # 3. ASN Performance with separate legend
-        asn_metrics = df.groupby('clientAsn').agg({
+        asn_metrics = df.groupby('client_asn').agg({
             'ttfb_avg': 'mean',
             'requests_adjusted': 'sum'
-        }).dropna()
+        })
         
         top_asns = asn_metrics.nlargest(10, 'requests_adjusted').index
         
         for idx, asn in enumerate(top_asns):
-            asn_data = df_time[df_time['clientAsn'] == asn]
+            asn_data = df_time[df_time['client_asn'] == asn]
             asn_series = asn_data['ttfb_avg'].rolling(rolling_window).mean().fillna(0)
             
             if not asn_series.empty:
@@ -206,7 +206,7 @@ def create_performance_dashboard(df: pd.DataFrame, analysis: dict, colors: dict)
                 )
 
         # 5. Endpoints with separate legend
-        endpoint_metrics = df.groupby('endpoint').agg({
+        endpoint_metrics = df.groupby('path').agg({
             'ttfb_avg': 'mean',
             'ttfb_p50': 'mean',
             'ttfb_p95': 'mean',

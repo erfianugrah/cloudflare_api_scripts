@@ -86,8 +86,8 @@ def create_origin_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict
         )
 
         # 2. Error Status Distribution
-        error_df = df[df['status'] >= 400]
-        status_dist = error_df['status'].value_counts().sort_index()
+        error_df = df[df['status_code'] >= 400]
+        status_dist = error_df['status_code'].value_counts().sort_index()
         
         fig.add_trace(
             go.Bar(
@@ -153,7 +153,7 @@ def create_origin_error_dashboard(df: pd.DataFrame, analysis: dict, colors: dict
         )
 
         # 4. Top Error URLs
-        top_error_urls = df[df['status'] >= 400].groupby('endpoint').agg({
+        top_error_urls = df[df['status_code'] >= 400].groupby('path').agg({
             'requests_adjusted': 'sum',
             'error_rate_4xx': 'mean',
             'error_rate_5xx': 'mean'
