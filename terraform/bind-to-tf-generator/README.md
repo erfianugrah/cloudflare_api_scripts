@@ -177,7 +177,6 @@ python delete_dns_records.py --zone-ids YOUR_ZONE_ID
 # The script will:
 # - Show the number of records found
 # - Ask for confirmation before deletion
-# - Delete the records while preserving SOA/NS records
 ```
 
 5. **Apply Terraform configuration**:
