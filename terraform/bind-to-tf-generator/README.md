@@ -135,6 +135,67 @@ The bindgenerator supports common DNS record types:
    - The tools include basic rate limiting protection
    - For large zones, operations might take longer
 
+## Common Use Case: Migrating DNS to Terraform
+
+### Scenario
+You have existing DNS records in Cloudflare that you want to manage with Terraform. This involves:
+1. Exporting current records
+2. Converting to Terraform format
+3. Deleting existing records
+4. Applying via Terraform
+
+### Step-by-Step Workflow
+
+1. **Set up authentication**:
+```bash
+export CLOUDFLARE_API_TOKEN="your_token"
+# or
+export CLOUDFLARE_API_KEY="your_key"
+export CLOUDFLARE_EMAIL="your_email"
+```
+
+2. **List available zones** (optional):
+```bash
+python executor.py --list-zones
+```
+
+3. **Export current DNS records and generate Terraform config**:
+```bash
+# Export DNS records to BIND format and convert to Terraform
+python executor.py --export-dns YOUR_ZONE_ID zone_YOUR_ZONE_ID.bind example.com
+
+# The above command will:
+# - Export DNS records to zone_YOUR_ZONE_ID.bind
+# - Generate dns.tf with the Terraform configuration
+```
+
+4. **Delete existing DNS records**:
+```bash
+# Review and delete existing records
+python delete_dns_records.py --zone-ids YOUR_ZONE_ID
+
+# The script will:
+# - Show the number of records found
+# - Ask for confirmation before deletion
+# - Delete the records while preserving SOA/NS records
+```
+
+5. **Apply Terraform configuration**:
+```bash
+# Initialize Terraform if needed
+terraform init
+
+# Apply the configuration
+terraform apply
+```
+
+### Important Notes
+- Always backup your DNS records before starting
+- Lower TTL values before making changes
+- The delete operation cannot be undone
+- Terraform will manage the records going forward
+- Test on a non-production domain first if possible
+
 ## Additional Notes
 
 - The generated Terraform configuration uses the Cloudflare provider
