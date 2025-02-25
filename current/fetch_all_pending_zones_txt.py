@@ -4,6 +4,7 @@ import json
 import asyncio
 import aiohttp
 import csv
+import argparse
 from datetime import datetime
 from typing import List, Dict, Any
 
@@ -60,8 +61,6 @@ async def get_zones_for_account(session: aiohttp.ClientSession, account_id: str)
     zones = []
     page = 1
     
-    # The account-level zones endpoint isn't working, so we'll use the main zones endpoint
-    # and filter by account_id
     while True:
         url = f"{ZONES_BASE_URL}?page={page}&per_page=1000&account.id={account_id}"
         data = await fetch_data(session, url)
@@ -150,8 +149,38 @@ async def get_dcv_delegation(session: aiohttp.ClientSession, zone_id: str) -> Di
     
     return dcv_delegation
 
-async def process_zone(session: aiohttp.ClientSession, zone: Dict[str, Any], csv_writer) -> Dict[str, Any]:
-    """Process a zone to get all verification data"""
+def parse_arguments():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description='Fetch Cloudflare pending zones and verification details')
+    
+    # Account filtering options
+    account_group = parser.add_mutually_exclusive_group()
+    account_group.add_argument('--account', '-a', help='Process a single account by ID')
+    account_group.add_argument('--accounts-file', '-f', help='File containing account IDs to process (one per line)')
+    
+    # Output options
+    parser.add_argument('--output-prefix', '-o', help='Prefix for output filenames')
+    parser.add_argument('--format', choices=['csv', 'json'], default='csv',
+                        help='Output format for verification records (default: csv)')
+    
+    return parser.parse_args()
+
+def load_account_ids_from_file(file_path: str) -> List[str]:
+    """Load account IDs from a file, one per line"""
+    account_ids = []
+    try:
+        with open(file_path, 'r') as file:
+            for line in file:
+                account_id = line.strip()
+                if account_id:  # Skip empty lines
+                    account_ids.append(account_id)
+        return account_ids
+    except Exception as e:
+        print(f"Error loading account IDs from file: {str(e)}")
+        return []
+
+async def process_zone(session, zone, records):
+    """Process a zone to get verification data"""
     zone_id = zone["id"]
     zone_name = zone["name"]
     account_name = zone["account_name"]
@@ -165,8 +194,8 @@ async def process_zone(session: aiohttp.ClientSession, zone: Dict[str, Any], csv
     if txt_verification:
         verification["txt_verification"] = txt_verification
         
-        # Add to CSV
-        csv_writer.writerow({
+        # Add record
+        records.append({
             'Zone Name': zone_name,
             'Status': status,
             'Account Name': account_name,
@@ -203,8 +232,8 @@ async def process_zone(session: aiohttp.ClientSession, zone: Dict[str, Any], csv
                         actual_record_value = f"{hostname}.{dcv_delegation['uuid']}.dcv.cloudflare.com"
                         if hostname == "@":
                             actual_record_value = f"{zone_name}.{dcv_delegation['uuid']}.dcv.cloudflare.com"
-                            
-                        csv_writer.writerow({
+                        
+                        records.append({
                             'Zone Name': zone_name,
                             'Status': status,
                             'Account Name': account_name,
@@ -214,8 +243,8 @@ async def process_zone(session: aiohttp.ClientSession, zone: Dict[str, Any], csv
                             'Record Value': actual_record_value
                         })
             else:
-                # If no DNS records found, indicate that in the CSV
-                csv_writer.writerow({
+                # No DNS records found
+                records.append({
                     'Zone Name': zone_name,
                     'Status': status,
                     'Account Name': account_name,
@@ -226,8 +255,7 @@ async def process_zone(session: aiohttp.ClientSession, zone: Dict[str, Any], csv
                 })
         except Exception as e:
             print(f"  Error fetching DNS records: {str(e)}")
-            # Add error entry if exception occurred
-            csv_writer.writerow({
+            records.append({
                 'Zone Name': zone_name,
                 'Status': status,
                 'Account Name': account_name,
@@ -240,48 +268,76 @@ async def process_zone(session: aiohttp.ClientSession, zone: Dict[str, Any], csv
     return verification
 
 async def main():
-    """Main execution function"""
-    results = {
-        "pending_zones": [],
-        "total_pending": 0,
-        "accounts_with_pending": 0
-    }
+    args = parse_arguments()
     
-    # Check for authentication credentials
+    # Validate authentication credentials
     if not (auth_token or (auth_email and auth_key)):
         print("Error: No authentication credentials found.")
-        print("Please set one of the following environment variables:")
-        print("  - CLOUDFLARE_API_TOKEN")
-        print("  - CLOUDFLARE_API_KEY and CLOUDFLARE_EMAIL")
+        print("Please set CLOUDFLARE_API_TOKEN or both CLOUDFLARE_API_KEY and CLOUDFLARE_EMAIL.")
         return
     
-    # Print authentication method being used
+    # Show authentication method
     if auth_token:
         print("Using API Token for authentication")
     else:
         print(f"Using API Key + Email for authentication ({auth_email})")
     
-    # CSV preparation
+    # Set up output filenames
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_filename = f"pending_zones_{timestamp}.csv"
-    json_filename = f"pending_zones_{timestamp}.json"
+    prefix = args.output_prefix or "pending_zones"
+    output_format = args.format.lower()
+    output_filename = f"{prefix}_{timestamp}.{output_format}"
+    raw_data_filename = f"{prefix}_raw_{timestamp}.json"
     
-    # Open CSV file and prepare writer
-    with open(csv_filename, 'w', newline='') as csvfile:
-        fieldnames = ['Zone Name', 'Status', 'Account Name', 'Verification Type', 
-                      'Record Name', 'Record Type', 'Record Value']
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    # Initialize data
+    verification_records = []
+    results = {
+        "pending_zones": [],
+        "total_pending": 0,
+        "accounts_with_pending": 0,
+        "accounts_checked": 0
+    }
+    
+    # Setup CSV file if needed
+    csvfile = None
+    writer = None
+    if output_format == "csv":
+        csvfile = open(output_filename, 'w', newline='')
+        writer = csv.DictWriter(csvfile, fieldnames=[
+            'Zone Name', 'Status', 'Account Name', 'Verification Type', 
+            'Record Name', 'Record Type', 'Record Value'
+        ])
         writer.writeheader()
-        
+    
+    # Process accounts and zones
+    try:
         async with aiohttp.ClientSession() as session:
-            # Get all accounts
-            accounts = await get_accounts(session)
+            # Get accounts
+            all_accounts = await get_accounts(session)
             
+            # Filter accounts if specified
+            if args.account:
+                # Single account specified
+                accounts = [a for a in all_accounts if a.get("id") == args.account]
+                print(f"Filtered to account: {args.account}")
+            elif args.accounts_file:
+                # Multiple accounts from file
+                account_ids = load_account_ids_from_file(args.accounts_file)
+                accounts = [a for a in all_accounts if a.get("id") in account_ids]
+                print(f"Loaded {len(account_ids)} account IDs from {args.accounts_file}")
+            else:
+                # All accounts
+                accounts = all_accounts
+                print(f"Processing all {len(accounts)} accounts")
+            
+            # Update results
+            results["accounts_checked"] = len(accounts)
+            
+            # Process each account
             for account in accounts:
                 account_id = account.get("id")
                 account_name = account.get("name")
                 
-                # Skip if account information is incomplete
                 if not account_id:
                     continue
                 
@@ -289,15 +345,12 @@ async def main():
                 
                 # Get zones for this account
                 zones = await get_zones_for_account(session, account_id)
-                
-                # Log how many zones were found
                 print(f"Found {len(zones)} zones in account {account_name}")
                 
                 # Filter for pending zones
                 pending_zones = []
                 for zone in zones:
                     status = zone.get("status", "")
-                    # Include zones with pending status
                     if status != "active":
                         pending_zones.append({
                             "id": zone["id"],
@@ -316,7 +369,7 @@ async def main():
                     # Process each pending zone
                     for zone in pending_zones:
                         try:
-                            verification = await process_zone(session, zone, writer)
+                            verification = await process_zone(session, zone, verification_records)
                             zone["verification"] = verification
                             results["pending_zones"].append(zone)
                         except Exception as e:
@@ -324,78 +377,93 @@ async def main():
                 else:
                     print(f"No pending zones found in account {account_name}")
     
-    # Save results to JSON
-    try:
-        with open(json_filename, "w") as f:
+        # Write CSV data if needed
+        if output_format == "csv" and csvfile:
+            for record in verification_records:
+                writer.writerow(record)
+            csvfile.close()
+            print(f"CSV export saved to: {output_filename}")
+        
+        # Write JSON data if needed
+        if output_format == "json":
+            with open(output_filename, "w") as f:
+                json.dump({"verification_records": verification_records}, f, indent=2)
+            print(f"JSON export saved to: {output_filename}")
+        
+        # Always save raw data
+        with open(raw_data_filename, "w") as f:
             json.dump(results, f, indent=2)
-        print(f"Results saved to: {json_filename}")
+        print(f"Raw data saved to: {raw_data_filename}")
+        
+        # Print summary
+        print("\nSummary:")
+        print(f"Total accounts checked: {results['accounts_checked']}")
+        print(f"Accounts with pending zones: {results['accounts_with_pending']}")
+        print(f"Total pending zones: {results['total_pending']}")
+        
+        # Print verification details if any
+        if results["pending_zones"]:
+            print_verification_details(results["pending_zones"])
+    
     except Exception as e:
-        print(f"Error saving results to JSON file: {str(e)}")
+        print(f"An error occurred: {str(e)}")
+        if csvfile:
+            csvfile.close()
+
+def print_verification_details(pending_zones):
+    """Print verification details in an easy-to-copy format"""
+    verification_found = False
     
-    print(f"CSV export saved to: {csv_filename}")
+    # Show TXT verification values
+    print("\nTXT Verification Records:")
+    print("-------------------------")
+    for zone in pending_zones:
+        if "txt_verification" in zone.get("verification", {}):
+            verification_found = True
+            txt_info = zone["verification"]["txt_verification"]
+            print(f"Zone: {zone['name']} ({zone['status']})")
+            record_name = txt_info.get("record_name", "cloudflare-verify")
+            print(f"TXT Record: {record_name}.{zone['name']}")
+            print(f"Value: {txt_info['record_value']}")
+            print()
     
-    # Print summary
-    print("\nSummary:")
-    print(f"Total accounts checked: {len(accounts)}")
-    print(f"Accounts with pending zones: {results['accounts_with_pending']}")
-    print(f"Total pending zones: {results['total_pending']}")
-    
-    # Output verification records in an easy-to-copy format
-    if results["pending_zones"]:
-        verification_found = False
-        
-        # First show TXT verification values
-        print("\nTXT Verification Records:")
-        print("-------------------------")
-        for zone in results["pending_zones"]:
-            if "txt_verification" in zone.get("verification", {}):
-                verification_found = True
-                txt_info = zone["verification"]["txt_verification"]
-                print(f"Zone: {zone['name']} ({zone['status']})")
-                record_name = txt_info.get("record_name", "cloudflare-verify")
-                print(f"TXT Record: {record_name}.{zone['name']}")
-                print(f"Value: {txt_info['record_value']}")
-                print()
-        
-        # Then show DCV delegation instructions
-        print("\nDCV Delegation for Partial Zones:")
-        print("------------------------------------")
-        for zone in results["pending_zones"]:
-            if "dcv_delegation" in zone.get("verification", {}):
-                verification_found = True
-                dcv_info = zone["verification"]["dcv_delegation"]
-                uuid = dcv_info["uuid"]
-                print(f"Zone: {zone['name']} ({zone['status']})")
-                
-                # List all A, AAAA, CNAME records that need DCV delegation
-                dns_records = zone["verification"].get("dns_records", [])
-                if dns_records:
-                    print("\nRequired DCV delegation records:")
-                    for record in dns_records:
-                        if record["type"] in ["A", "AAAA", "CNAME"]:
-                            # Extract the hostname part
-                            hostname = record["name"]
-                            if hostname.endswith(f".{zone['name']}"):
-                                hostname = hostname[:-len(zone['name'])-1]  # Remove zone part
-                            if not hostname:
-                                hostname = "@"  # Root domain
+    # Show DCV delegation instructions
+    print("\nDCV Delegation for Partial Zones:")
+    print("------------------------------------")
+    for zone in pending_zones:
+        if "dcv_delegation" in zone.get("verification", {}):
+            verification_found = True
+            dcv_info = zone["verification"]["dcv_delegation"]
+            uuid = dcv_info["uuid"]
+            print(f"Zone: {zone['name']} ({zone['status']})")
+            
+            # List all A, AAAA, CNAME records that need DCV delegation
+            dns_records = zone["verification"].get("dns_records", [])
+            if dns_records:
+                print("\nRequired DCV delegation records:")
+                for record in dns_records:
+                    if record["type"] in ["A", "AAAA", "CNAME"]:
+                        # Extract the hostname part
+                        hostname = record["name"]
+                        if hostname.endswith(f".{zone['name']}"):
+                            hostname = hostname[:-len(zone['name'])-1]  # Remove zone part
+                        if not hostname:
+                            hostname = "@"  # Root domain
+                        
+                        # Create the actual DCV delegation record with real hostname
+                        actual_record_name = f"_acme-challenge.{hostname}"
+                        actual_record_value = f"{hostname}.{uuid}.dcv.cloudflare.com"
+                        if hostname == "@":
+                            actual_record_value = f"{zone['name']}.{uuid}.dcv.cloudflare.com"
                             
-                            # Create the actual DCV delegation record with real hostname
-                            actual_record_name = f"_acme-challenge.{hostname}"
-                            actual_record_value = f"{hostname}.{uuid}.dcv.cloudflare.com"
-                            if hostname == "@":
-                                actual_record_value = f"{zone['name']}.{uuid}.dcv.cloudflare.com"
-                                
-                            print(f"  {actual_record_name} CNAME {actual_record_value}")
-                else:
-                    print("  No hostnames found to verify with DCV delegation")
-                
-                print()
-        
-        if not verification_found:
-            print("No verification values found for any zones.")
-            print("You may need to initiate zone verification from the Cloudflare dashboard.")
-            print("After initiating verification, run this script again to retrieve the values.")
+                        print(f"  {actual_record_name} CNAME {actual_record_value}")
+            else:
+                print("  No hostnames found to verify with DCV delegation")
+            
+            print()
+    
+    if not verification_found:
+        print("No verification values found for any zones.")
 
 if __name__ == "__main__":
     try:
