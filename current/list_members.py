@@ -16,8 +16,9 @@ parser.add_argument('--email', help='Cloudflare account email (required if using
 parser.add_argument('--output', default="cloudflare_accounts_members.csv", help='Output CSV file path')
 parser.add_argument('--markdown', default="cloudflare_accounts_members.md", help='Output Markdown file path')
 parser.add_argument('--debug', action='store_true', help='Enable debug output')
+parser.add_argument('--verbose', action='store_true', help='Enable verbose debug output (more detailed than --debug)')
 parser.add_argument('--show-token', action='store_true', help='Show full token in debug output (use with caution)')
-parser.add_argument('--concurrent', type=int, default=5, help='Number of concurrent API requests (default: 5)')
+parser.add_argument('--concurrent', type=int, default=10, help='Number of concurrent API requests (default: 10)')
 args = parser.parse_args()
 
 # Configuration
@@ -27,6 +28,7 @@ API_EMAIL = args.email
 OUTPUT_FILE = args.output
 MARKDOWN_FILE = args.markdown
 DEBUG = args.debug
+VERBOSE = args.verbose
 SHOW_TOKEN = args.show_token
 CONCURRENT_REQUESTS = args.concurrent
 
@@ -40,6 +42,10 @@ HEADERS = {"Content-Type": "application/json"}
 def debug_log(message):
     if DEBUG:
         print(f"DEBUG: {message}")
+
+def verbose_log(message):
+    if VERBOSE:
+        print(f"VERBOSE: {message}")
 
 # Check if token length is valid
 def validate_token(token):
@@ -183,19 +189,111 @@ async def test_connectivity(session):
         return False
 
 async def get_accounts(session) -> List[Dict[str, Any]]:
-    """Fetch all accounts accessible with the API token"""
+    """Fetch all accounts accessible with the API token with parallel pagination"""
     print("Fetching accounts...")
-    data = await make_request(session, ACCOUNTS_ENDPOINT)
-    accounts = data.get("result", [])
-    print(f"Found {len(accounts)} accounts")
+    accounts = []
+    per_page = 50  # Maximum allowed value
+    
+    # Make initial request to get first page and total count
+    url = f"{ACCOUNTS_ENDPOINT}?page=1&per_page={per_page}"
+    initial_data = await make_request(session, url)
+    
+    # Add results from first page
+    page_accounts = initial_data.get("result", [])
+    accounts.extend(page_accounts)
+    
+    # Get pagination info from first page
+    result_info = initial_data.get("result_info", {})
+    total_count = result_info.get("total_count", 0)
+    total_pages = (total_count + per_page - 1) // per_page
+    
+    debug_log(f"Accounts: Page 1, got {len(page_accounts)} accounts, total {total_count}, pages {total_pages}")
+    
+    # If we need more pages, fetch them in parallel
+    if total_pages > 1:
+        # Create tasks for remaining pages
+        fetch_tasks = []
+        for page in range(2, total_pages + 1):
+            page_url = f"{ACCOUNTS_ENDPOINT}?page={page}&per_page={per_page}"
+            task = asyncio.create_task(make_request(session, page_url))
+            fetch_tasks.append((page, task))
+        
+        # Process results as they complete
+        for page, task in fetch_tasks:
+            try:
+                data = await task
+                page_accounts = data.get("result", [])
+                accounts.extend(page_accounts)
+                debug_log(f"Accounts: Page {page}, got {len(page_accounts)} accounts")
+            except Exception as e:
+                debug_log(f"Accounts: Error fetching page {page}: {e}")
+    
+    print(f"Found {len(accounts)} accounts (total expected: {total_count})")
     return accounts
 
 async def get_account_members(session, account_id: str) -> Dict[str, Any]:
-    """Fetch all members for a specific account"""
+    """Fetch all members for a specific account with pagination and parallel requests"""
+    members = []
+    per_page = 50  # Maximum allowed value
+    
     try:
-        data = await make_request(session, f"{ACCOUNTS_ENDPOINT}/{account_id}/members")
-        members = data.get("result", [])
-        print(f"Account {account_id}: Found {len(members)} members")
+        # Make initial request to get total count
+        url = f"{ACCOUNTS_ENDPOINT}/{account_id}/members?page=1&per_page={per_page}"
+        initial_data = await make_request(session, url)
+        
+        # Add results from first page
+        page_members = initial_data.get("result", [])
+        if page_members is None:
+            verbose_log(f"Account {account_id}: First page returned null result")
+            page_members = []
+        members.extend(page_members)
+        
+        # Get pagination info from first page
+        result_info = initial_data.get("result_info", {})
+        if result_info is None:
+            verbose_log(f"Account {account_id}: Missing result_info in response")
+            result_info = {}
+            
+        total_count = result_info.get("total_count", 0)
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 0
+        
+        debug_log(f"Account {account_id}: Page 1, got {len(page_members)} members, total {total_count}, pages {total_pages}")
+        
+        # If we need more pages, fetch them in parallel
+        if total_pages > 1:
+            # Create tasks for remaining pages
+            fetch_tasks = []
+            for page in range(2, total_pages + 1):
+                page_url = f"{ACCOUNTS_ENDPOINT}/{account_id}/members?page={page}&per_page={per_page}"
+                task = asyncio.create_task(make_request(session, page_url))
+                fetch_tasks.append((page, task))
+            
+            # Process results as they complete
+            for page, task in fetch_tasks:
+                try:
+                    data = await task
+                    page_members = data.get("result", [])
+                    if page_members is None:
+                        verbose_log(f"Account {account_id}: Page {page} returned null result")
+                        page_members = []
+                    members.extend(page_members)
+                    debug_log(f"Account {account_id}: Page {page}, got {len(page_members)} members")
+                except Exception as e:
+                    debug_log(f"Account {account_id}: Error fetching page {page}: {e}")
+        
+        # Validate member objects
+        valid_members = []
+        for i, member in enumerate(members):
+            if not isinstance(member, dict):
+                verbose_log(f"Account {account_id}: Invalid member data at index {i}: {type(member)}")
+                continue
+            valid_members.append(member)
+        
+        if len(valid_members) != len(members):
+            debug_log(f"Account {account_id}: Filtered out {len(members) - len(valid_members)} invalid member entries")
+            members = valid_members
+        
+        print(f"Account {account_id}: Found {len(members)} members (total expected: {total_count})")
         return {"account_id": account_id, "members": members}
     except Exception as e:
         print(f"Warning: Failed to fetch members for account {account_id}: {e}")
@@ -250,6 +348,12 @@ def write_to_csv(accounts_with_members: List[Dict[str, Any]]):
             account_name = account.get('name', '')
             
             members = account.get('members', [])
+            
+            # Validate members is a list
+            if not isinstance(members, list):
+                verbose_log(f"Account {account_id}: 'members' is not a list: {type(members)}")
+                members = []
+            
             if not members:
                 # Account with no members
                 writer.writerow({
@@ -262,19 +366,40 @@ def write_to_csv(accounts_with_members: List[Dict[str, Any]]):
                 })
             else:
                 # Account with members
-                for member in members:
+                for i, member in enumerate(members):
+                    # Validate member is a dict
+                    if not isinstance(member, dict):
+                        verbose_log(f"Account {account_id}: Invalid member at index {i}: {type(member)}")
+                        continue
+                    
+                    # Process roles safely
                     roles = []
-                    for role in member.get('roles', []):
+                    member_roles = member.get('roles')
+                    if member_roles is None:
+                        verbose_log(f"Account {account_id}: Member at index {i} has null roles")
+                        member_roles = []
+                    elif not isinstance(member_roles, list):
+                        verbose_log(f"Account {account_id}: Member at index {i} has invalid roles type: {type(member_roles)}")
+                        member_roles = []
+                    
+                    # Iterate over roles safely with empty list fallback when None
+                    for role in member_roles or []:
                         if isinstance(role, dict) and 'name' in role:
                             roles.append(role['name'])
                         else:
                             roles.append(str(role))
                     
+                    # Process user data safely
+                    user_data = member.get('user')
+                    if user_data is None or not isinstance(user_data, dict):
+                        verbose_log(f"Account {account_id}: Member at index {i} has invalid user data: {type(user_data)}")
+                        user_data = {}
+                    
                     writer.writerow({
                         'Account ID': account_id,
                         'Account Name': account_name,
                         'Member ID': member.get('id', ''),
-                        'Member Email': member.get('user', {}).get('email', ''),
+                        'Member Email': user_data.get('email', ''),
                         'Member Status': member.get('status', ''),
                         'Member Roles': ', '.join(roles)
                     })
@@ -294,7 +419,15 @@ def write_to_markdown(accounts_with_members: List[Dict[str, Any]]):
         # Write summary
         mdfile.write("## Summary\n\n")
         total_accounts = len(accounts_with_members)
-        total_members = sum(len(account.get('members', [])) for account in accounts_with_members)
+        
+        # Safely calculate total members
+        total_members = 0
+        for account in accounts_with_members:
+            members = account.get('members')
+            if isinstance(members, list):
+                total_members += len(members)
+            else:
+                verbose_log(f"Account {account.get('id', 'unknown')}: members is not a list for total calculation")
         
         mdfile.write(f"- **Total Accounts**: {total_accounts}\n")
         mdfile.write(f"- **Total Members**: {total_members}\n")
@@ -311,7 +444,14 @@ def write_to_markdown(accounts_with_members: List[Dict[str, Any]]):
         for account in sorted(accounts_with_members, key=lambda x: x.get('name', '')):
             account_id = account.get('id', '')
             account_name = account.get('name', '')
-            member_count = len(account.get('members', []))
+            
+            # Safely calculate member count
+            members = account.get('members')
+            if isinstance(members, list):
+                member_count = len(members)
+            else:
+                verbose_log(f"Account {account_id}: members is not a list for table display")
+                member_count = 0
             
             mdfile.write(f"| {account_id} | {account_name} | {member_count} |\n")
         
@@ -323,7 +463,12 @@ def write_to_markdown(accounts_with_members: List[Dict[str, Any]]):
         for account in sorted(accounts_with_members, key=lambda x: x.get('name', '')):
             account_id = account.get('id', '')
             account_name = account.get('name', '')
-            members = account.get('members', [])
+            members = account.get('members')
+            
+            # Validate members is a list
+            if not isinstance(members, list):
+                verbose_log(f"Account {account_id}: 'members' is not a list for markdown: {type(members)}")
+                members = []
             
             mdfile.write(f"### {account_name}\n\n")
             mdfile.write(f"Account ID: `{account_id}`\n\n")
@@ -335,12 +480,46 @@ def write_to_markdown(accounts_with_members: List[Dict[str, Any]]):
             mdfile.write("| Member Email | Status | Roles |\n")
             mdfile.write("|--------------|--------|-------|\n")
             
-            for member in sorted(members, key=lambda x: x.get('user', {}).get('email', '')):
-                email = member.get('user', {}).get('email', '')
+            # Define a safe sort key function
+            def safe_email_key(m):
+                if not isinstance(m, dict):
+                    return ""
+                user = m.get('user')
+                if not isinstance(user, dict):
+                    return ""
+                return user.get('email', '')
+            
+            # Filter valid members and sort
+            valid_members = [m for m in members if isinstance(m, dict)]
+            if len(valid_members) != len(members):
+                verbose_log(f"Account {account_id}: Filtered {len(members) - len(valid_members)} invalid members for markdown")
+            
+            sorted_members = sorted(valid_members, key=safe_email_key)
+            
+            for member in sorted_members:
+                # Get email and status safely
+                user_data = member.get('user')
+                if not isinstance(user_data, dict):
+                    verbose_log(f"Account {account_id}: Member has invalid user data for markdown: {type(user_data)}")
+                    user_data = {}
+                
+                email = user_data.get('email', '')
                 status = member.get('status', '')
                 
+                # Process roles safely
                 roles = []
-                for role in member.get('roles', []):
+                member_roles = member.get('roles')
+                if member_roles is None:
+                    # Just log once per account, not for every member
+                    if email and status:  # Only log for seemingly valid members
+                        verbose_log(f"Account {account_id}: Member with email {email} has null roles")
+                    member_roles = []
+                elif not isinstance(member_roles, list):
+                    verbose_log(f"Account {account_id}: Member has invalid roles type for markdown: {type(member_roles)}")
+                    member_roles = []
+                
+                # Iterate over roles safely with empty list fallback when None
+                for role in member_roles or []:
                     if isinstance(role, dict) and 'name' in role:
                         roles.append(role['name'])
                     else:
