@@ -101,10 +101,18 @@ class CloudflareIPs:
         self.logger.info("Fetching IP ranges from Cloudflare API...")
         success = True
         
-        # Fetch standard Cloudflare IPs
+        # Determine which API endpoint to use based on include_china
+        api_url = self.CF_API_URL
+        if self.include_china:
+            api_url = f"{self.CF_API_URL}?networks=jdcloud"
+            self.logger.debug(f"Will fetch both standard and China IPs from {api_url}")
+        else:
+            self.logger.debug(f"Will fetch only standard IPs from {api_url}")
+        
+        # Fetch Cloudflare IPs (both standard and China if requested)
         try:
-            self.logger.debug(f"Requesting standard Cloudflare IPs from {self.CF_API_URL}")
-            response = requests.get(self.CF_API_URL)
+            self.logger.debug(f"Requesting Cloudflare IPs from {api_url}")
+            response = requests.get(api_url)
             response.raise_for_status()
             
             self.logger.debug(f"API Response status code: {response.status_code}")
@@ -116,6 +124,7 @@ class CloudflareIPs:
             data = response.json()
             
             if data.get('success'):
+                # Standard Cloudflare IPs
                 self.ipv4_ranges = data.get('result', {}).get('ipv4_cidrs', [])
                 self.ipv6_ranges = data.get('result', {}).get('ipv6_cidrs', [])
                 self.last_updated = datetime.now()
@@ -132,32 +141,9 @@ class CloudflareIPs:
                     self.logger.debug(f"All IPv4 ranges: {', '.join(self.ipv4_ranges)}")
                 if self.verbose >= 2 and self.ipv6_ranges:
                     self.logger.debug(f"All IPv6 ranges: {', '.join(self.ipv6_ranges)}")
-            else:
-                errors = data.get('errors', 'Unknown error')
-                self.logger.error(f"Error fetching Cloudflare IPs: {errors}")
-                success = False
                 
-        except requests.RequestException as e:
-            self.logger.error(f"Error fetching Cloudflare IPs: {e}")
-            success = False
-        
-        # Fetch China (JDCloud) IPs if needed
-        if self.include_china:
-            try:
-                china_url = "https://api.cloudflare.com/client/v4/ips?networks=jdcloud"
-                self.logger.debug(f"Requesting China (JDCloud) IPs from {china_url}")
-                response = requests.get(china_url)
-                response.raise_for_status()
-                
-                self.logger.debug(f"API Response status code: {response.status_code}")
-                
-                if self.verbose >= 2:
-                    self.logger.debug(f"API Response headers: {dict(response.headers)}")
-                    self.logger.debug(f"API Response body (partial): {response.text[:500]}...")
-                
-                data = response.json()
-                
-                if data.get('success'):
+                # China (JDCloud) IPs if requested and available in response
+                if self.include_china:
                     # JDCloud IPs are under the 'jdcloud_cidrs' key
                     jdcloud_cidrs = data.get('result', {}).get('jdcloud_cidrs', [])
                     
@@ -176,7 +162,7 @@ class CloudflareIPs:
                             self.logger.warning(f"Invalid JDCloud CIDR: {cidr}")
                     
                     if self.verbose >= 2:
-                        self.logger.debug(f"Raw JDCloud API response: {data}")
+                        self.logger.debug(f"Raw JDCloud data: {jdcloud_cidrs}")
                     
                     self.logger.info(f"Successfully fetched {len(self.china_ipv4_ranges)} China IPv4 and {len(self.china_ipv6_ranges)} China IPv6 ranges")
                     
@@ -190,14 +176,14 @@ class CloudflareIPs:
                         self.logger.debug(f"All China IPv4 ranges: {', '.join(self.china_ipv4_ranges)}")
                     if self.verbose >= 2 and self.china_ipv6_ranges:
                         self.logger.debug(f"All China IPv6 ranges: {', '.join(self.china_ipv6_ranges)}")
-                else:
-                    errors = data.get('errors', 'Unknown error')
-                    self.logger.error(f"Error fetching China IPs: {errors}")
-                    success = False
-                    
-            except requests.RequestException as e:
-                self.logger.error(f"Error fetching China IPs: {e}")
+            else:
+                errors = data.get('errors', 'Unknown error')
+                self.logger.error(f"Error fetching Cloudflare IPs: {errors}")
                 success = False
+                
+        except requests.RequestException as e:
+            self.logger.error(f"Error fetching Cloudflare IPs: {e}")
+            success = False
         
         # Create IP network objects for faster lookups
         self._create_network_objects()
