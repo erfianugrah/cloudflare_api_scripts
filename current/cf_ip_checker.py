@@ -1,532 +1,434 @@
+#!/usr/bin/env python3
 """
-CloudflareIPs - A library for working with Cloudflare IP ranges
+CloudflareIPs - Tool for checking and managing Cloudflare IP ranges
 
 This script provides functionality to:
-1. Fetch Cloudflare IP ranges (both IPv4 and IPv6)
-2. Fetch JDCloud IP ranges used by Cloudflare in China
-   (see https://developers.cloudflare.com/china-network/reference/infrastructure/)
-3. Check if an IP address belongs to Cloudflare (including China network)
-4. Get information about all Cloudflare IP ranges
+1. Fetch and merge Cloudflare IP ranges from all endpoints (including all China colos)
+2. Check if an IP address belongs to Cloudflare's network
+3. List and count IP ranges from different Cloudflare networks
+4. Compare IP ranges between different China colocation options
 """
 
 import requests
 import ipaddress
-import logging
-from datetime import datetime
 import argparse
 import sys
+import json
+import os
+from datetime import datetime
 
 class CloudflareIPs:
-    """Class to handle Cloudflare IP ranges and lookups"""
+    """Class to handle Cloudflare IP ranges and IP checking"""
     
-    # API endpoint
+    # API endpoints
     CF_API_URL = "https://api.cloudflare.com/client/v4/ips"
     
-    def __init__(self, include_china=True, verbose=0):
+    def __init__(self, verbose=False, china_colos=None, ip_file=None):
         """
-        Initialize the CloudflareIPs object
+        Initialize with options for China colocation and verbosity
         
         Args:
-            include_china (bool, optional): Whether to include China (JDCloud) IPs. Defaults to True.
-            verbose (int, optional): Verbosity level (0-3). Defaults to 0.
+            verbose (bool): Whether to print verbose information
+            china_colos (list): List of China colos to query (jdc, 1, 2)
+            ip_file (str): Path to a JSON file with IP ranges (for offline use)
         """
-        self.include_china = include_china
         self.verbose = verbose
+        self.china_colos = china_colos or ["jdc", "1", "2"]  # Default to all colos
+        self.ip_file = ip_file
         
-        # Set up logging - using a unique logger name to avoid duplicates
-        self.logger = self._setup_logger("CloudflareIPs.lib", verbose)
-        
-        # Regular Cloudflare IPs
+        # Initialize IP range arrays
         self.ipv4_ranges = []
         self.ipv6_ranges = []
-        self.ipv4_cidrs = []
-        self.ipv6_cidrs = []
-        
-        # China (JDCloud) IPs
         self.china_ipv4_ranges = []
         self.china_ipv6_ranges = []
-        self.china_ipv4_cidrs = []
-        self.china_ipv6_cidrs = []
+        
+        # Network objects for faster lookup
+        self.ipv4_networks = []
+        self.ipv6_networks = []
+        self.china_ipv4_networks = []
+        self.china_ipv6_networks = []
         
         self.last_updated = None
         
-        # Load IP ranges immediately
+        # Load immediately
         self.update()
     
-    def _setup_logger(self, name, verbose):
-        """Set up logging based on verbosity level"""
-        logger = logging.getLogger(name)
-        
-        # Clear any existing handlers
-        if logger.handlers:
-            logger.handlers = []
-            
-        # Set log level based on verbosity
-        if verbose == 0:
-            logger.setLevel(logging.WARNING)
-        elif verbose == 1:
-            logger.setLevel(logging.INFO)
-        else:  # verbose >= 2
-            logger.setLevel(logging.DEBUG)
-            
-        # Create a custom handler to avoid duplicate logs
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        
-        # Important: prevent propagation to avoid duplicate logs
-        logger.propagate = False
-        
-        logger.debug(f"Logging initialized with verbosity level {verbose}")
-        return logger
-    
-    def _create_network_objects(self):
-        """Create IP network objects for faster lookups"""
-        self.logger.debug("Creating IP network objects...")
-        
-        self.ipv4_cidrs = [ipaddress.IPv4Network(cidr) for cidr in self.ipv4_ranges]
-        self.ipv6_cidrs = [ipaddress.IPv6Network(cidr) for cidr in self.ipv6_ranges]
-        
-        self.logger.debug(f"Created {len(self.ipv4_cidrs)} IPv4 and {len(self.ipv6_cidrs)} IPv6 network objects")
-        
-        if self.include_china:
-            self.china_ipv4_cidrs = [ipaddress.IPv4Network(cidr) for cidr in self.china_ipv4_ranges]
-            self.china_ipv6_cidrs = [ipaddress.IPv6Network(cidr) for cidr in self.china_ipv6_ranges]
-            
-            self.logger.debug(f"Created {len(self.china_ipv4_cidrs)} China IPv4 and {len(self.china_ipv6_cidrs)} China IPv6 network objects")
+    def _log(self, message, level=0):
+        """Simple logging with verbosity levels"""
+        if self.verbose or level == 0:
+            print(message)
     
     def update(self):
-        """Update IP ranges from Cloudflare API"""
-        self.logger.info("Fetching IP ranges from Cloudflare API...")
-        success = True
+        """Fetch and update all IP ranges"""
+        self._log(f"Fetching Cloudflare IP ranges...", level=1)
         
-        # Determine which API endpoint to use based on include_china
-        api_url = self.CF_API_URL
-        if self.include_china:
-            api_url = f"{self.CF_API_URL}?networks=jdcloud"
-            self.logger.debug(f"Will fetch both standard and China IPs from {api_url}")
-        else:
-            self.logger.debug(f"Will fetch only standard IPs from {api_url}")
+        # If using a file, load from there instead of API
+        if self.ip_file and os.path.exists(self.ip_file):
+            self._log(f"Loading IP ranges from file: {self.ip_file}", level=1)
+            try:
+                with open(self.ip_file, 'r') as f:
+                    data = json.load(f)
+                
+                self.ipv4_ranges = data.get('ipv4_cidrs', [])
+                self.ipv6_ranges = data.get('ipv6_cidrs', [])
+                self.china_ipv4_ranges = data.get('china_ipv4_cidrs', [])
+                self.china_ipv6_ranges = data.get('china_ipv6_cidrs', [])
+                self.last_updated = data.get('last_updated', datetime.now().isoformat())
+                
+                self._log(f"Loaded {len(self.ipv4_ranges)} IPv4 and {len(self.ipv6_ranges)} IPv6 ranges", level=1)
+                self._log(f"Loaded {len(self.china_ipv4_ranges)} China IPv4 and {len(self.china_ipv6_ranges)} China IPv6 ranges", level=1)
+                
+                # Create network objects
+                self._create_network_objects()
+                return True
+            except Exception as e:
+                self._log(f"Error loading from file: {e}")
+                return False
         
-        # Fetch Cloudflare IPs (both standard and China if requested)
+        # Fetch standard Cloudflare IPs
         try:
-            self.logger.debug(f"Requesting Cloudflare IPs from {api_url}")
-            response = requests.get(api_url)
+            self._log(f"Fetching standard IPs from {self.CF_API_URL}", level=1)
+            response = requests.get(self.CF_API_URL)
             response.raise_for_status()
-            
-            self.logger.debug(f"API Response status code: {response.status_code}")
-            
-            if self.verbose >= 2:
-                self.logger.debug(f"API Response headers: {dict(response.headers)}")
-                self.logger.debug(f"API Response body (partial): {response.text[:500]}...")
             
             data = response.json()
             
             if data.get('success'):
-                # Standard Cloudflare IPs
                 self.ipv4_ranges = data.get('result', {}).get('ipv4_cidrs', [])
                 self.ipv6_ranges = data.get('result', {}).get('ipv6_cidrs', [])
-                self.last_updated = datetime.now()
+                self.last_updated = datetime.now().isoformat()
                 
-                self.logger.info(f"Successfully fetched {len(self.ipv4_ranges)} IPv4 and {len(self.ipv6_ranges)} IPv6 ranges")
-                
-                if self.verbose >= 1:
-                    self.logger.info(f"IPv4 ranges: {', '.join(self.ipv4_ranges[:10])}" + 
-                                   (f" and {len(self.ipv4_ranges) - 10} more..." if len(self.ipv4_ranges) > 10 else ""))
-                    self.logger.info(f"IPv6 ranges: {', '.join(self.ipv6_ranges[:10])}" + 
-                                   (f" and {len(self.ipv6_ranges) - 10} more..." if len(self.ipv6_ranges) > 10 else ""))
-                
-                if self.verbose >= 2 and self.ipv4_ranges:
-                    self.logger.debug(f"All IPv4 ranges: {', '.join(self.ipv4_ranges)}")
-                if self.verbose >= 2 and self.ipv6_ranges:
-                    self.logger.debug(f"All IPv6 ranges: {', '.join(self.ipv6_ranges)}")
-                
-                # China (JDCloud) IPs if requested and available in response
-                if self.include_china:
-                    # JDCloud IPs are under the 'jdcloud_cidrs' key
-                    jdcloud_cidrs = data.get('result', {}).get('jdcloud_cidrs', [])
-                    
-                    # Separate IPv4 and IPv6 ranges from jdcloud_cidrs
-                    self.china_ipv4_ranges = []
-                    self.china_ipv6_ranges = []
-                    
-                    for cidr in jdcloud_cidrs:
-                        try:
-                            ip_network = ipaddress.ip_network(cidr)
-                            if ip_network.version == 4:
-                                self.china_ipv4_ranges.append(cidr)
-                            else:
-                                self.china_ipv6_ranges.append(cidr)
-                        except ValueError:
-                            self.logger.warning(f"Invalid JDCloud CIDR: {cidr}")
-                    
-                    if self.verbose >= 2:
-                        self.logger.debug(f"Raw JDCloud data: {jdcloud_cidrs}")
-                    
-                    self.logger.info(f"Successfully fetched {len(self.china_ipv4_ranges)} China IPv4 and {len(self.china_ipv6_ranges)} China IPv6 ranges")
-                    
-                    if self.verbose >= 1:
-                        self.logger.info(f"China IPv4 ranges: {', '.join(self.china_ipv4_ranges[:10])}" + 
-                                       (f" and {len(self.china_ipv4_ranges) - 10} more..." if len(self.china_ipv4_ranges) > 10 else ""))
-                        self.logger.info(f"China IPv6 ranges: {', '.join(self.china_ipv6_ranges[:10])}" + 
-                                       (f" and {len(self.china_ipv6_ranges) - 10} more..." if len(self.china_ipv6_ranges) > 10 else ""))
-                    
-                    if self.verbose >= 2 and self.china_ipv4_ranges:
-                        self.logger.debug(f"All China IPv4 ranges: {', '.join(self.china_ipv4_ranges)}")
-                    if self.verbose >= 2 and self.china_ipv6_ranges:
-                        self.logger.debug(f"All China IPv6 ranges: {', '.join(self.china_ipv6_ranges)}")
+                self._log(f"Fetched {len(self.ipv4_ranges)} standard IPv4 and {len(self.ipv6_ranges)} standard IPv6 ranges", level=1)
             else:
-                errors = data.get('errors', 'Unknown error')
-                self.logger.error(f"Error fetching Cloudflare IPs: {errors}")
-                success = False
+                self._log(f"Error fetching standard IPs: {data.get('errors', 'Unknown error')}")
+                return False
                 
-        except requests.RequestException as e:
-            self.logger.error(f"Error fetching Cloudflare IPs: {e}")
-            success = False
+        except Exception as e:
+            self._log(f"Error fetching standard IPs: {e}")
+            return False
         
-        # Create IP network objects for faster lookups
+        # Fetch China IPs from all specified colos
+        if self.china_colos:
+            china_ipv4_set = set()  # Use sets to automatically deduplicate
+            china_ipv6_set = set()
+            
+            for colo in self.china_colos:
+                try:
+                    china_api_url = f"{self.CF_API_URL}?china_colo={colo}"
+                    self._log(f"Fetching China IPs (colo={colo}) from {china_api_url}", level=1)
+                    
+                    response = requests.get(china_api_url)
+                    response.raise_for_status()
+                    
+                    data = response.json()
+                    
+                    if data.get('success'):
+                        jdcloud_cidrs = data.get('result', {}).get('jdcloud_cidrs', [])
+                        
+                        # Count new ranges for this colo
+                        new_ipv4 = 0
+                        new_ipv6 = 0
+                        
+                        # Parse and add to appropriate sets
+                        for cidr in jdcloud_cidrs:
+                            try:
+                                ip_network = ipaddress.ip_network(cidr)
+                                if ip_network.version == 4:
+                                    if cidr not in china_ipv4_set:
+                                        china_ipv4_set.add(cidr)
+                                        new_ipv4 += 1
+                                else:
+                                    if cidr not in china_ipv6_set:
+                                        china_ipv6_set.add(cidr)
+                                        new_ipv6 += 1
+                            except ValueError:
+                                self._log(f"Invalid CIDR: {cidr}", level=1)
+                        
+                        self._log(f"Colo {colo}: Added {new_ipv4} new IPv4 and {new_ipv6} new IPv6 ranges", level=1)
+                    else:
+                        self._log(f"Warning fetching China IPs (colo={colo}): {data.get('errors', 'Unknown error')}", level=1)
+                        
+                except Exception as e:
+                    self._log(f"Warning fetching China IPs (colo={colo}): {e}", level=1)
+            
+            # Convert sets to sorted lists
+            self.china_ipv4_ranges = sorted(list(china_ipv4_set))
+            self.china_ipv6_ranges = sorted(list(china_ipv6_set))
+            
+            self._log(f"Fetched a total of {len(self.china_ipv4_ranges)} unique China IPv4 and "
+                      f"{len(self.china_ipv6_ranges)} unique China IPv6 ranges from {len(self.china_colos)} colos", level=1)
+        
+        # Create network objects for lookups
         self._create_network_objects()
-            
-        return success
+        
+        # Save to file if requested
+        if self.ip_file:
+            try:
+                data = {
+                    'ipv4_cidrs': self.ipv4_ranges,
+                    'ipv6_cidrs': self.ipv6_ranges,
+                    'china_ipv4_cidrs': self.china_ipv4_ranges,
+                    'china_ipv6_cidrs': self.china_ipv6_ranges,
+                    'last_updated': self.last_updated
+                }
+                
+                with open(self.ip_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+                
+                self._log(f"Saved IP ranges to {self.ip_file}", level=1)
+            except Exception as e:
+                self._log(f"Error saving to file: {e}")
+        
+        return True
     
-    def is_cloudflare_ip(self, ip, include_china=None):
+    def _create_network_objects(self):
+        """Create IP network objects for faster lookups"""
+        self.ipv4_networks = [ipaddress.IPv4Network(cidr) for cidr in self.ipv4_ranges]
+        self.ipv6_networks = [ipaddress.IPv6Network(cidr) for cidr in self.ipv6_ranges]
+        self.china_ipv4_networks = [ipaddress.IPv4Network(cidr) for cidr in self.china_ipv4_ranges]
+        self.china_ipv6_networks = [ipaddress.IPv6Network(cidr) for cidr in self.china_ipv6_ranges]
+    
+    def is_cloudflare_ip(self, ip, include_china=True):
         """
-        Check if an IP address belongs to Cloudflare
+        Check if an IP belongs to Cloudflare
         
         Args:
             ip (str): IP address to check
-            include_china (bool, optional): Whether to check China IPs as well.
-                                           Defaults to the class's include_china setting.
+            include_china (bool): Whether to include China networks
             
         Returns:
-            bool: True if the IP belongs to Cloudflare, False otherwise
+            tuple: (is_cf_ip, is_china_ip, matching_range)
         """
-        if include_china is None:
-            include_china = self.include_china
-        
-        self.logger.info(f"Checking if {ip} is a Cloudflare IP (include_china={include_china})")
-            
         try:
-            # Convert string to IP address object
             ip_obj = ipaddress.ip_address(ip)
-            ip_version = "IPv4" if ip_obj.version == 4 else "IPv6"
-            self.logger.debug(f"IP {ip} parsed as {ip_version}")
+            is_china = False
+            matching_range = None
             
-            # Display IP ranges for verbose mode (even at level 1)
-            if self.verbose >= 1:
+            # Check China networks first if included
+            if include_china:
                 if ip_obj.version == 4:
-                    self.logger.info(f"Standard Cloudflare IPv4 ranges to check against: " + 
-                                   f"{', '.join(self.ipv4_ranges[:5])}" + 
-                                   (f" and {len(self.ipv4_ranges) - 5} more..." if len(self.ipv4_ranges) > 5 else ""))
-                    
-                    if include_china:
-                        self.logger.info(f"China IPv4 ranges to check against: " + 
-                                       f"{', '.join(self.china_ipv4_ranges[:5])}" + 
-                                       (f" and {len(self.china_ipv4_ranges) - 5} more..." if len(self.china_ipv4_ranges) > 5 else ""))
-                else:  # IPv6
-                    self.logger.info(f"Standard Cloudflare IPv6 ranges to check against: " + 
-                                   f"{', '.join(self.ipv6_ranges[:5])}" + 
-                                   (f" and {len(self.ipv6_ranges) - 5} more..." if len(self.ipv6_ranges) > 5 else ""))
-                    
-                    if include_china:
-                        self.logger.info(f"China IPv6 ranges to check against: " + 
-                                       f"{', '.join(self.china_ipv6_ranges[:5])}" + 
-                                       (f" and {len(self.china_ipv6_ranges) - 5} more..." if len(self.china_ipv6_ranges) > 5 else ""))
-            
-            # Show more details in verbose mode
-            if self.verbose >= 2:
-                if ip_obj.version == 4:
-                    self.logger.debug(f"Will check against {len(self.ipv4_cidrs)} standard Cloudflare {ip_version} ranges")
-                    if include_china:
-                        self.logger.debug(f"Will also check against {len(self.china_ipv4_cidrs)} China {ip_version} ranges")
-                else:  # IPv6
-                    self.logger.debug(f"Will check against {len(self.ipv6_cidrs)} standard Cloudflare {ip_version} ranges")
-                    if include_china:
-                        self.logger.debug(f"Will also check against {len(self.china_ipv6_cidrs)} China {ip_version} ranges")
-                
-                # In extra verbose mode, list all ranges we'll check against
-                if self.verbose >= 3:
-                    if ip_obj.version == 4:
-                        self.logger.debug(f"All standard {ip_version} ranges to check: {self.ipv4_ranges}")
-                        if include_china:
-                            self.logger.debug(f"All China {ip_version} ranges to check: {self.china_ipv4_ranges}")
-                    else:  # IPv6
-                        self.logger.debug(f"All standard {ip_version} ranges to check: {self.ipv6_ranges}")
-                        if include_china:
-                            self.logger.debug(f"All China {ip_version} ranges to check: {self.china_ipv6_ranges}")
-            
-            # Check if IPv4 or IPv6 in standard Cloudflare ranges
-            if ip_obj.version == 4:
-                checked_count = 0
-                total_ranges = len(self.ipv4_cidrs)
-                self.logger.debug(f"Starting check against {total_ranges} standard Cloudflare IPv4 ranges")
-                
-                for i, network in enumerate(self.ipv4_cidrs):
-                    checked_count += 1
-                    if self.verbose >= 2 and checked_count % 10 == 0:
-                        self.logger.debug(f"Checked {checked_count}/{total_ranges} IPv4 ranges...")
-                        
-                    if ip_obj in network:
-                        self.logger.info(f"IP {ip} FOUND in Cloudflare IPv4 range: {self.ipv4_ranges[i]}")
-                        return True
-                
-                self.logger.debug(f"IP {ip} NOT found in any of the {total_ranges} standard Cloudflare IPv4 ranges")
-                        
-                # Check China IPs if requested
-                if include_china:
-                    checked_count = 0
-                    total_china_ranges = len(self.china_ipv4_cidrs)
-                    self.logger.debug(f"Starting check against {total_china_ranges} China IPv4 ranges")
-                    
-                    for i, network in enumerate(self.china_ipv4_cidrs):
-                        checked_count += 1
-                        if self.verbose >= 2 and checked_count % 10 == 0:
-                            self.logger.debug(f"Checked {checked_count}/{total_china_ranges} China IPv4 ranges...")
-                            
+                    for network in self.china_ipv4_networks:
                         if ip_obj in network:
-                            self.logger.info(f"IP {ip} FOUND in Cloudflare China IPv4 range: {self.china_ipv4_ranges[i]}")
-                            return True
-                            
-                    self.logger.debug(f"IP {ip} NOT found in any of the {total_china_ranges} China IPv4 ranges")
-            else:  # IPv6
-                checked_count = 0
-                total_ranges = len(self.ipv6_cidrs)
-                self.logger.debug(f"Starting check against {total_ranges} standard Cloudflare IPv6 ranges")
-                
-                for i, network in enumerate(self.ipv6_cidrs):
-                    checked_count += 1
-                    if self.verbose >= 2 and checked_count % 10 == 0:
-                        self.logger.debug(f"Checked {checked_count}/{total_ranges} IPv6 ranges...")
-                        
-                    if ip_obj in network:
-                        self.logger.info(f"IP {ip} FOUND in Cloudflare IPv6 range: {self.ipv6_ranges[i]}")
-                        return True
-                        
-                self.logger.debug(f"IP {ip} NOT found in any of the {total_ranges} standard Cloudflare IPv6 ranges")
-                
-                # Check China IPs if requested
-                if include_china:
-                    checked_count = 0
-                    total_china_ranges = len(self.china_ipv6_cidrs)
-                    self.logger.debug(f"Starting check against {total_china_ranges} China IPv6 ranges")
-                    
-                    for i, network in enumerate(self.china_ipv6_cidrs):
-                        checked_count += 1
-                        if self.verbose >= 2 and checked_count % 10 == 0:
-                            self.logger.debug(f"Checked {checked_count}/{total_china_ranges} China IPv6 ranges...")
-                            
+                            is_china = True
+                            matching_range = str(network)
+                            return True, True, matching_range
+                else:  # IPv6
+                    for network in self.china_ipv6_networks:
                         if ip_obj in network:
-                            self.logger.info(f"IP {ip} FOUND in Cloudflare China IPv6 range: {self.china_ipv6_ranges[i]}")
-                            return True
-                            
-                    self.logger.debug(f"IP {ip} NOT found in any of the {total_china_ranges} China IPv6 ranges")
+                            is_china = True
+                            matching_range = str(network)
+                            return True, True, matching_range
             
-            self.logger.info(f"IP {ip} is NOT found in any Cloudflare range")          
-            return False
-        except ValueError:
-            # Invalid IP address
-            self.logger.warning(f"Invalid IP address: {ip}")
-            return False
-            
-    def is_cloudflare_china_ip(self, ip):
-        """
-        Check if an IP address belongs to Cloudflare's China network (JDCloud)
-        
-        Args:
-            ip (str): IP address to check
-            
-        Returns:
-            bool: True if the IP belongs to Cloudflare's China network, False otherwise
-        """
-        self.logger.info(f"Checking if {ip} is a Cloudflare China (JDCloud) IP")
-        
-        try:
-            # Convert string to IP address object
-            ip_obj = ipaddress.ip_address(ip)
-            ip_version = "IPv4" if ip_obj.version == 4 else "IPv6"
-            self.logger.debug(f"IP {ip} parsed as {ip_version}")
-            
-            # Display the China IP ranges we're checking against at verbosity level 1
-            if self.verbose >= 1:
-                if ip_obj.version == 4:
-                    # Display all China IPv4 ranges at verbosity level 1
-                    self.logger.info(f"China IPv4 ranges to check against ({len(self.china_ipv4_ranges)} total):")
-                    for i, cidr in enumerate(self.china_ipv4_ranges):
-                        self.logger.info(f"  {i+1}. {cidr}")
-                else:  # IPv6
-                    # Display all China IPv6 ranges at verbosity level 1
-                    self.logger.info(f"China IPv6 ranges to check against ({len(self.china_ipv6_ranges)} total):")
-                    for i, cidr in enumerate(self.china_ipv6_ranges):
-                        self.logger.info(f"  {i+1}. {cidr}")
-            
-            # Show more details in verbose mode
-            if self.verbose >= 2:
-                if ip_obj.version == 4:
-                    self.logger.debug(f"Will check against {len(self.china_ipv4_cidrs)} China {ip_version} ranges")
-                else:  # IPv6
-                    self.logger.debug(f"Will check against {len(self.china_ipv6_cidrs)} China {ip_version} ranges")
-            
-            # Check if IPv4 or IPv6
+            # Check standard Cloudflare networks
             if ip_obj.version == 4:
-                checked_count = 0
-                total_ranges = len(self.china_ipv4_cidrs)
-                self.logger.debug(f"Starting check against {total_ranges} China IPv4 ranges")
-                
-                for i, network in enumerate(self.china_ipv4_cidrs):
-                    checked_count += 1
-                    if self.verbose >= 2 and checked_count % 10 == 0:
-                        self.logger.debug(f"Checked {checked_count}/{total_ranges} China IPv4 ranges...")
-                        
+                for network in self.ipv4_networks:
                     if ip_obj in network:
-                        self.logger.info(f"IP {ip} FOUND in Cloudflare China IPv4 range: {self.china_ipv4_ranges[i]}")
-                        return True
-                        
-                self.logger.debug(f"IP {ip} NOT found in any of the {total_ranges} China IPv4 ranges")
+                        matching_range = str(network)
+                        return True, False, matching_range
             else:  # IPv6
-                checked_count = 0
-                total_ranges = len(self.china_ipv6_cidrs)
-                self.logger.debug(f"Starting check against {total_ranges} China IPv6 ranges")
-                
-                for i, network in enumerate(self.china_ipv6_cidrs):
-                    checked_count += 1
-                    if self.verbose >= 2 and checked_count % 10 == 0:
-                        self.logger.debug(f"Checked {checked_count}/{total_ranges} China IPv6 ranges...")
-                        
+                for network in self.ipv6_networks:
                     if ip_obj in network:
-                        self.logger.info(f"IP {ip} FOUND in Cloudflare China IPv6 range: {self.china_ipv6_ranges[i]}")
-                        return True
-                        
-                self.logger.debug(f"IP {ip} NOT found in any of the {total_ranges} China IPv6 ranges")
+                        matching_range = str(network)
+                        return True, False, matching_range
             
-            self.logger.info(f"IP {ip} is NOT found in any Cloudflare China range")            
-            return False
+            return False, False, None
+            
         except ValueError:
-            # Invalid IP address
-            self.logger.warning(f"Invalid IP address: {ip}")
-            return False
+            self._log(f"Invalid IP address: {ip}")
+            return False, False, None
     
-    def get_ipv4_ranges(self, include_china=None):
-        """
-        Get the list of IPv4 ranges belonging to Cloudflare
+    def get_ip_counts(self):
+        """Get counts of all IP ranges"""
+        ipv4_count = sum(network.num_addresses for network in self.ipv4_networks)
+        ipv6_count = len(self.ipv6_networks)  # IPv6 is too large to count addresses
         
-        Args:
-            include_china (bool, optional): Whether to include China IPs.
-                                           Defaults to the class's include_china setting.
-        """
-        if include_china is None:
-            include_china = self.include_china
+        china_ipv4_count = sum(network.num_addresses for network in self.china_ipv4_networks) 
+        china_ipv6_count = len(self.china_ipv6_networks)
         
-        self.logger.debug(f"Getting IPv4 ranges (include_china={include_china})")
-            
-        if include_china:
-            self.logger.debug(f"Returning {len(self.ipv4_ranges) + len(self.china_ipv4_ranges)} IPv4 ranges (including China)")
-            return self.ipv4_ranges + self.china_ipv4_ranges
-        else:
-            self.logger.debug(f"Returning {len(self.ipv4_ranges)} IPv4 ranges (excluding China)")
-            return self.ipv4_ranges
-    
-    def get_ipv6_ranges(self, include_china=None):
-        """
-        Get the list of IPv6 ranges belonging to Cloudflare
-        
-        Args:
-            include_china (bool, optional): Whether to include China IPs.
-                                           Defaults to the class's include_china setting.
-        """
-        if include_china is None:
-            include_china = self.include_china
-        
-        self.logger.debug(f"Getting IPv6 ranges (include_china={include_china})")
-            
-        if include_china:
-            self.logger.debug(f"Returning {len(self.ipv6_ranges) + len(self.china_ipv6_ranges)} IPv6 ranges (including China)")
-            return self.ipv6_ranges + self.china_ipv6_ranges
-        else:
-            self.logger.debug(f"Returning {len(self.ipv6_ranges)} IPv6 ranges (excluding China)")
-            return self.ipv6_ranges
-    
-    def get_all_ranges(self, include_china=None):
-        """
-        Get all IP ranges (both IPv4 and IPv6) belonging to Cloudflare
-        
-        Args:
-            include_china (bool, optional): Whether to include China IPs.
-                                           Defaults to the class's include_china setting.
-        """
-        if include_china is None:
-            include_china = self.include_china
-        
-        self.logger.debug(f"Getting all IP ranges (include_china={include_china})")
-            
-        result = {
-            'ipv4': self.ipv4_ranges,
-            'ipv6': self.ipv6_ranges
+        return {
+            'ipv4_count': ipv4_count,
+            'ipv6_count': ipv6_count,
+            'china_ipv4_count': china_ipv4_count,
+            'china_ipv6_count': china_ipv6_count,
+            'total_ipv4_count': ipv4_count + china_ipv4_count,
+            'total_ipv6_count': ipv6_count + china_ipv6_count
         }
-        
-        if include_china:
-            self.logger.debug("Including China IP ranges in result")
-            result.update({
-                'china_ipv4': self.china_ipv4_ranges,
-                'china_ipv6': self.china_ipv6_ranges
-            })
-            
-        return result
     
-    def get_last_updated(self):
-        """Get the timestamp when the IP ranges were last updated"""
-        return self.last_updated
-        
-    def count_ips(self, include_china=None):
-        """
-        Count the total number of IPs in Cloudflare's network
-        
-        Args:
-            include_china (bool, optional): Whether to include China IPs.
-                                           Defaults to the class's include_china setting.
-        
-        Returns:
-            dict: A dictionary with the counts for IPv4 and IPv6 addresses
-        """
-        if include_china is None:
-            include_china = self.include_china
-            
-        self.logger.debug(f"Counting IPs (include_china={include_china})")
-        
-        ipv4_count = sum(network.num_addresses for network in self.ipv4_cidrs)
-        ipv6_networks = len(self.ipv6_cidrs)
-        
-        self.logger.debug(f"Standard network: {ipv4_count} IPv4 addresses, {ipv6_networks} IPv6 networks")
-        
-        if include_china:
-            china_ipv4_count = sum(network.num_addresses for network in self.china_ipv4_cidrs)
-            china_ipv6_networks = len(self.china_ipv6_cidrs)
-            
-            self.logger.debug(f"China network: {china_ipv4_count} IPv4 addresses, {china_ipv6_networks} IPv6 networks")
-            
-            return {
-                'ipv4_count': ipv4_count,
-                'ipv6_networks': ipv6_networks,
-                'china_ipv4_count': china_ipv4_count,
-                'china_ipv6_networks': china_ipv6_networks,
-                'total_ipv4_count': ipv4_count + china_ipv4_count,
-                'total_ipv6_networks': ipv6_networks + china_ipv6_networks
+    def save_all_ranges_to_file(self, filename):
+        """Save all ranges to a JSON file"""
+        try:
+            data = {
+                'ipv4_cidrs': self.ipv4_ranges,
+                'ipv6_cidrs': self.ipv6_ranges,
+                'china_ipv4_cidrs': self.china_ipv4_ranges,
+                'china_ipv6_cidrs': self.china_ipv6_ranges,
+                'last_updated': self.last_updated
             }
-        else:
-            return {
-                'ipv4_count': ipv4_count,
-                'ipv6_networks': ipv6_networks
-            }
+            
+            with open(filename, 'w') as f:
+                json.dump(data, f, indent=2)
+            
+            return True
+        except Exception as e:
+            self._log(f"Error saving to file: {e}")
+            return False
 
+def compare_china_colos():
+    """Compare the different China colo IP ranges"""
+    # Create separate instances for each colo for comparison
+    all_colos = ["jdc", "1", "2"] 
+    colo_instances = {}
+    combined_ipv4 = set()
+    combined_ipv6 = set()
+    
+    print("\nComparing Cloudflare China IPs from different colo options...\n")
+    
+    # Create instances for each colo
+    for colo in all_colos:
+        print(f"Fetching IPs for colo={colo}...")
+        colo_instances[colo] = CloudflareIPs(verbose=False, china_colos=[colo])
+        
+        # Add to combined sets
+        combined_ipv4.update(colo_instances[colo].china_ipv4_ranges)
+        combined_ipv6.update(colo_instances[colo].china_ipv6_ranges)
+    
+    # Print comparison table
+    print("\nCloudflare China Colo IP Range Comparison:\n")
+    print(f"{'Colo':<6} | {'IPv4 Ranges':<12} | {'IPv6 Ranges':<12}")
+    print("-" * 35)
+    
+    for colo in all_colos:
+        ipv4_count = len(colo_instances[colo].china_ipv4_ranges)
+        ipv6_count = len(colo_instances[colo].china_ipv6_ranges)
+        print(f"{colo:<6} | {ipv4_count:<12} | {ipv6_count:<12}")
+    
+    # Print combined stats
+    print("-" * 35)
+    print(f"{'TOTAL':<6} | {len(combined_ipv4):<12} | {len(combined_ipv6):<12}")
+    
+    # Compare IP sets
+    print("\nIP Range Overlap Analysis:\n")
+    
+    # IPv4 Analysis
+    print("IPv4 Range Overlap:")
+    for i, colo1 in enumerate(all_colos):
+        for j, colo2 in enumerate(all_colos):
+            if i >= j:
+                continue  # Skip comparing a colo with itself or duplicating comparisons
+            
+            colo1_ips = set(colo_instances[colo1].china_ipv4_ranges)
+            colo2_ips = set(colo_instances[colo2].china_ipv4_ranges)
+            
+            common = colo1_ips.intersection(colo2_ips)
+            only_in_colo1 = colo1_ips - colo2_ips
+            only_in_colo2 = colo2_ips - colo1_ips
+            
+            print(f"  {colo1} vs {colo2}:")
+            print(f"    Common: {len(common)} ranges")
+            print(f"    Only in {colo1}: {len(only_in_colo1)} ranges")
+            print(f"    Only in {colo2}: {len(only_in_colo2)} ranges")
+    
+    # IPv6 Analysis
+    print("\nIPv6 Range Overlap:")
+    for i, colo1 in enumerate(all_colos):
+        for j, colo2 in enumerate(all_colos):
+            if i >= j:
+                continue  # Skip comparing a colo with itself or duplicating comparisons
+            
+            colo1_ips = set(colo_instances[colo1].china_ipv6_ranges)
+            colo2_ips = set(colo_instances[colo2].china_ipv6_ranges)
+            
+            common = colo1_ips.intersection(colo2_ips)
+            only_in_colo1 = colo1_ips - colo2_ips
+            only_in_colo2 = colo2_ips - colo1_ips
+            
+            print(f"  {colo1} vs {colo2}:")
+            print(f"    Common: {len(common)} ranges")
+            print(f"    Only in {colo1}: {len(only_in_colo1)} ranges")
+            print(f"    Only in {colo2}: {len(only_in_colo2)} ranges")
+    
+    return
+
+def check_ip(ip, no_china=False, verbose=False, china_colos=None, ip_file=None):
+    """Check if an IP belongs to Cloudflare"""
+    cf = CloudflareIPs(verbose=verbose, china_colos=china_colos, ip_file=ip_file)
+    
+    is_cf, is_china, matching_range = cf.is_cloudflare_ip(ip, include_china=not no_china)
+    
+    if is_cf:
+        if is_china:
+            print(f"{ip} is a Cloudflare China IP")
+            if matching_range:
+                print(f"Matching range: {matching_range}")
+        else:
+            print(f"{ip} is a Cloudflare IP")
+            if matching_range:
+                print(f"Matching range: {matching_range}")
+    else:
+        print(f"{ip} is NOT a Cloudflare IP")
+    
+    return is_cf
+
+def list_ranges(only_ipv4=False, only_ipv6=False, no_china=False, only_china=False, 
+               verbose=False, china_colos=None, ip_file=None):
+    """List IP ranges from Cloudflare"""
+    cf = CloudflareIPs(verbose=verbose, china_colos=china_colos, ip_file=ip_file)
+    
+    if not only_china and (only_ipv4 or not (only_ipv4 or only_ipv6)):
+        print("Cloudflare IPv4 ranges:")
+        for cidr in cf.ipv4_ranges:
+            print(f"  {cidr}")
+    
+    if not only_china and (only_ipv6 or not (only_ipv4 or only_ipv6)):
+        print("\nCloudflare IPv6 ranges:")
+        for cidr in cf.ipv6_ranges:
+            print(f"  {cidr}")
+    
+    if not no_china and (only_ipv4 or not (only_ipv4 or only_ipv6)):
+        print("\nCloudflare China IPv4 ranges:")
+        for cidr in cf.china_ipv4_ranges:
+            print(f"  {cidr}")
+    
+    if not no_china and (only_ipv6 or not (only_ipv4 or only_ipv6)):
+        print("\nCloudflare China IPv6 ranges:")
+        for cidr in cf.china_ipv6_ranges:
+            print(f"  {cidr}")
+    
+    print(f"\nLast updated: {cf.last_updated}")
+    
+    return
+
+def count_ips(no_china=False, verbose=False, china_colos=None, ip_file=None):
+    """Count the number of IPs in the Cloudflare network"""
+    cf = CloudflareIPs(verbose=verbose, china_colos=china_colos, ip_file=ip_file)
+    counts = cf.get_ip_counts()
+    
+    print("\nCloudflare IP Counts:\n")
+    
+    print(f"Standard Cloudflare network:")
+    print(f"  IPv4: {counts['ipv4_count']:,} addresses in {len(cf.ipv4_ranges)} ranges")
+    print(f"  IPv6: {counts['ipv6_count']} networks")
+    
+    if not no_china:
+        print(f"\nChina (JDCloud) network:")
+        print(f"  IPv4: {counts['china_ipv4_count']:,} addresses in {len(cf.china_ipv4_ranges)} ranges")
+        print(f"  IPv6: {counts['china_ipv6_count']} networks")
+        
+        print(f"\nTotal (Standard + China):")
+        print(f"  IPv4: {counts['total_ipv4_count']:,} addresses")
+        print(f"  IPv6: {counts['total_ipv6_count']} networks")
 
 def main():
-    """Main function to run from command line"""
-    # Configure argument parser
-    parser = argparse.ArgumentParser(description='Work with Cloudflare IP ranges')
+    """Main entry point for the command-line tool"""
+    parser = argparse.ArgumentParser(description='Cloudflare IP Ranges Tool')
     
-    # Add global options
-    parser.add_argument('-v', '--verbose', action='count', default=0, 
-                        help='Increase verbosity (can be used multiple times, e.g. -vvv for extra verbose output)')
+    # Global options
+    parser.add_argument('-v', '--verbose', action='store_true',
+                      help='Verbose output')
+    parser.add_argument('--china-colos', type=str, default="jdc,1,2",
+                      help='Comma-separated list of China colos to fetch. Options: jdc,1,2. Default: all')
+    parser.add_argument('--ip-file', type=str, 
+                      help='Load/save IP data from/to this JSON file')
     
     # Create subparsers for different commands
     subparsers = parser.add_subparsers(dest='command', help='Command to run')
@@ -534,118 +436,51 @@ def main():
     # Check command
     check_parser = subparsers.add_parser('check', help='Check if an IP belongs to Cloudflare')
     check_parser.add_argument('ip', help='IP address to check')
-    check_parser.add_argument('--no-china', action='store_true', help='Exclude China network from check')
-    check_parser.add_argument('--china-only', action='store_true', help='Check only against China network')
+    check_parser.add_argument('--no-china', action='store_true', 
+                            help='Exclude China network from check')
     
     # List command
     list_parser = subparsers.add_parser('list', help='List Cloudflare IP ranges')
-    list_parser.add_argument('--ipv4', action='store_true', help='List only IPv4 ranges')
-    list_parser.add_argument('--ipv6', action='store_true', help='List only IPv6 ranges')
-    list_parser.add_argument('--no-china', action='store_true', help='Exclude China network')
-    list_parser.add_argument('--china-only', action='store_true', help='List only China network IPs')
+    list_parser.add_argument('--ipv4', action='store_true', 
+                           help='List only IPv4 ranges')
+    list_parser.add_argument('--ipv6', action='store_true', 
+                           help='List only IPv6 ranges')
+    list_parser.add_argument('--no-china', action='store_true', 
+                           help='Exclude China network')
+    list_parser.add_argument('--china-only', action='store_true', 
+                           help='List only China network IPs')
     
     # Count command
     count_parser = subparsers.add_parser('count', help='Count the number of IPs in Cloudflare\'s network')
-    count_parser.add_argument('--no-china', action='store_true', help='Exclude China network')
+    count_parser.add_argument('--no-china', action='store_true', 
+                            help='Exclude China network')
+    
+    # Compare command
+    subparsers.add_parser('compare', help='Compare IP ranges from different China colos')
     
     # Parse arguments
     args = parser.parse_args()
     
-    # Set up CLI logger (separate from the library logger)
-    cli_logger = logging.getLogger("CloudflareIPs.cli")
-    
-    # Configure handler for CLI logger
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    cli_logger.addHandler(handler)
-    cli_logger.propagate = False  # Prevent double logging
-    
-    # Set log level based on verbosity
-    if args.verbose == 0:
-        cli_logger.setLevel(logging.WARNING)
-    elif args.verbose == 1:
-        cli_logger.setLevel(logging.INFO)
-    else:  # args.verbose >= 2
-        cli_logger.setLevel(logging.DEBUG)
-    
-    cli_logger.debug(f"CLI initialized with verbosity level {args.verbose}")
-    
-    # Initialize CloudflareIPs
-    include_china = True
-    if hasattr(args, 'no_china') and args.no_china:
-        include_china = False
-    
-    cli_logger.debug(f"Initializing CloudflareIPs (include_china={include_china}, verbose={args.verbose})")
-    cf_ips = CloudflareIPs(include_china=include_china, verbose=args.verbose)
+    # Convert china_colos string to list
+    china_colos = [colo.strip() for colo in args.china_colos.split(',')]
     
     if args.command == 'check':
-        cli_logger.debug(f"Running 'check' command for IP: {args.ip}")
+        check_ip(args.ip, no_china=args.no_china, verbose=args.verbose, 
+                china_colos=china_colos, ip_file=args.ip_file)
         
-        if hasattr(args, 'china_only') and args.china_only:
-            cli_logger.info(f"Checking if {args.ip} is a Cloudflare China (JDCloud) IP...")
-            # Add information message about China Network
-            if args.verbose >= 1:
-                print("NOTE: Cloudflare's China Network operates through a partnership with JD Cloud")
-                print("      For more information: https://developers.cloudflare.com/china-network/reference/infrastructure/")
-                
-            result = cf_ips.is_cloudflare_china_ip(args.ip)
-            if result:
-                print(f"{args.ip} is a Cloudflare China (JDCloud) IP")
-            else:
-                print(f"{args.ip} is NOT a Cloudflare China (JDCloud) IP")
-        else:
-            cli_logger.info(f"Checking if {args.ip} is a Cloudflare IP (include_china={include_china})...")
-            result = cf_ips.is_cloudflare_ip(args.ip, include_china=include_china)
-            if result:
-                print(f"{args.ip} is a Cloudflare IP")
-            else:
-                print(f"{args.ip} is NOT a Cloudflare IP")
-    
     elif args.command == 'list':
-        cli_logger.debug(f"Running 'list' command")
+        list_ranges(only_ipv4=args.ipv4, only_ipv6=args.ipv6, 
+                  no_china=args.no_china, only_china=args.china_only, 
+                  verbose=args.verbose, china_colos=china_colos, ip_file=args.ip_file)
         
-        china_only = hasattr(args, 'china_only') and args.china_only
-        cli_logger.debug(f"List options: ipv4={args.ipv4}, ipv6={args.ipv6}, china_only={china_only}")
-        
-        if not china_only and (args.ipv4 or not (args.ipv4 or args.ipv6)):
-            print("Cloudflare IPv4 ranges:")
-            for cidr in cf_ips.ipv4_ranges:
-                print(cidr)
-                
-        if not china_only and (args.ipv6 or not (args.ipv4 or args.ipv6)):
-            print("Cloudflare IPv6 ranges:")
-            for cidr in cf_ips.ipv6_ranges:
-                print(cidr)
-        
-        if include_china or china_only:
-            if args.ipv4 or not (args.ipv4 or args.ipv6):
-                print("\nCloudflare China (JDCloud) IPv4 ranges:")
-                for cidr in cf_ips.china_ipv4_ranges:
-                    print(cidr)
-                    
-            if args.ipv6 or not (args.ipv4 or args.ipv6):
-                print("\nCloudflare China (JDCloud) IPv6 ranges:")
-                for cidr in cf_ips.china_ipv6_ranges:
-                    print(cidr)
-                
-        print(f"\nLast updated: {cf_ips.get_last_updated()}")
-    
     elif args.command == 'count':
-        cli_logger.debug(f"Running 'count' command")
+        count_ips(no_china=args.no_china, verbose=args.verbose, 
+                china_colos=china_colos, ip_file=args.ip_file)
         
-        counts = cf_ips.count_ips(include_china=include_china)
+    elif args.command == 'compare':
+        compare_china_colos()
         
-        if include_china:
-            print(f"Standard Cloudflare network: {counts['ipv4_count']} IPv4 addresses, {counts['ipv6_networks']} IPv6 networks")
-            print(f"China (JDCloud) network: {counts['china_ipv4_count']} IPv4 addresses, {counts['china_ipv6_networks']} IPv6 networks")
-            print(f"Total: {counts['total_ipv4_count']} IPv4 addresses, {counts['total_ipv6_networks']} IPv6 networks")
-        else:
-            print(f"Cloudflare has {counts['ipv4_count']} IPv4 addresses")
-            print(f"Cloudflare has {counts['ipv6_networks']} IPv6 networks")
-    
     else:
-        cli_logger.debug("No command specified, showing help")
         parser.print_help()
 
 if __name__ == "__main__":
