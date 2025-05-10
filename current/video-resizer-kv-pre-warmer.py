@@ -56,6 +56,8 @@ def parse_arguments():
     parser.add_argument('--retry', type=int, default=2, help='Number of retry attempts for failed requests')
     parser.add_argument('--compare', help='Path to Cloudflare KV JSON file for comparison')
     parser.add_argument('--comparison-output', default='comparison_results.json', help='Output file for comparison results')
+    parser.add_argument('--summary-output', default='comparison_summary.md', help='Output file for comparison summary')
+    parser.add_argument('--summary-format', default='markdown', choices=['markdown', 'json'], help='Format for the summary output (markdown or json)')
     parser.add_argument('--only-compare', action='store_true', help='Skip processing and only compare existing results with KV data')
     return parser.parse_args()
 
@@ -486,8 +488,8 @@ def compare_transformation_with_kv(transform_results, kv_data, logger):
     comparison_results = {
         'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"),
         'summary': {
-            'kv_keys': len(kv_keys),
-            'transform_keys': len(transform_results),
+            'keys_in_kv': len(kv_keys),
+            'keys_in_transform': len(transform_results),
             'matches': 0,
             'mismatches': 0,
             'only_in_kv': 0,
@@ -582,12 +584,12 @@ def print_comparison_summary(comparison_results, logger):
     logger.info("=" * 80)
     
     summary = comparison_results['summary']
-    total_keys = summary['kv_keys'] + summary['only_in_transform']
+    total_keys = summary['keys_in_kv'] + summary['only_in_transform']
     
     # Overall statistics
     logger.info(f"Total unique keys: {total_keys}")
-    logger.info(f"Keys in KV: {summary['kv_keys']}")
-    logger.info(f"Keys in transform results: {summary['transform_keys']}")
+    logger.info(f"Keys in KV: {summary['keys_in_kv']}")
+    logger.info(f"Keys in transform results: {summary['keys_in_transform']}")
     
     match_rate = (summary['matches'] / total_keys) * 100 if total_keys > 0 else 0
     logger.info(f"Matching keys: {summary['matches']} ({match_rate:.1f}%)")
@@ -653,6 +655,214 @@ def print_comparison_summary(comparison_results, logger):
     
     logger.info("=" * 80)
 
+def generate_markdown_summary(comparison_results, logger):
+    """Generate a detailed markdown summary of the comparison results."""
+    summary = comparison_results['summary']
+    total_keys = summary['keys_in_kv'] + summary['only_in_transform']
+    match_rate = (summary['matches'] / total_keys) * 100 if total_keys > 0 else 0
+    
+    # Calculate total sizes
+    total_size_kv = sum(m.get('kv_size', 0) for m in comparison_results.get('matches', []))
+    total_size_transform = sum(m.get('transform_size', 0) for m in comparison_results.get('matches', []))
+    
+    # Determine verification status
+    verification_status = "✅ SUCCESSFUL" if summary['mismatches'] == 0 and summary['only_in_kv'] == 0 else "❌ FAILED"
+    
+    # Format timestamp for the report
+    timestamp = comparison_results.get('timestamp', time.strftime("%Y-%m-%d %H:%M:%S"))
+    
+    # Build the markdown content
+    md = [
+        "# Video Asset Transformation Verification Report",
+        f"Generated: {timestamp}",
+        "",
+        f"## Verification Status: {verification_status}",
+        "",
+        "## Summary",
+        f"- **Total unique keys**: {total_keys}",
+        f"- **Keys in KV**: {summary['keys_in_kv']}",
+        f"- **Keys in transform results**: {summary['keys_in_transform']}",
+        f"- **Match rate**: {summary['matches']}/{total_keys} ({match_rate:.1f}%)",
+        "",
+        "## Size Verification",
+        f"- **Total size in KV**: {total_size_kv/1024/1024:.2f} MB",
+        f"- **Total size in transform results**: {total_size_transform/1024/1024:.2f} MB",
+        f"- **Size difference**: {(total_size_transform - total_size_kv)/1024/1024:.2f} MB ({(total_size_transform - total_size_kv)/total_size_kv*100 if total_size_kv > 0 else 0:.3f}%)",
+    ]
+    
+    # Add mismatch information if any exist
+    if summary['mismatches'] > 0:
+        md.extend([
+            "",
+            "## Mismatches",
+            f"**{summary['mismatches']} keys have size mismatches:**",
+            "",
+            "| Key | Transform Size (MB) | KV Size (MB) | Difference (%) |",
+            "| --- | ----------------- | ----------- | ------------- |"
+        ])
+        
+        # Add up to 10 mismatches
+        for i, mismatch in enumerate(comparison_results['mismatches'][:10]):
+            transform_size_mb = mismatch['transform_size'] / (1024 * 1024)
+            kv_size_mb = mismatch['kv_size'] / (1024 * 1024)
+            md.append(f"| {mismatch['key']} | {transform_size_mb:.2f} | {kv_size_mb:.2f} | {mismatch['size_diff_percent']:.2f} |")
+        
+        if len(comparison_results['mismatches']) > 10:
+            md.append(f"| ... and {len(comparison_results['mismatches']) - 10} more | | | |")
+    
+    # Add missing keys information
+    if summary['only_in_kv'] > 0:
+        md.extend([
+            "",
+            "## Keys Only in KV",
+            f"**{summary['only_in_kv']} keys exist only in KV:**",
+            "",
+            "| Key | KV Size (MB) |",
+            "| --- | ----------- |"
+        ])
+        
+        # Add up to 10 KV-only keys
+        for i, kv_only in enumerate(comparison_results['only_in_kv'][:10]):
+            kv_size_mb = kv_only['kv_size'] / (1024 * 1024)
+            md.append(f"| {kv_only['key']} | {kv_size_mb:.2f} |")
+        
+        if len(comparison_results['only_in_kv']) > 10:
+            md.append(f"| ... and {len(comparison_results['only_in_kv']) - 10} more | |")
+    
+    if summary['only_in_transform'] > 0:
+        md.extend([
+            "",
+            "## Keys Only in Transform Results",
+            f"**{summary['only_in_transform']} keys exist only in transform results:**",
+            "",
+            "| Key | Transform Size (MB) |",
+            "| --- | ------------------ |"
+        ])
+        
+        # Add up to 10 transform-only keys
+        for i, transform_only in enumerate(comparison_results['only_in_transform'][:10]):
+            transform_size_mb = transform_only['transform_size'] / (1024 * 1024)
+            md.append(f"| {transform_only['key']} | {transform_size_mb:.2f} |")
+        
+        if len(comparison_results['only_in_transform']) > 10:
+            md.append(f"| ... and {len(comparison_results['only_in_transform']) - 10} more | |")
+    
+    # Add verification conclusion
+    md.extend([
+        "",
+        "## Conclusion",
+    ])
+    
+    if verification_status == "✅ SUCCESSFUL":
+        md.append(f"All {summary['matches']} keys found in KV store match the transformation results exactly.")
+        if summary['only_in_transform'] > 0:
+            md.append(f"There are {summary['only_in_transform']} additional keys in transformation results that are not yet in KV.")
+    else:
+        if summary['mismatches'] > 0:
+            md.append(f"❌ {summary['mismatches']} keys have size mismatches between KV and transformation results.")
+        if summary['only_in_kv'] > 0:
+            md.append(f"❌ {summary['only_in_kv']} keys exist in KV but were not found in transformation results.")
+    
+    return "\n".join(md)
+
+def generate_json_summary(comparison_results):
+    """Generate a simplified JSON summary of the comparison results."""
+    summary = comparison_results['summary']
+    total_keys = summary['keys_in_kv'] + summary['only_in_transform']
+    match_rate = (summary['matches'] / total_keys) * 100 if total_keys > 0 else 0
+    
+    # Calculate total sizes
+    total_size_kv = sum(m.get('kv_size', 0) for m in comparison_results.get('matches', []))
+    total_size_transform = sum(m.get('transform_size', 0) for m in comparison_results.get('matches', []))
+    
+    # Determine verification status
+    verification_successful = summary['mismatches'] == 0 and summary['only_in_kv'] == 0
+    
+    # Create a simplified summary object
+    json_summary = {
+        "timestamp": comparison_results.get('timestamp', time.strftime("%Y-%m-%d %H:%M:%S")),
+        "verification_successful": verification_successful,
+        "summary": {
+            "total_unique_keys": total_keys,
+            "keys_in_kv": summary['keys_in_kv'],
+            "keys_in_transform": summary['keys_in_transform'],
+            "matching_keys": summary['matches'],
+            "match_rate_percent": round(match_rate, 2),
+            "mismatched_keys": summary['mismatches'],
+            "only_in_kv": summary['only_in_kv'],
+            "only_in_transform": summary['only_in_transform']
+        },
+        "size_verification": {
+            "total_size_kv_bytes": total_size_kv,
+            "total_size_kv_mb": round(total_size_kv/1024/1024, 2),
+            "total_size_transform_bytes": total_size_transform,
+            "total_size_transform_mb": round(total_size_transform/1024/1024, 2),
+            "size_difference_bytes": total_size_transform - total_size_kv,
+            "size_difference_mb": round((total_size_transform - total_size_kv)/1024/1024, 2),
+            "size_difference_percent": round((total_size_transform - total_size_kv)/total_size_kv*100 if total_size_kv > 0 else 0, 3)
+        },
+        "mismatch_examples": [],
+        "kv_only_examples": [],
+        "transform_only_examples": []
+    }
+    
+    # Add examples of mismatches (limited to 5)
+    if summary['mismatches'] > 0:
+        for mismatch in comparison_results['mismatches'][:5]:
+            json_summary["mismatch_examples"].append({
+                "key": mismatch['key'],
+                "transform_size_bytes": mismatch['transform_size'],
+                "transform_size_mb": round(mismatch['transform_size']/1024/1024, 2),
+                "kv_size_bytes": mismatch['kv_size'],
+                "kv_size_mb": round(mismatch['kv_size']/1024/1024, 2),
+                "difference_percent": round(mismatch['size_diff_percent'], 2)
+            })
+    
+    # Add examples of keys only in KV (limited to 5)
+    if summary['only_in_kv'] > 0:
+        for kv_only in comparison_results['only_in_kv'][:5]:
+            json_summary["kv_only_examples"].append({
+                "key": kv_only['key'],
+                "kv_size_bytes": kv_only['kv_size'],
+                "kv_size_mb": round(kv_only['kv_size']/1024/1024, 2)
+            })
+    
+    # Add examples of keys only in transform results (limited to 5)
+    if summary['only_in_transform'] > 0:
+        for transform_only in comparison_results['only_in_transform'][:5]:
+            json_summary["transform_only_examples"].append({
+                "key": transform_only['key'],
+                "transform_size_bytes": transform_only['transform_size'],
+                "transform_size_mb": round(transform_only['transform_size']/1024/1024, 2)
+            })
+    
+    return json_summary
+
+def save_summary(comparison_results, output_path, format_type, logger):
+    """Save the comparison summary in the specified format."""
+    try:
+        if format_type == 'markdown':
+            content = generate_markdown_summary(comparison_results, logger)
+        else:  # json
+            content = generate_json_summary(comparison_results)
+            
+        # Create the output directory if it doesn't exist
+        os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else '.', exist_ok=True)
+            
+        # Write to file
+        if format_type == 'markdown':
+            with open(output_path, 'w') as f:
+                f.write(content)
+        else:  # json
+            with open(output_path, 'w') as f:
+                json.dump(content, f, indent=2)
+                
+        logger.info(f"Saved {format_type} summary to {output_path}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save summary: {str(e)}")
+        return False
+
 def main():
     """Main function."""
     args = parse_arguments()
@@ -695,6 +905,10 @@ def main():
             json.dump(comparison_results, f, indent=2)
         
         logger.info(f"Comparison results saved to {args.comparison_output}")
+        
+        # Generate and save summary in requested format
+        save_summary(comparison_results, args.summary_output, args.summary_format, logger)
+        
         return
     
     derivatives = [d.strip() for d in args.derivatives.split(',')]
@@ -814,6 +1028,9 @@ def main():
                     json.dump(comparison_results, f, indent=2)
                 
                 logger.info(f"Comparison results saved to {args.comparison_output}")
+                
+                # Generate and save summary in requested format
+                save_summary(comparison_results, args.summary_output, args.summary_format, logger)
             else:
                 logger.error("Failed to load KV data for comparison")
         
