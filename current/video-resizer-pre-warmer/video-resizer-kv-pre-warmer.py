@@ -49,6 +49,7 @@ def parse_arguments():
     parser.add_argument('--derivatives', default='desktop,tablet,mobile', help='Comma-separated list of derivatives')
     parser.add_argument('--workers', type=int, default=5, help='Number of concurrent workers')
     parser.add_argument('--timeout', type=int, default=120, help='Request timeout in seconds')
+    parser.add_argument('--connection-close-delay', type=int, default=10, help='Additional delay in seconds before closing connections')
     parser.add_argument('--output', default='video_transform_results.json', help='Output JSON file path')
     parser.add_argument('--limit', type=int, default=0, help='Limit number of objects to process (0 = no limit)')
     parser.add_argument('--extension', default='.mp4', help='File extension to filter by (e.g., .mp4)')
@@ -59,28 +60,60 @@ def parse_arguments():
     parser.add_argument('--summary-output', default='comparison_summary.md', help='Output file for comparison summary')
     parser.add_argument('--summary-format', default='markdown', choices=['markdown', 'json'], help='Format for the summary output (markdown or json)')
     parser.add_argument('--only-compare', action='store_true', help='Skip processing and only compare existing results with KV data')
+    parser.add_argument('--use-aws-cli', action='store_true', help='Use AWS CLI instead of rclone for listing S3 objects')
     return parser.parse_args()
 
-def list_objects(remote, bucket, directory, extension, limit=0, logger=None):
-    """List objects in the specified rclone remote bucket and directory."""
+def list_objects(remote, bucket, directory, extension, limit=0, logger=None, use_aws_cli=False):
+    """
+    List objects in the specified bucket and directory.
+    Supports both rclone and AWS CLI for retrieving object lists.
+    """
     path = f"{remote}:{bucket}/{directory}"
     path = path.rstrip('/') # Remove trailing slash if present
     
-    logger.info(f"Listing objects from rclone path: {path}")
+    if use_aws_cli:
+        logger.info(f"Listing objects from AWS S3 bucket: {bucket}/{directory}")
+    else:
+        logger.info(f"Listing objects from rclone path: {path}")
+    
     logger.debug(f"Using filter extension: {extension}")
     
     try:
-        # Use recursive listing to get all objects
-        cmd = ['rclone', 'lsf', '--recursive', path]
-        logger.debug(f"Executing command: {' '.join(cmd)}")
-        
         start_time = time.time()
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        duration = time.time() - start_time
         
-        # Parse the output and filter
-        all_items = result.stdout.splitlines()
-        logger.debug(f"rclone returned {len(all_items)} total items in {duration:.2f} seconds")
+        if use_aws_cli:
+            # Use AWS CLI to list objects
+            s3_path = f"s3://{bucket}/{directory}"
+            if directory and not s3_path.endswith('/'):
+                s3_path += '/'
+                
+            cmd = ['aws', 's3', 'ls', '--recursive', s3_path]
+            logger.debug(f"Executing AWS CLI command: {' '.join(cmd)}")
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            
+            # Parse AWS CLI output format (different from rclone)
+            # AWS format: 2023-04-26 18:45:30       1234 path/to/file.mp4
+            all_items = []
+            for line in result.stdout.splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 4:
+                    # Extract just the file path part
+                    file_path = ' '.join(parts[3:])
+                    # Remove bucket prefix if present
+                    if file_path.startswith(f"{bucket}/"):
+                        file_path = file_path[len(bucket)+1:]
+                    all_items.append(file_path)
+        else:
+            # Use original rclone method
+            cmd = ['rclone', 'lsf', '--recursive', path]
+            logger.debug(f"Executing rclone command: {' '.join(cmd)}")
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            all_items = result.stdout.splitlines()
+        
+        duration = time.time() - start_time
+        logger.debug(f"Command returned {len(all_items)} total items in {duration:.2f} seconds")
         
         # Filter out directories and by extension
         objects = [line for line in all_items 
@@ -98,9 +131,9 @@ def list_objects(remote, bucket, directory, extension, limit=0, logger=None):
         
         return objects
     except subprocess.CalledProcessError as e:
-        logger.error(f"Error executing rclone command: {' '.join(cmd)}")
-        logger.error(f"rclone stderr: {e.stderr}")
-        logger.error(f"rclone exit code: {e.returncode}")
+        logger.error(f"Error executing command: {' '.join(cmd)}")
+        logger.error(f"Command stderr: {e.stderr}")
+        logger.error(f"Command exit code: {e.returncode}")
         raise
 
 def get_derivative_dimensions(derivative, logger=None):
@@ -143,7 +176,7 @@ def log_response_details(response, url, logger=None):
     except Exception as e:
         logger.debug(f"Could not preview response content: {str(e)}")
 
-def process_object(obj_path, base_url, derivatives, bucket, directory, timeout, retry_attempts=2, logger=None):
+def process_object(obj_path, base_url, derivatives, bucket, directory, timeout, retry_attempts=2, connection_close_delay=10, logger=None):
     """Process a single video object with different derivatives."""
     # Construct the relative path
     if directory:
@@ -180,10 +213,16 @@ def process_object(obj_path, base_url, derivatives, bucket, directory, timeout, 
                 start_time = time.time()
                 
                 response = requests.get(url, timeout=timeout)
-                duration = time.time() - start_time
+                response_time = time.time() - start_time
                 
-                logger.debug(f"Request completed in {duration:.2f} seconds with status {response.status_code}")
+                logger.debug(f"Request completed in {response_time:.2f} seconds with status {response.status_code}")
                 log_response_details(response, url, logger)
+                
+                # Add intentional delay after response to ensure complete data transfer
+                logger.debug(f"Waiting {connection_close_delay} seconds after response before processing to ensure complete data transfer")
+                time.sleep(connection_close_delay)
+                
+                duration = time.time() - start_time
                 
                 status = response.status_code
                 
@@ -917,7 +956,15 @@ def main():
     try:
         # List objects in the bucket/directory
         logger.info(f"Listing objects from {args.remote}:{args.bucket}/{args.directory}")
-        objects = list_objects(args.remote, args.bucket, args.directory, args.extension, args.limit, logger)
+        objects = list_objects(
+            args.remote,
+            args.bucket, 
+            args.directory, 
+            args.extension, 
+            args.limit, 
+            logger,
+            args.use_aws_cli
+        )
         
         if not objects:
             logger.warning(f"No {args.extension} objects found. Check your bucket and directory settings.")
@@ -929,6 +976,7 @@ def main():
         all_results = {}
         logger.info(f"Starting to process {total_objects} objects with {len(derivatives)} derivatives each")
         logger.info(f"Using {args.workers} concurrent workers with {args.timeout}s timeout")
+        logger.info(f"Connection close delay: {args.connection_close_delay}s")
         
         start_time = time.time()
         
@@ -948,6 +996,7 @@ def main():
                     args.directory,
                     args.timeout,
                     args.retry,
+                    args.connection_close_delay,
                     logger
                 )
                 futures[future] = obj

@@ -63,12 +63,14 @@ python video_transform.py --only-compare --output previous_results.json \
 --limit              Limit number of objects to process (default: 0 = no limit)
 --extension          File extension to filter by (default: '.mp4')
 --verbose, -v        Enable verbose logging
---retry              Number of retry attempts for failed requests (default: 2)
---compare            Path to Cloudflare KV JSON file for comparison
---comparison-output  Output file for detailed comparison results (default: 'comparison_results.json')
---summary-output     Output file for summary report (default: 'comparison_summary.md')
---summary-format     Format for the summary output: 'markdown' or 'json' (default: 'markdown')
---only-compare       Skip processing and only compare existing results with KV data
+--retry                 Number of retry attempts for failed requests (default: 2)
+--connection-close-delay  Additional delay in seconds before closing connections (default: 10)
+--use-aws-cli            Use AWS CLI instead of rclone for listing S3 objects
+--compare               Path to Cloudflare KV JSON file for comparison
+--comparison-output     Output file for detailed comparison results (default: 'comparison_results.json')
+--summary-output        Output file for summary report (default: 'comparison_summary.md')
+--summary-format        Format for the summary output: 'markdown' or 'json' (default: 'markdown')
+--only-compare          Skip processing and only compare existing results with KV data
 ```
 
 ## Common Use Cases
