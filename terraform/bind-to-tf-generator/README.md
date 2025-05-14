@@ -4,6 +4,10 @@ This toolset helps manage Cloudflare DNS records using Terraform. It consists of
 - `executor.py`: A simple wrapper to list zones and handle DNS exports
 - `bindgenerator.py`: Converts BIND zone files to Terraform configurations
 
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](../../LICENSE) file for details.
+
 ## Prerequisites
 
 - Python 3.6+

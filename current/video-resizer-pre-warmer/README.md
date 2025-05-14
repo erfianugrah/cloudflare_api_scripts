@@ -440,4 +440,4 @@ rclone lsl your-remote:your-bucket/path/to/file.mp4
 
 ## License
 
-This tool is provided for internal use and is not published under any specific open-source license.
+This project is licensed under the MIT License - see the [LICENSE](../../LICENSE) file for details.

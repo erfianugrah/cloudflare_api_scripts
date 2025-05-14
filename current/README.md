@@ -54,3 +54,7 @@ This ensures that when you migrate it has something to add all the rules and you
 
 ## Once tested and ready to move off Firewall Rules entirely, run:
 ```python3 delete_all_firewall_rules.py```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.
