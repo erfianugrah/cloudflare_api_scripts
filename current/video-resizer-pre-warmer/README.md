@@ -20,12 +20,55 @@ This script serves two main functions:
   requests
   tabulate
   ```
+- For AWS CLI usage: AWS CLI installed and configured
+- For rclone usage: rclone installed and configured
 
 Install dependencies:
 
 ```bash
 pip install requests tabulate
 ```
+
+### Authentication Setup
+
+#### AWS CLI Authentication
+Before using the AWS CLI option, ensure you have AWS CLI installed and properly configured:
+
+1. Install AWS CLI:
+   ```bash
+   pip install awscli
+   ```
+
+2. Configure AWS credentials:
+   ```bash
+   aws configure
+   ```
+   
+   You'll need to provide:
+   - AWS Access Key ID
+   - AWS Secret Access Key
+   - Default region
+   - Default output format (json recommended)
+
+3. Verify configuration:
+   ```bash
+   aws s3 ls
+   ```
+
+#### rclone Authentication
+Before using the rclone option (default), ensure you have rclone installed and configured:
+
+1. Install rclone from https://rclone.org/install/
+
+2. Configure rclone for your storage provider:
+   ```bash
+   rclone config
+   ```
+
+3. Verify configuration:
+   ```bash
+   rclone lsf your-remote:your-bucket
+   ```
 
 ## Basic Usage
 
@@ -35,9 +78,16 @@ The script can be used in two primary modes:
 
 Processes video files from S3/rclone storage and compares them with Cloudflare KV data:
 
+Using rclone (default):
 ```bash
-python video_transform.py --remote ikea-mcdc --bucket your-bucket \
+python video-resizer-kv-pre-warmer.py --remote ikea-mcdc --bucket your-bucket \
   --base-url https://example.com/videos/ --compare kv_export.json
+```
+
+Using AWS CLI:
+```bash
+python video-resizer-kv-pre-warmer.py --remote ikea-mcdc --bucket your-bucket \
+  --base-url https://example.com/videos/ --compare kv_export.json --use-aws-cli
 ```
 
 ### 2. Comparison-Only Mode
@@ -45,7 +95,7 @@ python video_transform.py --remote ikea-mcdc --bucket your-bucket \
 Only compares previously generated results with KV data (no processing):
 
 ```bash
-python video_transform.py --only-compare --output previous_results.json \
+python video-resizer-kv-pre-warmer.py --only-compare --output previous_results.json \
   --compare kv_export.json
 ```
 
@@ -63,87 +113,241 @@ python video_transform.py --only-compare --output previous_results.json \
 --limit              Limit number of objects to process (default: 0 = no limit)
 --extension          File extension to filter by (default: '.mp4')
 --verbose, -v        Enable verbose logging
---retry                 Number of retry attempts for failed requests (default: 2)
+--retry              Number of retry attempts for failed requests (default: 2)
 --connection-close-delay  Additional delay in seconds before closing connections (default: 10)
---use-aws-cli            Use AWS CLI instead of rclone for listing S3 objects
---compare               Path to Cloudflare KV JSON file for comparison
---comparison-output     Output file for detailed comparison results (default: 'comparison_results.json')
---summary-output        Output file for summary report (default: 'comparison_summary.md')
---summary-format        Format for the summary output: 'markdown' or 'json' (default: 'markdown')
---only-compare          Skip processing and only compare existing results with KV data
+--use-aws-cli        Use AWS CLI instead of rclone for listing S3 objects
+--compare            Path to Cloudflare KV JSON file for comparison
+--comparison-output  Output file for detailed comparison results (default: 'comparison_results.json')
+--summary-output     Output file for summary report (default: 'comparison_summary.md')
+--summary-format     Format for the summary output: 'markdown' or 'json' (default: 'markdown')
+--only-compare       Skip processing and only compare existing results with KV data
 ```
+
+## AWS CLI vs. rclone: When to Use Each
+
+| Feature | AWS CLI | rclone |
+|---------|---------|--------|
+| **Best for** | Native AWS S3 operations | Multiple cloud providers (including S3) |
+| **Speed** | Generally faster for AWS S3 | May be slower for AWS S3 but supports more services |
+| **Authentication** | Uses AWS credentials | Supports many auth methods for various providers |
+| **Configuration** | Simpler for AWS-only operations | More flexible but requires more setup |
+| **Path format** | `s3://bucket/path` | `remote:bucket/path` |
+
+Choose AWS CLI when:
+- Working exclusively with AWS S3
+- Need optimal performance with AWS services
+- Already have AWS CLI installed and configured
+
+Choose rclone when:
+- Working with multiple cloud providers
+- Need support for non-AWS storage
+- Need advanced features like encryption or caching
+- Have rclone already configured
 
 ## Common Use Cases
 
-### Process All Videos and Generate a Report
+### Process All Videos and Generate a Report with AWS CLI
 
 ```bash
-python video_transform.py --remote ikea-mcdc --bucket video-assets \
+python video-resizer-kv-pre-warmer.py --remote ikea-mcdc --bucket video-assets \
   --base-url https://videos.example.com/ \
   --compare cloudflare_kv_export.json \
-  --summary-output verification_report.md
+  --summary-output verification_report.md --use-aws-cli
 ```
 
-### Process Specific Video Directory with Higher Concurrency
+### Process Specific Video Directory with rclone and Higher Concurrency
 
 ```bash
-python video_transform.py --remote ikea-mcdc --bucket video-assets \
+python video-resizer-kv-pre-warmer.py --remote ikea-mcdc --bucket video-assets \
   --directory product-videos/2025 --base-url https://videos.example.com/ \
   --workers 10 --timeout 180
 ```
 
-### Quick Test with Limited Videos
+### Quick Test with Limited Videos Using AWS CLI
 
 ```bash
-python video_transform.py --remote ikea-mcdc --bucket video-assets \
-  --base-url https://videos.example.com/ --limit 5 --verbose
+python video-resizer-kv-pre-warmer.py --remote ikea-mcdc --bucket video-assets \
+  --base-url https://videos.example.com/ --limit 5 --verbose --use-aws-cli
+```
+
+### Process Large Videos with Increased Timeout and Connection Delay
+
+```bash
+python video-resizer-kv-pre-warmer.py --remote ikea-mcdc --bucket video-assets \
+  --base-url https://videos.example.com/ --timeout 300 --connection-close-delay 20
 ```
 
 ### Generate JSON Summary for Automated Monitoring
 
 ```bash
-python video_transform.py --only-compare \
+python video-resizer-kv-pre-warmer.py --only-compare \
   --output previous_results.json --compare cloudflare_kv_export.json \
   --summary-output verification.json --summary-format json
 ```
 
-## Output Formats
+### Process Videos with Custom Derivative Sizes
 
-### 1. Transformation Results (JSON)
+```bash
+python video-resizer-kv-pre-warmer.py --remote ikea-mcdc --bucket video-assets \
+  --base-url https://videos.example.com/ --derivatives desktop,mobile
+```
+
+## Output File Formats
+
+### 1. Transformation Results (JSON): `video_transform_results.json`
 
 Contains detailed information about each processed video derivative:
-- HTTP status
-- Content length and type
-- Size information
-- Dimensions
-- Processing duration
+```json
+{
+  "metadata": {
+    "processed": 18,
+    "total": 18,
+    "derivatives_requested": ["desktop", "tablet", "mobile"],
+    "timestamp": "2025-05-14 15:54:04",
+    "elapsed_seconds": 187.46,
+    "estimated_total_seconds": 187.46,
+    "estimated_remaining_seconds": 0.0
+  },
+  "results": {
+    "video:path/to/file.mp4:derivative=desktop": {
+      "status": 200,
+      "contentLength": 30125892,
+      "contentType": "video/mp4",
+      "actualTotalVideoSize": 30125892,
+      "isChunked": false,
+      "duration": 10.63,
+      "derivative": "desktop",
+      "width": 1920,
+      "height": 1080,
+      "sourcePath": "/path/to/file.mp4",
+      "requestDimensions": "1920x1080",
+      "etag": "abcdef123456",
+      "attempt": 1
+    },
+    // Additional derivative entries...
+  }
+}
+```
 
-### 2. Comparison Results (JSON)
+### 2. Comparison Results (JSON): `comparison_results.json`
 
 Detailed comparison between transformation results and KV data:
-- Matching and mismatched keys
-- Size differences
-- Content type differences
-- Missing keys in either system
+```json
+{
+  "timestamp": "2025-05-14 15:54:04",
+  "summary": {
+    "keys_in_kv": 50,
+    "keys_in_transform": 54,
+    "matches": 48,
+    "mismatches": 2,
+    "only_in_kv": 0,
+    "only_in_transform": 4
+  },
+  "matches": [
+    {
+      "key": "video:path/to/file.mp4:derivative=desktop",
+      "transform_size": 30125892,
+      "kv_size": 30125892,
+      "size_diff": 0,
+      "size_diff_percent": 0.0,
+      "transform_content_type": "video/mp4",
+      "kv_content_type": "video/mp4",
+      "transform_is_chunked": false,
+      "kv_is_chunked": false
+    }
+    // Additional match entries...
+  ],
+  "mismatches": [
+    // Mismatch entries...
+  ],
+  "only_in_kv": [
+    // Keys only in KV...
+  ],
+  "only_in_transform": [
+    // Keys only in transform results...
+  ]
+}
+```
 
-### 3. Summary Report
+### 3. KV Export JSON Format (Required for Comparison)
 
-#### Markdown Format
+The expected Cloudflare KV export JSON structure:
+```json
+{
+  "keys": [
+    {
+      "name": "video:path/to/file.mp4:derivative=desktop",
+      "metadata": {
+        "size": 30125892,
+        "contentType": "video/mp4",
+        "isChunked": false,
+        "actualTotalVideoSize": 30125892
+      }
+    },
+    {
+      "name": "video:path/to/file.mp4:derivative=desktop_chunk_0",
+      "metadata": {
+        "size": 10000000,
+        "contentType": "video/mp4",
+        "isChunked": true
+      }
+    }
+    // Additional KV entries...
+  ]
+}
+```
+
+### 4. Summary Report Formats
+
+#### Markdown Format: `comparison_summary.md`
 
 A human-readable report containing:
-- Verification status (Success/Failure)
-- Key counts and match rates
-- Size verification
-- Examples of mismatches (if any)
-- Lists of missing keys (if any)
+```markdown
+# Video Asset Transformation Verification Report
+Generated: 2025-05-14 15:54:04
 
-#### JSON Format
+## Verification Status: ✅ SUCCESSFUL
+
+## Summary
+- **Total unique keys**: 54
+- **Keys in KV**: 50
+- **Keys in transform results**: 54
+- **Match rate**: 48/54 (88.9%)
+
+## Size Verification
+- **Total size in KV**: 1204.52 MB
+- **Total size in transform results**: 1204.52 MB
+- **Size difference**: 0.00 MB (0.000%)
+```
+
+#### JSON Format: `verification.json`
 
 A machine-readable summary suitable for automated monitoring:
-- Verification success status
-- Summary statistics
-- Size verification metrics
-- Examples of mismatches or missing keys
+```json
+{
+  "timestamp": "2025-05-14 15:54:04",
+  "verification_successful": true,
+  "summary": {
+    "total_unique_keys": 54,
+    "keys_in_kv": 50,
+    "keys_in_transform": 54,
+    "matching_keys": 48,
+    "match_rate_percent": 88.89,
+    "mismatched_keys": 2,
+    "only_in_kv": 0,
+    "only_in_transform": 4
+  },
+  "size_verification": {
+    "total_size_kv_bytes": 1262856765,
+    "total_size_kv_mb": 1204.52,
+    "total_size_transform_bytes": 1262856765,
+    "total_size_transform_mb": 1204.52,
+    "size_difference_bytes": 0,
+    "size_difference_mb": 0.0,
+    "size_difference_percent": 0.0
+  }
+}
+```
 
 ## Key Features
 
@@ -153,6 +357,8 @@ A machine-readable summary suitable for automated monitoring:
 - **Detailed Logging**: Comprehensive logging with verbose mode for troubleshooting
 - **Progress Updates**: Real-time progress tracking with ETA during processing
 - **Clear Verification**: Explicit pass/fail indication for verification results
+- **Multiple Storage Options**: Support for both AWS CLI and rclone for file listing
+- **Rich Reporting**: Customizable output formats for different use cases
 
 ## Troubleshooting
 
@@ -161,27 +367,76 @@ A machine-readable summary suitable for automated monitoring:
 1. **Connection Timeouts**
    - Increase the `--timeout` value
    - Reduce the number of `--workers`
+   - Check network connectivity to your CDN
 
 2. **Path Resolution Problems**
    - Ensure the correct `--remote` and `--bucket` names
-   - Check if `--directory` path exists in your S3/rclone storage
+   - Check if `--directory` exists in your S3/rclone storage
+   - Verify permissions for accessing the storage
 
 3. **Missing Keys in Comparison**
    - Verify the path structure matches between KV keys and S3 paths
    - Check if path prefixes need adjustment
+   - Ensure the KV export JSON follows the expected format
 
 4. **Size Mismatches**
    - Verify content encoding (e.g., gzip compression might affect sizes)
    - Check if CDN transforms content
+   - Ensure chunked files are correctly identified in KV
+
+5. **AWS CLI Issues**
+   - Verify AWS CLI is installed: `aws --version`
+   - Check AWS credentials are configured: `aws configure list`
+   - Ensure you have correct permissions for your bucket
+   - Test basic AWS CLI access: `aws s3 ls s3://your-bucket/`
+
+6. **rclone Issues**
+   - Verify rclone is installed: `rclone --version`
+   - Check rclone configuration: `rclone config show`
+   - Test basic rclone access: `rclone lsf your-remote:your-bucket/`
+   - Check for path format issues (should be `remote:bucket/path`)
+
+7. **Performance Issues**
+   - Use the AWS CLI option for better performance with AWS S3
+   - Adjust `--workers` based on available CPU and network bandwidth
+   - For large files, increase `--connection-close-delay` to ensure complete transfers
 
 ### Debugging
 
 Use the `--verbose` flag to enable detailed logging:
 
 ```bash
-python video_transform.py --remote ikea-mcdc --bucket video-assets \
+python video-resizer-kv-pre-warmer.py --remote ikea-mcdc --bucket video-assets \
   --base-url https://videos.example.com/ --verbose
 ```
+
+For AWS CLI troubleshooting, you can run direct AWS commands:
+
+```bash
+# Test AWS S3 access
+aws s3 ls s3://your-bucket/
+
+# Get detailed information about a specific object
+aws s3api head-object --bucket your-bucket --key path/to/file.mp4
+```
+
+For rclone troubleshooting, you can run direct rclone commands:
+
+```bash
+# Test rclone access
+rclone lsf your-remote:your-bucket/
+
+# Get detailed information about a specific object
+rclone lsl your-remote:your-bucket/path/to/file.mp4
+```
+
+## Performance Optimization
+
+- **AWS CLI vs. rclone**: For large AWS S3 buckets, AWS CLI is generally faster for listing objects
+- **Worker Count**: Adjust `--workers` based on your CPU cores and network capacity
+- **Timeout Values**: Set appropriate `--timeout` and `--connection-close-delay` values based on video sizes
+- **Selective Processing**: Use `--directory` and `--limit` to process subsets for testing
+- **Memory Usage**: For very large buckets, process directories one at a time rather than the entire bucket
 
 ## License
 
