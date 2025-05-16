@@ -1,121 +1,112 @@
-# Integrated Video Pre-warming and Load Testing
+# Video Load Testing
 
-This document explains how to use the integrated workflow for pre-warming video transformations and running load tests.
+This document focuses specifically on the load testing component of the video transformation toolkit.
 
 ## Overview
 
-The integration consists of two main components:
+The load testing component (`video-load-test-integrated.js`) is designed to:
 
-1. **Video Pre-Warmer (Python)**: Requests videos in different resolutions from your CDN, preloading the cache and collecting metadata.
-2. **Load Testing Tool (k6)**: Uses the results from pre-warming to run realistic load tests with accurate video dimensions and sizes.
+1. Read the results from the pre-warming phase
+2. Generate realistic video requests based on actual video metadata
+3. Create load patterns that simulate real-world traffic
+4. Use byte-range requests that mimic browser behavior
+
+## Key Features
+
+- **Data-driven testing**: Uses actual video sizes and dimensions from pre-warming
+- **Realistic behavior**: Makes range requests similar to video player behavior
+- **Configurable load patterns**: Adjustable stages with different user counts
+- **Dynamic URL generation**: Supports different URL formats for flexibility
 
 ## Quick Start
 
 ```bash
-# Run the entire workflow with default settings
-./run-prewarmer-and-loadtest.sh --base-url https://your-cdn.example.com --bucket your-bucket
-
-# Skip pre-warming and only run load test (using existing results)
-./run-prewarmer-and-loadtest.sh --skip-prewarming --base-url https://your-cdn.example.com
+# Run load test using results from a previous pre-warming run
+k6 run video-load-test-integrated.js \
+  -e BASE_URL=https://cdn.example.com \
+  -e RESULTS_FILE=video_transform_results.json \
+  -e STAGE1_USERS=50 -e STAGE2_USERS=100
 ```
-
-## Workflow Details
-
-### Step 1: Pre-warming
-
-The Python script connects to your S3 bucket, lists video files, and requests them with different derivatives (desktop, tablet, mobile) from your CDN. This both populates the CDN cache and collects metadata about each video for accurate load testing.
-
-### Step 2: Load Testing
-
-The k6 script uses the metadata collected during pre-warming to run realistic load tests:
-
-- It knows the correct dimensions for each video
-- It has accurate file sizes for proper byte range requests
-- It can use the same URL patterns as your production environment
 
 ## Configuration Options
 
-### Basic Settings
+All configuration is done through environment variables:
 
-- `--base-url`: The base URL of your CDN
-- `--bucket`: Your S3 bucket name
-- `--remote`: rclone remote name (or AWS S3 if using AWS CLI)
-- `--directory`: Subdirectory within bucket to process
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `BASE_URL` | Base URL for your CDN | https://cdn.erfi.dev |
+| `RESULTS_FILE` | Path to pre-warming results file | ./video_transform_results.json |
+| `URL_FORMAT` | URL format ('imwidth' or 'derivative') | imwidth |
+| `STAGE1_USERS` to `STAGE5_USERS` | Virtual users for each stage | 50, 50, 100, 100, 0 |
+| `STAGE1_DURATION` to `STAGE5_DURATION` | Duration for each stage | 30s, 1m, 30s, 1m, 30s |
+| `REQ_DURATION_THRESHOLD` | p95 threshold for request duration | 15000 (ms) |
+| `FAILURE_RATE_THRESHOLD` | Maximum acceptable failure rate | 0.05 (5%) |
+| `RESPONSE_TIME_THRESHOLD` | Threshold for "reasonable" response time in checks | 10000 (ms) |
 
-### Pre-warmer Settings
-
-- `--workers`: Number of concurrent pre-warming workers
-- `--derivatives`: Comma-separated list of derivatives (default: desktop,tablet,mobile)
-- `--limit`: Limit the number of videos to process
-- `--aws-cli`: Use AWS CLI instead of rclone for S3 access
-
-### Load Test Settings
-
-- `--url-format`: URL format to use ('imwidth' or 'derivative')
-- `--stage1-users` through `--stage5-users`: Number of virtual users in each stage
-- `--stage1-duration` through `--stage5-duration`: Duration of each stage
-
-### Skip Options
-
-- `--skip-prewarming`: Skip the pre-warming phase (uses existing results file)
-- `--skip-loadtest`: Skip the load testing phase (only do pre-warming)
-
-## URL Format Options
+## URL Formats
 
 The load test supports two URL formats:
 
-1. **imwidth format** (default): `https://cdn.example.com/path/to/video.mp4?imwidth=1920`
-   
-   Best for simple CDN setups where only width needs to be specified.
+1. **imwidth format** (default):  
+   `https://cdn.example.com/path/to/video.mp4?imwidth=1920`
 
-2. **derivative format**: `https://cdn.example.com/path/to/video.mp4?derivative=desktop&width=1920&height=1080`
-   
-   Matches the Python pre-warmer format with derivative and dimensions.
-
-## Examples
-
-```bash
-# Full workflow with higher concurrency
-./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com --bucket videos \
-  --workers 10 --stage3-users 200 --stage4-users 200
-
-# Use AWS CLI instead of rclone
-./run-prewarmer-and-loadtest.sh --aws-cli --base-url https://cdn.example.com \
-  --bucket videos --directory videos
-
-# Quick test with limited videos
-./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com --bucket videos \
-  --limit 5 --stage1-duration 10s --stage2-duration 20s
-
-# Use derivative format URLs
-./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com --bucket videos \
-  --url-format derivative
-```
+2. **derivative format**:  
+   `https://cdn.example.com/path/to/video.mp4?derivative=desktop&width=1920&height=1080`
 
 ## Advanced Usage
 
-### Custom URL patterns
+### Understanding the Load Profile
 
-If you need a completely custom URL pattern, edit the `generateVideoUrl` function in `video-load-test-integrated.js`.
+The default load profile has 5 stages:
+1. Ramp up to first user level (default: 50 VUs)
+2. Stay at first level (simulates normal load)
+3. Ramp up to second user level (default: 100 VUs)
+4. Stay at second level (simulates peak load)
+5. Ramp down to 0 (simulates end of traffic spike)
 
-### Adding load test metrics
+### Modifying k6 Test Settings
 
-K6 supports custom metrics. Add them to the `video-load-test-integrated.js` file if needed.
+For more advanced load testing needs:
 
-### Multi-phase load testing
+1. For custom thresholds, metrics, or scenarios, edit `video-load-test-integrated.js` directly
+2. For integration with k6 cloud or other k6 features, refer to the [k6 documentation](https://k6.io/docs/)
 
-For more complex load profiles, edit the `stages` configuration in `video-load-test-integrated.js` or use the k6 scenario API.
+### Performance Considerations
+
+- For high load tests, run k6 on a machine with good network capacity
+- Use a machine close to your target audience for realistic latency
+- Monitor both client and server-side metrics during the test
 
 ## Troubleshooting
 
-- **Missing files**: Ensure your rclone or AWS CLI configuration can access the bucket
-- **Pre-warming errors**: Check network connectivity and CDN configuration
-- **K6 errors**: Verify k6 installation and that the results file exists
-- **Byte range errors**: Some videos may have incorrect size information; adjust the safety margins in the script
+1. **No data found in results file**:
+   - Ensure pre-warming completed successfully
+   - Check the path to the results file
+   - Verify the results contain successful (status 200) responses
 
-## Requirements
+2. **High failure rates**:
+   - Check CDN capacity and configuration
+   - Verify network connectivity
+   - Consider reducing the number of virtual users
 
-- Python 3.7+
-- k6 0.30.0+
-- AWS CLI (if using `--aws-cli` option)
-- rclone (if not using AWS CLI)
+3. **k6 crashes or shows errors**:
+   - Update to the latest version of k6
+   - Check system resources (memory, network)
+   - Try running with fewer virtual users
+
+## Example Use Cases
+
+1. **CDN Performance Testing**:
+   ```bash
+   k6 run video-load-test-integrated.js -e STAGE3_USERS=250 -e STAGE4_USERS=250
+   ```
+
+2. **Testing with Different URL Format**:
+   ```bash
+   k6 run video-load-test-integrated.js -e URL_FORMAT=derivative
+   ```
+
+3. **Quick Smoke Test**:
+   ```bash
+   k6 run video-load-test-integrated.js -e STAGE1_DURATION=10s -e STAGE2_DURATION=20s -e STAGE3_USERS=0
+   ```

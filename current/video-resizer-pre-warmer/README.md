@@ -1,20 +1,34 @@
-# Video Transformation Verification Tool
+# Video Transformation and Load Testing Tool
 
-A comprehensive tool for processing and verifying video assets across different resolutions and comparing them with Cloudflare KV storage. This tool helps ensure your transformed video assets match what's stored in your KV cache.
+A comprehensive toolkit for processing, verifying, and load testing video assets across different resolutions.
 
-## Purpose
+## Overview
 
-This script serves two main functions:
+This project consists of three integrated components:
 
-1. **Video Transformation Processing**: Makes HTTP requests to transform videos into different derivatives (desktop, tablet, mobile), capturing size and metadata information.
+1. **Video Pre-Warmer (`video-resizer-kv-pre-warmer.py`)**: Makes HTTP requests to transform videos into different derivatives (desktop, tablet, mobile), capturing size and metadata information.
 
-2. **KV Storage Verification**: Compares transformed videos with what's stored in Cloudflare KV to ensure consistency, identifying mismatches and missing assets.
+2. **Load Testing Tool (`video-load-test-integrated.js`)**: Uses k6 to simulate real-world load against your video CDN using the pre-warmed videos.
+
+3. **Orchestration Script (`run-prewarmer-and-loadtest.sh`)**: Coordinates the pre-warming and load testing phases, making it easy to run the complete workflow with a single command.
+
+## Features
+
+- **Video Transformation Processing**: Transforms videos into different derivatives (desktop, tablet, mobile)
+- **Detailed Metrics**: Captures size, timing, and metadata for each video variant
+- **Concurrent Processing**: Processes multiple videos simultaneously with configurable workers
+- **Comprehensive Load Testing**: Simulates real-world traffic patterns against your CDN
+- **Customizable Test Scenarios**: Adjust VU counts, ramp-up/down times, and test durations
+- **Intelligent Range Requests**: Mimics browser behavior with realistic byte-range requests
+- **Detailed Reporting**: Generates summary reports and error analysis
+- **All-in-One Orchestration**: Run the complete workflow with a single command
 
 ## Installation
 
 ### Requirements
 
 - Python 3.7+
+- k6 (for load testing)
 - Required Python packages:
   ```
   requests
@@ -26,7 +40,14 @@ This script serves two main functions:
 Install dependencies:
 
 ```bash
+# Install Python dependencies
 pip install requests tabulate
+
+# Install k6 (instructions for Linux, see k6.io for other platforms)
+sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+echo "deb https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+sudo apt-get update
+sudo apt-get install k6
 ```
 
 ### Authentication Setup
@@ -70,418 +91,117 @@ Before using the rclone option (default), ensure you have rclone installed and c
    rclone lsf your-remote:your-bucket
    ```
 
-## Basic Usage
+## Usage
 
-The script can be used in three primary modes:
+### Using the All-in-One Script
 
-### 1. Process and Compare Mode
-
-Processes video files from S3/rclone storage and compares them with Cloudflare KV data:
-
-Using rclone (default):
-```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket your-bucket \
-  --base-url https://example.com/videos/ --compare kv_export.json
-```
-
-Using AWS CLI:
-```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket your-bucket \
-  --base-url https://example.com/videos/ --compare kv_export.json --use-aws-cli
-```
-
-### 2. Comparison-Only Mode
-
-Only compares previously generated results with KV data (no processing):
+The simplest way to run both pre-warming and load testing is with the orchestration script:
 
 ```bash
-python video-resizer-kv-pre-warmer.py --only-compare --output previous_results.json \
-  --compare kv_export.json
+./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com \
+  --remote s3 --bucket my-video-bucket --directory videos \
+  --workers 10 --stage1-users 50 --stage2-users 100
 ```
 
-### 3. Error Report Generation Mode
+### Command-Line Options
 
-Generates detailed reports about HTTP 500 errors from existing results files:
+Run the script with `--help` to see all available options:
 
 ```bash
-python video-resizer-kv-pre-warmer.py --generate-error-report \
-  --output video_transform_results.json
+./run-prewarmer-and-loadtest.sh --help
 ```
 
-## Command-Line Options
-
-### Required Parameters
-
-These parameters are required for the main processing mode, but may be optional for certain operations like error report generation:
+#### Key Options:
 
 ```
---remote             rclone remote name (required for processing mode)
---bucket             S3 bucket name (required for processing mode)
---base-url           Base URL to prepend to object paths (required for processing mode)
+Pre-warmer options:
+  -u, --base-url URL          Base URL for video assets
+  -r, --remote NAME           Rclone remote name
+  -b, --bucket NAME           S3 bucket name
+  -d, --directory PATH        Directory path within bucket
+  --derivatives LIST          Comma-separated list of derivatives
+  -w, --workers NUM           Number of concurrent workers
+  -t, --timeout SECONDS       Request timeout in seconds
+  -e, --extension EXT         File extension to filter by
+  -o, --output FILE           Output JSON file path
+  -l, --limit NUM             Limit number of objects to process
+  --aws-cli                   Use AWS CLI instead of rclone
+  --skip-prewarming           Skip the pre-warming phase
+
+k6 load test options:
+  --url-format FORMAT         URL format to use: 'imwidth' or 'derivative'
+  --stage1-users NUM          Number of users in stage 1
+  --stage1-duration TIME      Duration of stage 1
+  --stage2-users NUM          Number of users in stage 2
+  --stage2-duration TIME      Duration of stage 2
+  --stage3-users NUM          Number of users in stage 3
+  --stage3-duration TIME      Duration of stage 3
+  --stage4-users NUM          Number of users in stage 4
+  --stage4-duration TIME      Duration of stage 4
+  --stage5-users NUM          Number of users in stage 5
+  --stage5-duration TIME      Duration of stage 5
+  --skip-loadtest             Skip the load test phase
 ```
 
-### Optional Parameters
+### Running Components Individually
 
-```
---directory          Directory path within bucket (default: '')
---derivatives        Comma-separated list of derivatives (default: 'desktop,tablet,mobile')
---workers            Number of concurrent workers (default: 5)
---timeout            Request timeout in seconds (default: 120)
---connection-close-delay  Additional delay in seconds before closing connections (default: 10)
---output             Output JSON file path (default: 'video_transform_results.json')
---limit              Limit number of objects to process (default: 0 = no limit)
---extension          File extension to filter by (default: '.mp4')
---verbose, -v        Enable verbose logging
---retry              Number of retry attempts for failed requests (default: 2)
+#### Pre-warmer Only
+
+```bash
+python video-resizer-kv-pre-warmer.py --remote s3 --bucket my-video-bucket \
+  --directory videos --base-url https://cdn.example.com/videos/ \
+  --derivatives desktop,tablet,mobile --workers 10
 ```
 
-### Comparison Mode Parameters
+#### Load Testing Only
 
+```bash
+# First ensure you have a results file from a previous pre-warming run
+k6 run video-load-test-integrated.js \
+  -e BASE_URL=https://cdn.example.com \
+  -e RESULTS_FILE=video_transform_results.json \
+  -e STAGE1_USERS=50 -e STAGE2_USERS=100
 ```
---compare            Path to Cloudflare KV JSON file for comparison
---comparison-output  Output file for detailed comparison results (default: 'comparison_results.json')
---summary-output     Output file for summary report (default: 'comparison_summary.md')
---summary-format     Format for the summary output: 'markdown' or 'json' (default: 'markdown')
-```
-
-### Mode Selection Parameters
-
-```
---only-compare       Skip processing and only compare existing results with KV data
---generate-error-report  Generate or regenerate the 500 error reports from an existing results file
---use-aws-cli        Use AWS CLI instead of rclone for listing S3 objects
-```
-
-## AWS CLI vs. rclone: When to Use Each
-
-| Feature | AWS CLI | rclone |
-|---------|---------|--------|
-| **Best for** | Native AWS S3 operations | Multiple cloud providers (including S3) |
-| **Speed** | Generally faster for AWS S3 | May be slower for AWS S3 but supports more services |
-| **Authentication** | Uses AWS credentials | Supports many auth methods for various providers |
-| **Configuration** | Simpler for AWS-only operations | More flexible but requires more setup |
-| **Path format** | `s3://bucket/path` | `remote:bucket/path` |
-
-Choose AWS CLI when:
-- Working exclusively with AWS S3
-- Need optimal performance with AWS services
-- Already have AWS CLI installed and configured
-
-Choose rclone when:
-- Working with multiple cloud providers
-- Need support for non-AWS storage
-- Need advanced features like encryption or caching
-- Have rclone already configured
 
 ## Common Use Cases
 
-### Production Pre-warming and Verification
-
-#### Process All Videos and Generate a Report with AWS CLI
+### Production Pre-warming and Load Testing
 
 ```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket video-assets \
-  --base-url https://videos.example.com/ \
-  --compare cloudflare_kv_export.json \
-  --summary-output verification_report.md --use-aws-cli
+./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com \
+  --remote s3 --bucket prod-video-bucket --workers 20 \
+  --stage1-users 100 --stage2-users 200 --stage3-users 300 \
+  --stage1-duration 1m --stage2-duration 5m --stage3-duration 5m
 ```
-Use this when you need to pre-warm an entire bucket and compare results with KV data.
 
-#### Process Specific Video Directory with rclone and Higher Concurrency
+### Quick Test with Limited Videos
 
 ```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket video-assets \
-  --directory videos/2025 --base-url https://videos.example.com/ \
-  --workers 10 --timeout 180
+./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com \
+  --remote s3 --bucket test-video-bucket --limit 5 \
+  --stage1-users 10 --stage1-duration 30s --stage2-duration 30s \
+  --stage3-users 0 --stage4-users 0 --stage5-users 0
 ```
-Ideal for processing specific folders of content with higher performance.
 
-#### Process Large Videos with Increased Timeout and Connection Delay
+### Test with Pre-warmed Videos
 
 ```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket video-assets \
-  --base-url https://videos.example.com/ --timeout 300 --connection-close-delay 20
+./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com \
+  --skip-prewarming \
+  --stage1-users 50 --stage2-users 100 --stage3-users 150
 ```
-Recommended for high-resolution or long-duration videos that need extended processing time.
 
-### Testing and Development
-
-#### Quick Test with Limited Videos Using AWS CLI
+### Load Test with Custom URL Format
 
 ```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket video-assets \
-  --base-url https://videos.example.com/ --limit 5 --verbose --use-aws-cli
+./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com \
+  --remote s3 --bucket my-video-bucket \
+  --url-format derivative
 ```
-Perfect for testing configuration or CDN changes before full processing.
-
-#### Process Videos with Custom Derivative Sizes
-
-```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket video-assets \
-  --base-url https://videos.example.com/ --derivatives desktop,mobile
-```
-Useful when you only need to pre-warm specific derivative types.
-
-### Monitoring and Troubleshooting
-
-#### Generate JSON Summary for Automated Monitoring
-
-```bash
-python video-resizer-kv-pre-warmer.py --only-compare \
-  --output previous_results.json --compare cloudflare_kv_export.json \
-  --summary-output verification.json --summary-format json
-```
-Use with monitoring systems or dashboards that can ingest JSON data.
-
-#### Generate Error Reports from Existing Results
-
-```bash
-python video-resizer-kv-pre-warmer.py --generate-error-report \
-  --output video_transform_results.json
-```
-This mode doesn't require the standard `--remote`, `--bucket`, and `--base-url` parameters as it only processes existing results files. Use it to analyze errors from a previous processing run.
-
-## Error Report Generation
-
-The tool includes a specialized mode for generating detailed error reports about HTTP 500 errors encountered during video processing. This feature is useful for troubleshooting problems with specific videos or derivatives.
-
-### What It Does
-
-- Analyzes existing results files for HTTP 500 errors
-- Generates two specialized report files:
-  - A JSON report with structured data about each error (`*_500_errors.json`)
-  - A human-readable text report with useful debugging information (`*_500_errors.txt`)
-- Groups errors by derivative type for easier analysis
-- Provides complete request URLs for easy testing and reproduction
-- Includes CloudFlare-specific headers and ray IDs for troubleshooting with CDN support
-
-### When to Use Error Report Generation
-
-- After a large batch processing job to identify problematic videos
-- When troubleshooting specific CDN or transformation issues
-- For providing detailed error information to CloudFlare support
-- To identify patterns in video processing failures
-
-### Output Files
-
-The error report generation creates two files:
-
-1. **JSON Report** (`video_transform_results_500_errors.json`): Contains structured data about each error for programmatic processing
-
-2. **Text Report** (`video_transform_results_500_errors.txt`): A human-readable report with:
-   - Total error count
-   - Error counts by derivative type
-   - Complete list of errors with full request URLs for testing
-   - CloudFlare ray IDs and headers for each error
-
-## Output File Formats
-
-### 1. Transformation Results (JSON): `video_transform_results.json`
-
-Contains detailed information about each processed video derivative:
-```json
-{
-  "metadata": {
-    "processed": 18,
-    "total": 18,
-    "derivatives_requested": ["desktop", "tablet", "mobile"],
-    "timestamp": "2025-05-14 15:54:04",
-    "elapsed_seconds": 187.46,
-    "estimated_total_seconds": 187.46,
-    "estimated_remaining_seconds": 0.0
-  },
-  "results": {
-    "video:path/to/file.mp4:derivative=desktop": {
-      "status": 200,
-      "contentLength": 30125892,
-      "contentType": "video/mp4",
-      "actualTotalVideoSize": 30125892,
-      "isChunked": false,
-      "duration": 10.63,
-      "derivative": "desktop",
-      "width": 1920,
-      "height": 1080,
-      "sourcePath": "/path/to/file.mp4",
-      "requestDimensions": "1920",
-      "etag": "abcdef123456",
-      "attempt": 1
-    },
-    // Additional derivative entries...
-  }
-}
-```
-
-### 2. Comparison Results (JSON): `comparison_results.json`
-
-Detailed comparison between transformation results and KV data:
-```json
-{
-  "timestamp": "2025-05-14 15:54:04",
-  "summary": {
-    "keys_in_kv": 50,
-    "keys_in_transform": 54,
-    "matches": 48,
-    "mismatches": 2,
-    "only_in_kv": 0,
-    "only_in_transform": 4
-  },
-  "matches": [
-    {
-      "key": "video:path/to/file.mp4:derivative=desktop",
-      "transform_size": 30125892,
-      "kv_size": 30125892,
-      "size_diff": 0,
-      "size_diff_percent": 0.0,
-      "transform_content_type": "video/mp4",
-      "kv_content_type": "video/mp4",
-      "transform_is_chunked": false,
-      "kv_is_chunked": false
-    }
-    // Additional match entries...
-  ],
-  "mismatches": [
-    // Mismatch entries...
-  ],
-  "only_in_kv": [
-    // Keys only in KV...
-  ],
-  "only_in_transform": [
-    // Keys only in transform results...
-  ]
-}
-```
-
-### 3. KV Export JSON Format (Required for Comparison)
-
-The expected Cloudflare KV export JSON structure:
-```json
-{
-  "keys": [
-    {
-      "name": "video:path/to/file.mp4:derivative=desktop",
-      "metadata": {
-        "size": 30125892,
-        "contentType": "video/mp4",
-        "isChunked": false,
-        "actualTotalVideoSize": 30125892
-      }
-    },
-    {
-      "name": "video:path/to/file.mp4:derivative=desktop_chunk_0",
-      "metadata": {
-        "size": 10000000,
-        "contentType": "video/mp4",
-        "isChunked": true
-      }
-    }
-    // Additional KV entries...
-  ]
-}
-```
-
-### 4. Summary Report Formats
-
-#### Markdown Format: `comparison_summary.md`
-
-A human-readable report containing:
-```markdown
-# Video Asset Transformation Verification Report
-Generated: 2025-05-14 15:54:04
-
-## Verification Status: ✅ SUCCESSFUL
-
-## Summary
-- **Total unique keys**: 54
-- **Keys in KV**: 50
-- **Keys in transform results**: 54
-- **Match rate**: 48/54 (88.9%)
-
-## Size Verification
-- **Total size in KV**: 1204.52 MB
-- **Total size in transform results**: 1204.52 MB
-- **Size difference**: 0.00 MB (0.000%)
-```
-
-#### JSON Format: `verification.json`
-
-A machine-readable summary suitable for automated monitoring:
-```json
-{
-  "timestamp": "2025-05-14 15:54:04",
-  "verification_successful": true,
-  "summary": {
-    "total_unique_keys": 54,
-    "keys_in_kv": 50,
-    "keys_in_transform": 54,
-    "matching_keys": 48,
-    "match_rate_percent": 88.89,
-    "mismatched_keys": 2,
-    "only_in_kv": 0,
-    "only_in_transform": 4
-  },
-  "size_verification": {
-    "total_size_kv_bytes": 1262856765,
-    "total_size_kv_mb": 1204.52,
-    "total_size_transform_bytes": 1262856765,
-    "total_size_transform_mb": 1204.52,
-    "size_difference_bytes": 0,
-    "size_difference_mb": 0.0,
-    "size_difference_percent": 0.0
-  }
-}
-```
-
-## Recent Updates
-
-### URL Parameter Format Change
-
-The script now uses a simpler URL parameter format:
-- Previous: `?derivative=X&width=Y&height=Z`
-- New: `?imwidth=Y` (where Y is the desired width)
-
-The `imwidth` parameter is used with these resolutions:
-- Desktop: imwidth=1920
-- Tablet: imwidth=1280
-- Mobile: imwidth=854
-
-### Improved 500 Error Reports
-
-The 500 error reports now include the base URL in two places:
-- A "Base URL: X" line at the top of the report
-- A "Base URL used: X" line for each individual error entry
-
-This makes it easier to troubleshoot errors by having complete URLs for testing.
-
-### Flexible Parameter Requirements
-
-The script has been updated to make certain parameters situationally required rather than globally required:
-
-- The `--remote`, `--bucket`, and `--base-url` parameters are now only required for processing mode
-- When using `--generate-error-report`, these parameters are not needed since the tool is only working with existing result files
-- This allows for simpler command lines when using utility functions like error report generation
-
-### Improved Error Handling
-
-- Better validation of command-line parameters based on the selected operation mode
-- Clear error messages when required parameters are missing for a specific operation
-- Graceful handling of different operational scenarios
-
-## Key Features
-
-- **Chunked File Handling**: Properly calculates total sizes for large files split into chunks in KV
-- **Concurrent Processing**: Efficiently processes multiple videos simultaneously
-- **Retry Logic**: Handles transient failures with exponential backoff
-- **Detailed Logging**: Comprehensive logging with verbose mode for troubleshooting
-- **Progress Updates**: Real-time progress tracking with ETA during processing
-- **Clear Verification**: Explicit pass/fail indication for verification results
-- **Multiple Storage Options**: Support for both AWS CLI and rclone for file listing
-- **Rich Reporting**: Customizable output formats for different use cases
-- **Flexible Parameters**: Contextual parameter requirements based on operation mode
-- **Graceful Shutdown**: Properly handles Ctrl+C interruption, saving partial results
 
 ## Troubleshooting
 
-### Common Issues
+### Pre-warmer Issues
 
 1. **Connection Timeouts**
    - Increase the `--timeout` value
@@ -493,82 +213,40 @@ The script has been updated to make certain parameters situationally required ra
    - Check if `--directory` exists in your S3/rclone storage
    - Verify permissions for accessing the storage
 
-3. **Missing Keys in Comparison**
-   - Verify the path structure matches between KV keys and S3 paths
-   - Check if path prefixes need adjustment
-   - Ensure the KV export JSON follows the expected format
-
-4. **Size Mismatches**
-   - Verify content encoding (e.g., gzip compression might affect sizes)
-   - Check if CDN transforms content
-   - Ensure chunked files are correctly identified in KV
-
-5. **AWS CLI Issues**
+3. **AWS CLI Issues**
    - Verify AWS CLI is installed: `aws --version`
    - Check AWS credentials are configured: `aws configure list`
-   - Ensure you have correct permissions for your bucket
    - Test basic AWS CLI access: `aws s3 ls s3://your-bucket/`
 
-6. **rclone Issues**
+4. **rclone Issues**
    - Verify rclone is installed: `rclone --version`
    - Check rclone configuration: `rclone config show`
    - Test basic rclone access: `rclone lsf your-remote:your-bucket/`
-   - Check for path format issues (should be `remote:bucket/path`)
 
-7. **Performance Issues**
-   - Use the AWS CLI option for better performance with AWS S3
-   - Adjust `--workers` based on available CPU and network bandwidth
-   - For large files, increase `--connection-close-delay` to ensure complete transfers
+### Load Testing Issues
 
-8. **Command-Line Parameter Issues**
-   - For general processing, `--remote`, `--bucket`, and `--base-url` are required
-   - For error report generation with `--generate-error-report`, these parameters aren't needed
-   - If you see "Missing required parameters" for processing mode, ensure all required parameters are present
-   - Different operation modes have different parameter requirements as detailed in the Command-Line Options section
+1. **No Test Data**
+   - Ensure you've run the pre-warmer first or have a valid results file
+   - Check that the results file contains successful transformations (status 200)
+   - Verify the path to the results file is correct
 
-9. **Graceful Shutdown**
-   - The script can be safely interrupted with Ctrl+C
-   - When interrupted, the script will complete any in-progress tasks and save partial results
-   - A message will indicate that shutdown is in progress
-   - Results file will be updated with the processed items and marked with `early_shutdown: true`
+2. **k6 Installation Issues**
+   - Verify k6 is installed: `k6 version`
+   - If not installed, follow instructions at k6.io
 
-### Debugging
-
-Use the `--verbose` flag to enable detailed logging:
-
-```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket video-assets \
-  --base-url https://videos.example.com/ --verbose
-```
-
-For AWS CLI troubleshooting, you can run direct AWS commands:
-
-```bash
-# Test AWS S3 access
-aws s3 ls s3://your-bucket/
-
-# Get detailed information about a specific object
-aws s3api head-object --bucket your-bucket --key path/to/file.mp4
-```
-
-For rclone troubleshooting, you can run direct rclone commands:
-
-```bash
-# Test rclone access
-rclone lsf your-remote:your-bucket/
-
-# Get detailed information about a specific object
-rclone lsl your-remote:your-bucket/path/to/file.mp4
-```
+3. **Performance Issues**
+   - Adjust virtual user counts based on your system's capabilities
+   - Consider running k6 on a separate machine for high-load tests
+   - Monitor system resources during tests
 
 ## Performance Optimization
 
 - **AWS CLI vs. rclone**: For large AWS S3 buckets, AWS CLI is generally faster for listing objects
 - **Worker Count**: Adjust `--workers` based on your CPU cores and network capacity
-- **Timeout Values**: Set appropriate `--timeout` and `--connection-close-delay` values based on video sizes
+- **Timeout Values**: Set appropriate `--timeout` values based on video sizes
+- **k6 Settings**: Adjust load test stages based on your CDN's capacity and expected real-world usage
 - **Selective Processing**: Use `--directory` and `--limit` to process subsets for testing
-- **Memory Usage**: For very large buckets, process directories one at a time rather than the entire bucket
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](../../LICENSE) file for details.
+This project is licensed under the MIT License.
