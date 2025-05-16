@@ -7,6 +7,9 @@ import json
 import time
 import os
 import re
+import signal
+import sys
+import threading
 from urllib.parse import urljoin
 from datetime import datetime
 from tabulate import tabulate
@@ -42,10 +45,10 @@ def setup_logging(verbose=False):
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Process video assets with different derivatives')
-    parser.add_argument('--remote', required=True, help='rclone remote name')
-    parser.add_argument('--bucket', required=True, help='S3 bucket name')
+    parser.add_argument('--remote', help='rclone remote name')
+    parser.add_argument('--bucket', help='S3 bucket name')
     parser.add_argument('--directory', default='', help='Directory path within bucket')
-    parser.add_argument('--base-url', required=True, help='Base URL to prepend to object paths')
+    parser.add_argument('--base-url', help='Base URL to prepend to object paths')
     parser.add_argument('--derivatives', default='desktop,tablet,mobile', help='Comma-separated list of derivatives')
     parser.add_argument('--workers', type=int, default=5, help='Number of concurrent workers')
     parser.add_argument('--timeout', type=int, default=120, help='Request timeout in seconds')
@@ -61,6 +64,7 @@ def parse_arguments():
     parser.add_argument('--summary-format', default='markdown', choices=['markdown', 'json'], help='Format for the summary output (markdown or json)')
     parser.add_argument('--only-compare', action='store_true', help='Skip processing and only compare existing results with KV data')
     parser.add_argument('--use-aws-cli', action='store_true', help='Use AWS CLI instead of rclone for listing S3 objects')
+    parser.add_argument('--generate-error-report', action='store_true', help='Generate or regenerate the 500 error reports from an existing results file')
     return parser.parse_args()
 
 def list_objects(remote, bucket, directory, extension, limit=0, logger=None, use_aws_cli=False):
@@ -140,8 +144,8 @@ def get_derivative_dimensions(derivative, logger=None):
     """Get the requested dimensions for a specific derivative."""
     dimensions = {
         'desktop': {'width': 1920, 'height': 1080},
-        'tablet': {'width': 1000, 'height': 720},
-        'mobile': {'width': 800, 'height': 640}
+        'tablet': {'width': 1280, 'height': 720},
+        'mobile': {'width': 854, 'height': 640}
     }
     
     if derivative in dimensions:
@@ -200,8 +204,8 @@ def process_object(obj_path, base_url, derivatives, bucket, directory, timeout, 
         logger.info(f"Requesting derivative '{derivative}' for {rel_path}")
         dimensions = get_derivative_dimensions(derivative, logger)
         
-        # Construct URL with both dimensions
-        url = f"{base_obj_url}?derivative={derivative}&width={dimensions['width']}&height={dimensions['height']}"
+        # Construct URL with imwidth parameter
+        url = f"{base_obj_url}?imwidth={dimensions['width']}"
         logger.debug(f"Request URL: {url}")
         
         # Keep track of retry attempts
@@ -258,9 +262,16 @@ def process_object(obj_path, base_url, derivatives, bucket, directory, timeout, 
                     logger.info(f"Success: {derivative} for {rel_path} - Size: {actual_size} bytes, "
                                f"Total Size: {total_size} bytes, Chunked: {is_chunked}")
                 else:
+                    # More verbose logging for non-200 responses
                     logger.warning(f"Non-200 response: {derivative} for {rel_path} - Status: {status}")
+                    logger.debug(f"Full response details for failed request ({rel_path}, {derivative}):")
+                    logger.debug(f"  URL: {url}")
+                    logger.debug(f"  Status code: {status}")
+                    logger.debug(f"  Headers: {dict(response.headers)}")
+                    logger.debug(f"  Content preview: {response.text[:500] if response.text else 'No content'}")
                 
-                results["derivatives"][derivative_key] = {
+                # Build the result information
+                result_data = {
                     'status': status,
                     'contentLength': actual_size,
                     'contentType': content_type,
@@ -271,10 +282,29 @@ def process_object(obj_path, base_url, derivatives, bucket, directory, timeout, 
                     'width': dimensions['width'],
                     'height': dimensions['height'],
                     'sourcePath': f"/{rel_path}",
-                    'requestDimensions': f"{dimensions['width']}x{dimensions['height']}",
+                    'requestDimensions': f"{dimensions['width']}",
                     'etag': response.headers.get('ETag', '').strip('"'),
                     'attempt': attempt
                 }
+                
+                # Add extra error details for non-200 responses
+                if status != 200:
+                    # Extract potentially useful debugging information from headers
+                    result_data['errorDetails'] = {
+                        'responseHeaders': dict(response.headers),
+                        'responseText': response.text[:500] if response.text else 'No content'
+                    }
+                    
+                    # Try to determine if it's a CloudFlare-specific error
+                    cf_ray = response.headers.get('cf-ray', 'Not found')
+                    result_data['errorDetails']['cf_ray'] = cf_ray
+                    
+                    # Check for any CloudFlare specific headers that might indicate the cause
+                    cf_headers = {k: v for k, v in response.headers.items() if k.lower().startswith('cf-')}
+                    if cf_headers:
+                        result_data['errorDetails']['cloudflare_headers'] = cf_headers
+                
+                results["derivatives"][derivative_key] = result_data
                 
                 # If successful, break the retry loop
                 break
@@ -304,15 +334,117 @@ def process_object(obj_path, base_url, derivatives, bucket, directory, timeout, 
     return results
 
 def write_results_to_file(all_results, metadata, output_file, processed, total_objects, logger=None):
-    """Write current results to the output file."""
+    """Write current results to the output file, with a special section for 500 errors."""
     try:
         logger.debug(f"Writing results to {output_file} ({processed}/{total_objects} processed)")
+        
+        # Create a list of all entries that have 500 errors
+        http_500_errors = []
+        for key, data in all_results.items():
+            if data.get('status') == 500:
+                # Extract the file name from the key for better readability
+                file_path = key.split(':')[1] if ':' in key else key
+                derivative = data.get('derivative', 'unknown')
+                
+                # Convert CloudFlare headers to string to avoid serialization issues
+                cf_headers = {}
+                if 'errorDetails' in data and 'cloudflare_headers' in data['errorDetails']:
+                    cf_headers = data['errorDetails']['cloudflare_headers']
+                
+                # Create a full URL that can be used for testing
+                base_url = metadata.get('base_url', '')
+                path = data.get('sourcePath', '')
+                
+                # Remove leading slash if base_url ends with slash
+                if path.startswith('/') and base_url.endswith('/'):
+                    path = path[1:]
+                
+                full_url = f"{base_url}{path}"
+                request_url = f"{full_url}?imwidth={data.get('width')}"
+                
+                error_entry = {
+                    'file': file_path,
+                    'derivative': derivative,
+                    'cf_ray': data.get('errorDetails', {}).get('cf_ray', 'Not found'),
+                    'cloudflare_headers': cf_headers,
+                    'relative_path': path,
+                    'full_url': full_url,
+                    'request_url': request_url
+                }
+                http_500_errors.append(error_entry)
+        
+        # Add 500 errors to metadata for easy access
+        metadata['http_500_errors'] = {
+            'total_count': len(http_500_errors),
+            'errors': http_500_errors
+        }
+        
+        # Generate separate 500 error report file (JSON)
+        error_report_file = output_file.replace('.json', '_500_errors.json')
+        with open(error_report_file, 'w') as ef:
+            json.dump({
+                'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"),
+                'total_errors': len(http_500_errors),
+                'errors': http_500_errors
+            }, ef, indent=2)
+        
+        # Also generate a simple text report for easy reading
+        text_report_file = output_file.replace('.json', '_500_errors.txt')
+        with open(text_report_file, 'w') as tf:
+            tf.write(f"HTTP 500 Error Report - Generated at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            tf.write(f"Total Errors: {len(http_500_errors)}\n")
+            tf.write(f"Base URL: {metadata.get('base_url', 'Not specified')}\n\n")
+            
+            # Group by derivative
+            by_derivative = {}
+            for error in http_500_errors:
+                derivative = error['derivative']
+                if derivative not in by_derivative:
+                    by_derivative[derivative] = []
+                by_derivative[derivative].append(error)
+            
+            # Write summary counts by derivative
+            tf.write("Error Count by Derivative:\n")
+            for derivative, errors in sorted(by_derivative.items()):
+                tf.write(f"  {derivative}: {len(errors)}\n")
+            
+            # Write the full list of errors
+            tf.write("\nFull Error List:\n")
+            for i, error in enumerate(http_500_errors, 1):
+                tf.write(f"\n{i}. File: {error['file']}\n")
+                tf.write(f"   Derivative: {error['derivative']}\n")
+                tf.write(f"   FULL REQUEST URL for testing (copy this to browser or curl):\n")
+                tf.write(f"   {error['request_url']}\n")
+                tf.write(f"   Base URL used: {metadata.get('base_url', 'Not specified')}\n\n")
+                tf.write(f"   Relative path: {error['relative_path']}\n")
+                tf.write(f"   CF-Ray: {error['cf_ray']}\n")
+                
+                # Add CF headers if available
+                if error['cloudflare_headers']:
+                    tf.write("   CloudFlare Headers:\n")
+                    for k, v in error['cloudflare_headers'].items():
+                        tf.write(f"     {k}: {v}\n")
+        
+        # Write the main results file
         with open(output_file, 'w') as f:
             output_data = {
                 "metadata": metadata,
                 "results": all_results
             }
             json.dump(output_data, f, indent=2)
+        
+        # Log a clear summary of 500 errors to console for visibility
+        # Only log the error summary when processing is complete
+        if processed == total_objects and http_500_errors:
+            logger.info(f"\n{'=' * 40}")
+            logger.info(f"HTTP 500 ERROR SUMMARY")
+            logger.info(f"{'=' * 40}")
+            logger.info(f"Found {len(http_500_errors)} HTTP 500 errors")
+            logger.info(f"See detailed reports at:")
+            logger.info(f"  - {text_report_file} (Text format - view this first)")
+            logger.info(f"  - {error_report_file} (JSON format)")
+            logger.info(f"{'=' * 40}\n")
+        
         logger.debug(f"Successfully wrote {len(all_results)} results to {output_file}")
     except Exception as e:
         logger.error(f"Failed to write results to {output_file}: {str(e)}")
@@ -333,6 +465,7 @@ def print_summary_statistics(all_results, elapsed_time, total_objects, logger=No
     derivative_stats = {}
     status_codes = {}
     content_types = {}
+    error_details = {}  # For tracking specific error patterns
     
     for key, data in all_results.items():
         derivative = data.get('derivative')
@@ -353,11 +486,28 @@ def print_summary_statistics(all_results, elapsed_time, total_objects, logger=No
         
         derivative_stats[derivative]['count'] += 1
         
-        # Track status codes
+        # Track status codes and detailed error patterns
         status = data.get('status')
         if status not in status_codes:
             status_codes[status] = 0
         status_codes[status] += 1
+        
+        # Track error details for non-200 responses
+        if isinstance(status, int) and status != 200:
+            # Create a key based on derivative and status code
+            error_key = f"{derivative}_{status}"
+            if error_key not in error_details:
+                error_details[error_key] = {
+                    'count': 0,
+                    'examples': []
+                }
+            error_details[error_key]['count'] += 1
+            
+            # Store up to 5 examples of each error type
+            if len(error_details[error_key]['examples']) < 5:
+                # Extract the file name from the key for cleaner reporting
+                file_path = key.split(':')[1] if ':' in key else key
+                error_details[error_key]['examples'].append(file_path)
         
         # Track content types
         content_type = data.get('contentType', '')
@@ -405,8 +555,56 @@ def print_summary_statistics(all_results, elapsed_time, total_objects, logger=No
     
     # Print status code distribution
     logger.info(f"Status Code Distribution:")
-    for status, count in sorted(status_codes.items()):
+    for status, count in sorted(status_codes.items(), key=lambda x: str(x[0])):
         logger.info(f"  {status}: {count} ({count/len(all_results)*100:.1f}%)")
+    
+    # Print detailed error information if errors exist
+    if error_details:
+        logger.info(f"\nDetailed Error Analysis:")
+        
+        # Analyze 500 errors specifically
+        http_500_errors = {k: v for k, v in error_details.items() if k.endswith('_500')}
+        if http_500_errors:
+            logger.info(f"HTTP 500 Error Analysis:")
+            
+            # Check if all 500 errors are associated with specific derivatives
+            derivative_counts = {}
+            for error_key in http_500_errors.keys():
+                derivative = error_key.split('_')[0]
+                if derivative not in derivative_counts:
+                    derivative_counts[derivative] = 0
+                derivative_counts[derivative] += http_500_errors[error_key]['count']
+            
+            total_500s = sum(v['count'] for v in http_500_errors.values())
+            logger.info(f"  Total HTTP 500 errors: {total_500s}")
+            logger.info(f"  Distribution by derivative:")
+            for derivative, count in derivative_counts.items():
+                logger.info(f"    {derivative}: {count} ({count/total_500s*100:.1f}%)")
+            
+            # Log examples of the files that encountered 500 errors
+            logger.info(f"  Example files with 500 errors (max 10):")
+            examples_shown = 0
+            for error_key, details in http_500_errors.items():
+                derivative = error_key.split('_')[0]
+                for example in details['examples']:
+                    logger.info(f"    - {derivative}: {example}")
+                    examples_shown += 1
+                    if examples_shown >= 10:
+                        break
+                if examples_shown >= 10:
+                    break
+        
+        # Print all error types
+        logger.info(f"\nAll Error Types:")
+        for error_key, details in sorted(error_details.items()):
+            derivative, status = error_key.split('_')
+            logger.info(f"  Error pattern: {derivative} derivative with status {status}")
+            logger.info(f"  Count: {details['count']}")
+            if details['examples']:
+                logger.info(f"  Example files:")
+                for example in details['examples']:
+                    logger.info(f"    - {example}")
+            logger.info("")  # Add blank line for readability
     
     # Print content type distribution
     logger.info(f"Content Type Distribution:")
@@ -902,8 +1100,81 @@ def save_summary(comparison_results, output_path, format_type, logger):
         logger.error(f"Failed to save summary: {str(e)}")
         return False
 
+def generate_error_report_from_results(results_file, logger):
+    """Generate or regenerate error reports from an existing results file."""
+    logger.info(f"Generating error reports from existing results file: {results_file}")
+    
+    try:
+        # Load the results file
+        with open(results_file, 'r') as f:
+            data = json.load(f)
+        
+        if 'results' not in data:
+            logger.error(f"Invalid results file format. Expected 'results' key.")
+            return False
+            
+        # Extract metadata for the report generation
+        metadata = data.get('metadata', {})
+        metadata['timestamp'] = time.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Make sure base_url is included in the metadata for error reports
+        if 'base_url' not in metadata:
+            logger.warning("Base URL not found in metadata for error report generation")
+            # Try to use one from command line arguments if available
+            import sys
+            for i, arg in enumerate(sys.argv):
+                if arg == '--base-url' and i + 1 < len(sys.argv):
+                    metadata['base_url'] = sys.argv[i + 1]
+                    logger.info(f"Using base URL from command line: {metadata['base_url']}")
+        
+        # Call the write_results_to_file function which will generate the error reports
+        processed = metadata.get('processed', 0)
+        total = metadata.get('total', processed)
+        write_results_to_file(data['results'], metadata, results_file, processed, total, logger)
+        
+        return True
+    except Exception as e:
+        logger.error(f"Failed to generate error reports: {str(e)}")
+        return False
+
+# Global variables for graceful shutdown
+shutdown_event = None
+executor = None
+logger = None
+
+def signal_handler(sig, frame):
+    """Handle interrupt signals for graceful shutdown."""
+    global shutdown_event, logger
+    if logger:
+        logger.info("\nReceived interrupt signal. Initiating graceful shutdown...")
+        logger.info("Please wait while running tasks complete (this may take a few seconds)")
+    if shutdown_event:
+        shutdown_event.set()
+    else:
+        # If shutdown_event is not initialized yet, exit immediately
+        sys.exit(0)
+
+def cleanup_resources():
+    """Clean up resources before exiting."""
+    global executor, logger
+    if executor and not executor._shutdown:
+        if logger:
+            logger.info("Shutting down thread pool executor...")
+        executor.shutdown(wait=False)
+        if logger:
+            logger.info("Thread pool executor shutdown complete.")
+
 def main():
     """Main function."""
+    global shutdown_event, executor, logger
+    
+    # Set up shutdown event
+    shutdown_event = threading.Event()
+    
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     args = parse_arguments()
     
     # Set up logging
@@ -914,6 +1185,19 @@ def main():
     logger.info(f"Configuration:")
     for arg, value in vars(args).items():
         logger.info(f"  {arg}: {value}")
+    
+    # Check if we're only generating error reports
+    if args.generate_error_report:
+        if not os.path.exists(args.output):
+            logger.error(f"Results file not found: {args.output}")
+            return
+            
+        success = generate_error_report_from_results(args.output, logger)
+        if success:
+            logger.info(f"Successfully generated error reports from {args.output}")
+        else:
+            logger.error(f"Failed to generate error reports from {args.output}")
+        return
     
     # Check if we're only doing comparison
     if args.only_compare:
@@ -950,6 +1234,11 @@ def main():
         
         return
     
+    # Verify required parameters for processing mode
+    if not args.remote or not args.bucket or not args.base_url:
+        logger.error("Missing required parameters: --remote, --bucket, and --base-url are required for processing mode")
+        return
+        
     derivatives = [d.strip() for d in args.derivatives.split(',')]
     logger.info(f"Processing derivatives: {derivatives}")
     
@@ -977,10 +1266,13 @@ def main():
         logger.info(f"Starting to process {total_objects} objects with {len(derivatives)} derivatives each")
         logger.info(f"Using {args.workers} concurrent workers with {args.timeout}s timeout")
         logger.info(f"Connection close delay: {args.connection_close_delay}s")
+        logger.info(f"Press Ctrl+C to initiate graceful shutdown")
         
         start_time = time.time()
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
+        global executor
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=args.workers)
+        try:
             logger.debug(f"Thread pool executor initialized with {args.workers} workers")
             
             # Submit all tasks
@@ -1005,6 +1297,11 @@ def main():
             
             # Process results as they complete
             for future in concurrent.futures.as_completed(futures):
+                # Check if shutdown was requested
+                if shutdown_event.is_set():
+                    logger.info("Shutdown requested. Stopping processing of new results.")
+                    break
+                    
                 processed += 1
                 obj = futures[future]
                 try:
@@ -1026,7 +1323,7 @@ def main():
                                f"{derivatives_successful}/{derivatives_processed} derivatives successful")
                     
                     # Every 5 objects or at the end, write intermediate results
-                    if processed % 5 == 0 or processed == total_objects:
+                    if processed % 5 == 0 or processed == total_objects or shutdown_event.is_set():
                         current_time = time.time()
                         elapsed = current_time - start_time
                         estimated_total = (elapsed / processed) * total_objects if processed > 0 else 0
@@ -1039,7 +1336,8 @@ def main():
                             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                             "elapsed_seconds": elapsed,
                             "estimated_total_seconds": estimated_total,
-                            "estimated_remaining_seconds": remaining
+                            "estimated_remaining_seconds": remaining,
+                            "base_url": args.base_url
                         }
                         
                         logger.info(f"Progress: {processed}/{total_objects} objects processed "
@@ -1050,9 +1348,32 @@ def main():
                 except Exception as e:
                     logger.error(f"Error processing {obj}: {str(e)}", exc_info=True)
         
+            # Save results if shutdown was requested
+            if shutdown_event.is_set():
+                # Write final results file with shutdown status
+                metadata = {
+                    "processed": processed,
+                    "total": total_objects,
+                    "derivatives_requested": derivatives,
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "elapsed_seconds": time.time() - start_time,
+                    "early_shutdown": True,
+                    "base_url": args.base_url
+                }
+                
+                logger.info(f"Saving results before shutdown ({processed}/{total_objects} objects processed)")
+                write_results_to_file(all_results, metadata, args.output, processed, total_objects, logger)
+                logger.info(f"Results saved to {args.output}")
+        finally:
+            # Ensure thread pool is shutdown properly
+            cleanup_resources()
+                
         # Calculate and log statistics
         elapsed_time = time.time() - start_time
-        logger.info(f"Processing completed: {processed} of {total_objects} objects in {elapsed_time:.2f} seconds")
+        if shutdown_event.is_set():
+            logger.info(f"Processing stopped early: {processed} of {total_objects} objects in {elapsed_time:.2f} seconds")
+        else:
+            logger.info(f"Processing completed: {processed} of {total_objects} objects in {elapsed_time:.2f} seconds")
         
         # Print comprehensive summary statistics
         print_summary_statistics(all_results, elapsed_time, total_objects, logger)
@@ -1089,4 +1410,15 @@ def main():
         logger.error(f"An error occurred in the main process: {str(e)}", exc_info=True)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        # This is a fallback in case the signal handler doesn't catch the interrupt
+        print("\nInterrupted by user. Exiting.")
+        sys.exit(1)
+    except Exception as e:
+        if logger:
+            logger.error(f"Unhandled exception: {str(e)}", exc_info=True)
+        else:
+            print(f"Unhandled exception: {str(e)}")
+        sys.exit(1)
