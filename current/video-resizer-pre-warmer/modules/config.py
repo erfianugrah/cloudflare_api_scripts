@@ -111,12 +111,16 @@ def parse_arguments():
     # Video optimization options
     parser.add_argument('--optimize-videos', action='store_true',
                       help='Enable video optimization using FFmpeg')
+    parser.add_argument('--optimize-in-place', action='store_true',
+                      help='Re-encode large video files and replace them in-place')
     parser.add_argument('--codec', choices=['h264', 'h265', 'vp9', 'vp8', 'av1'],
                       default='h264', help='Video codec to use for optimization')
     parser.add_argument('--quality', choices=['maximum', 'high', 'balanced', 'efficient', 'minimum'],
                       default='balanced', help='Encoding quality profile')
     parser.add_argument('--target-resolution', choices=['4k', '1080p', '720p', '480p', '360p'],
                       default='1080p', help='Target resolution for video optimization')
+    parser.add_argument('--fit', choices=['contain', 'cover', 'pad', 'stretch', 'decrease', 'crop'],
+                      default='contain', help='How to fit video to target resolution: contain (preserve aspect ratio and fit entire video within frame), cover (preserve aspect ratio and fill entire frame, may crop), pad (preserve aspect ratio and add letterbox/pillarbox), stretch (ignore aspect ratio)')
     parser.add_argument('--audio-profile', choices=['high', 'medium', 'low', 'minimum'],
                       default='medium', help='Audio encoding profile')
     parser.add_argument('--output-format', choices=['mp4', 'webm', 'mkv'],

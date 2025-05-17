@@ -359,3 +359,33 @@ def upload_to_rclone(local_path, remote_path):
     except subprocess.CalledProcessError as e:
         logger.error(f"Error uploading {local_path}: {e.stderr}")
         return False
+
+def replace_file_in_place(remote, bucket, directory, file_path, local_optimized_path):
+    """
+    Replace a file in the remote storage with a local optimized version.
+    
+    Args:
+        remote: Rclone remote name
+        bucket: Bucket name  
+        directory: Directory within bucket
+        file_path: Path to the file within the directory
+        local_optimized_path: Path to the local optimized file
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        full_remote_path = f"{remote}:{bucket}/{directory}/{file_path}"
+        logger.info(f"Replacing file in-place: {full_remote_path}")
+        
+        # Upload the optimized file to replace the original
+        cmd = ["rclone", "copyto", local_optimized_path, full_remote_path]
+        logger.info(f"Running command: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        logger.info(f"Successfully replaced {file_path} with optimized version")
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error replacing {file_path}: {e.stderr}")
+        return False

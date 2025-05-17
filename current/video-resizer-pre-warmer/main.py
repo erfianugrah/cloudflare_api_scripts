@@ -20,6 +20,7 @@ import threading
 import concurrent.futures
 import signal
 import math
+import shutil
 from threading import Lock
 import numpy as np
 from datetime import datetime
@@ -203,6 +204,11 @@ def process_objects(objects, args, derivatives, stats):
     """
     global running, shutdown_event, processed_objects, failed_objects, executor
     
+    # Check if we're only doing optimization without processing
+    if args.optimize_in_place and not args.base_url:
+        # Skip processing step for in-place optimization only mode
+        return {}
+    
     # Group objects by size category for optimized processing
     objects_by_category = {
         'small': [],
@@ -236,6 +242,11 @@ def process_objects(objects, args, derivatives, stats):
     # Process each size category with appropriate worker count
     results = {}
     
+    # Verify base_url is provided if we're doing media processing
+    if not args.base_url and not (args.optimize_videos or args.optimize_in_place or args.list_files):
+        logger.error("No base_url provided. Skipping media processing.")
+        return results
+    
     # Process different size categories (in order of processing speed)
     categories = ['small', 'medium', 'large']
     for category in categories:
@@ -255,6 +266,10 @@ def process_objects(objects, args, derivatives, stats):
                 if not running or shutdown_event.is_set():
                     logger.info("Stopping submission of new tasks...")
                     break
+                
+                # Skip processing if we're only doing optimization
+                if args.optimize_in_place and not args.base_url:
+                    continue
                 
                 # If derivatives is empty, process the file without specifying derivatives
                 if not derivatives:
@@ -364,6 +379,7 @@ def optimize_video_files(objects, args):
         "codec": args.codec,
         "quality_profile": args.quality,
         "resolution": args.target_resolution,
+        "fit_mode": args.fit,
         "audio_profile": args.audio_profile,
         "output_format": args.output_format,
         "create_webm": args.create_webm
@@ -466,6 +482,195 @@ def optimize_video_files(objects, args):
         logger.info(f"Total size reduction: {video_utils.format_file_size(total_reduction)} "
                    f"({percent_reduction:.1f}%)")
         logger.info(f"Reports saved to {report_path} and {md_report_path}")
+    
+    return results
+
+def optimize_and_replace_in_place(objects, args):
+    """
+    Optimize large video files using FFmpeg and replace them in-place in the remote storage.
+    
+    Args:
+        objects: List of file metadata objects
+        args: Command line arguments
+        
+    Returns:
+        List of optimization results
+    """
+    global executor, running, shutdown_event
+    
+    # Apply size threshold filter if specified
+    size_threshold_bytes = args.size_threshold * 1024 * 1024
+    filtered_objects = [obj for obj in objects if obj.size_bytes >= size_threshold_bytes]
+    
+    if not filtered_objects:
+        logger.info(f"No files found above the size threshold of {args.size_threshold} MiB")
+        return []
+    
+    logger.info(f"Starting in-place video optimization for {len(filtered_objects)} files above {args.size_threshold} MiB...")
+    
+    # Create temporary work directory
+    temp_dir = os.path.join(os.path.expanduser("~"), ".video_optimizer_temp")
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    # Create work directory for downloads
+    download_dir = os.path.join(temp_dir, "downloads")
+    os.makedirs(download_dir, exist_ok=True)
+    
+    # Create work directory for optimized files
+    optimized_dir = os.path.join(temp_dir, "optimized")
+    os.makedirs(optimized_dir, exist_ok=True)
+    
+    # Configure optimization options
+    optimization_options = {
+        "codec": args.codec,
+        "quality_profile": args.quality,
+        "resolution": args.target_resolution,
+        "fit_mode": args.fit,
+        "audio_profile": args.audio_profile,
+        "output_format": args.output_format,
+        "create_webm": False  # No WebM for in-place replacement
+    }
+    
+    # Start optimization with parallel workers
+    results = []
+    total_original_size = 0
+    total_new_size = 0
+    
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=args.workers)
+    try:
+        # Submit tasks
+        future_to_obj = {}
+        
+        for obj in filtered_objects:
+            if not running or shutdown_event.is_set():
+                logger.info("Stopping submission of new tasks...")
+                break
+                
+            # Create paths
+            filename = os.path.basename(obj.path)
+            remote_path = f"{args.remote}:{args.bucket}/{args.directory}/{obj.path}"
+            download_path = os.path.join(download_dir, filename)
+            optimized_path = os.path.join(optimized_dir, filename)
+            
+            # Submit optimization and replacement task
+            logger.info(f"Submitting {obj.path} ({video_utils.format_file_size(obj.size_bytes)}) for in-place optimization")
+            
+            def process_and_replace(remote_path, download_path, optimized_path, opt_options, obj_path):
+                # Download the file
+                if not storage.download_from_rclone(remote_path, download_path):
+                    logger.error(f"Failed to download {remote_path}")
+                    return None
+                
+                # Optimize the video
+                result = encoding.optimize_video(download_path, optimized_path, opt_options)
+                if not result:
+                    logger.error(f"Failed to optimize {download_path}")
+                    return None
+                
+                # Replace the file in-place
+                if storage.replace_file_in_place(args.remote, args.bucket, args.directory, obj_path, optimized_path):
+                    result["replaced_in_place"] = True
+                    logger.info(f"Successfully replaced {obj_path} in-place")
+                else:
+                    result["replaced_in_place"] = False
+                    logger.error(f"Failed to replace {obj_path} in-place")
+                
+                return result
+            
+            future = executor.submit(
+                process_and_replace,
+                remote_path,
+                download_path,
+                optimized_path,
+                optimization_options,
+                obj.path
+            )
+            
+            future_to_obj[future] = obj
+        
+        # Process results as they complete
+        for future in concurrent.futures.as_completed(future_to_obj):
+            if shutdown_event.is_set():
+                logger.info("Shutdown event detected. Processing results, then stopping...")
+                break
+                
+            obj = future_to_obj[future]
+            
+            try:
+                result = future.result()
+                if result:
+                    results.append(result)
+                    total_original_size += result["original_size"]
+                    total_new_size += result["new_size"]
+                    
+                    replace_status = "✅ Replaced in-place" if result.get("replaced_in_place", False) else "❌ Not replaced"
+                    logger.info(f"Completed {obj.path}: "
+                            f"{video_utils.format_file_size(obj.size_bytes)} → {video_utils.format_file_size(result['new_size'])} "
+                            f"({result['reduction_percent']:.1f}% reduction) - {replace_status}")
+                    
+                    # Clean up temporary files
+                    download_path = os.path.join(download_dir, os.path.basename(obj.path))
+                    optimized_path = os.path.join(optimized_dir, os.path.basename(obj.path))
+                    
+                    if os.path.exists(download_path):
+                        os.remove(download_path)
+                    if os.path.exists(optimized_path):
+                        os.remove(optimized_path)
+            except Exception as e:
+                logger.error(f"Error processing {obj.path}: {str(e)}")
+    finally:
+        # Always shut down the executor when done
+        if executor and not executor._shutdown:
+            executor.shutdown(wait=True)
+    
+    # Generate final report
+    if results:
+        total_reduction = total_original_size - total_new_size
+        percent_reduction = (total_reduction / total_original_size) * 100 if total_original_size > 0 else 0
+        
+        # Count how many files were successfully replaced
+        replaced_count = sum(1 for r in results if r.get("replaced_in_place", False))
+        
+        # Overall stats
+        report = {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "stats": {
+                "files_processed": len(results),
+                "files_replaced": replaced_count,
+                "total_original_size": total_original_size,
+                "total_original_size_formatted": video_utils.format_file_size(total_original_size),
+                "total_new_size": total_new_size,
+                "total_new_size_formatted": video_utils.format_file_size(total_new_size),
+                "total_reduction_bytes": total_reduction,
+                "total_reduction_bytes_formatted": video_utils.format_file_size(total_reduction),
+                "percent_reduction": percent_reduction
+            },
+            "files": results
+        }
+        
+        # Save report
+        os.makedirs("optimization_reports", exist_ok=True)
+        report_path = os.path.join("optimization_reports", f"in_place_optimization_report_{time.strftime('%Y%m%d_%H%M%S')}.json")
+        with open(report_path, 'w') as f:
+            json.dump(report, f, indent=2)
+        
+        # Generate markdown report
+        md_report = reporting.generate_optimization_report(results, include_replacement_status=True)
+        md_report_path = os.path.join("optimization_reports", f"in_place_optimization_report_{time.strftime('%Y%m%d_%H%M%S')}.md")
+        with open(md_report_path, 'w') as f:
+            f.write(md_report)
+        
+        logger.info(f"Successfully processed {len(results)} files, replaced {replaced_count} files in-place")
+        logger.info(f"Total size reduction: {video_utils.format_file_size(total_reduction)} "
+                  f"({percent_reduction:.1f}%)")
+        logger.info(f"Reports saved to {report_path} and {md_report_path}")
+    
+    # Clean up temporary directories
+    try:
+        shutil.rmtree(temp_dir)
+        logger.info(f"Cleaned up temporary directory: {temp_dir}")
+    except Exception as e:
+        logger.warning(f"Failed to clean up temporary directory {temp_dir}: {str(e)}")
     
     return results
 
@@ -749,6 +954,11 @@ def main():
             logger.info(f"Starting video optimization...")
             optimize_video_files(objects, args)
         
+        # Optimize and replace video files in-place if requested
+        if args.optimize_in_place:
+            logger.info(f"Starting in-place video optimization...")
+            optimize_and_replace_in_place(objects, args)
+            
         # Compare results with KV data if requested
         if args.compare and os.path.exists(args.compare):
             logger.info(f"Comparing results with KV data from {args.compare}")

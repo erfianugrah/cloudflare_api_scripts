@@ -180,12 +180,15 @@ Pre-warmer options:
 
 Video Optimization options:
   --optimize-videos        Re-encode large video files to reduce size
+  --optimize-in-place      Re-encode large videos and replace them in-place
   --codec                  Video codec to use (h264, h265, vp9, vp8, av1)
-  --quality-profile        Encoding quality (maximum, high, balanced, efficient, minimum)
+  --quality                Encoding quality (maximum, high, balanced, efficient, minimum)
   --target-resolution      Target resolution (4k, 1080p, 720p, 480p, 360p)
+  --fit                    How to fit video to target resolution (contain, cover, pad, stretch)
   --audio-profile          Audio encoding profile (high, medium, low, minimum)
   --output-format          Container format (mp4, webm, mkv)
   --create-webm            Also create WebM version alongside primary format
+  --optimized-videos-dir   Output directory for optimized videos (default: optimized_videos)
 
 k6 load test options:
   --url-format FORMAT     URL format to use: 'imwidth' or 'derivative'
@@ -223,12 +226,68 @@ python main.py --remote r2 --bucket videos \
 
 ### Video Optimization
 
+#### Standard Optimization (Save to New Location)
+
 ```bash
 python main.py --remote r2 --bucket videos \
   --directory videos --optimize-videos --codec h265 \
-  --quality-profile balanced --create-webm \
+  --quality balanced --create-webm \
   --workers 4 --limit 10
 ```
+
+This will download videos, optimize them, and save the optimized versions to the `optimized_videos` directory (configurable with `--optimized-videos-dir`).
+
+#### In-Place Optimization (Replace Original Files)
+
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --codec h265 --quality balanced \
+  --target-resolution 1080p --fit contain \
+  --audio-profile medium --size-threshold 256 --workers 4
+```
+
+This will download videos larger than the specified threshold (256 MiB in this example), optimize them according to your settings, and replace the original files in the remote storage with the optimized versions.
+
+##### In-Place Optimization Parameters
+
+| Parameter | Description | Options |
+|-----------|-------------|---------|
+| `--optimize-in-place` | Enable in-place optimization | Flag (no value) |
+| `--codec` | Video codec to use | `h264` (default), `h265`, `vp9`, `vp8`, `av1` |
+| `--quality` | Quality profile | `maximum`, `high`, `balanced` (default), `efficient`, `minimum` |
+| `--target-resolution` | Target resolution | `4k`, `1080p` (default), `720p`, `480p`, `360p` |
+| `--fit` | How to handle aspect ratio | `contain` (default), `cover`, `pad`, `stretch` |
+| `--audio-profile` | Audio quality profile | `high`, `medium` (default), `low`, `minimum` |
+| `--size-threshold` | Only process files larger than this (MiB) | Default: 256 |
+| `--workers` | Number of concurrent workers | Default: 5 |
+
+##### Fit Modes for Aspect Ratio Handling
+
+- `contain` (default): Preserves aspect ratio and fits entire video within frame
+- `cover`: Preserves aspect ratio and fills entire frame (may crop)
+- `pad`: Preserves aspect ratio and adds letterbox/pillarbox to fill frame
+- `stretch`: Ignores aspect ratio and stretches to fill frame
+
+##### Quality Settings
+
+Video quality profiles translate to the following codec-specific settings:
+
+| Profile | H.264 (CRF) | H.265 (CRF) | VP9 (CRF) | AV1 (CRF) | Preset |
+|---------|-------------|------------|-----------|-----------|--------|
+| maximum | 18 | 22 | 31 | 25 | slower |
+| high | 20 | 24 | 33 | 30 | slow |
+| balanced | 23 | 28 | 36 | 34 | medium |
+| efficient | 26 | 30 | 39 | 38 | fast |
+| minimum | 28 | 32 | 42 | 42 | faster |
+
+Audio quality profiles:
+
+| Profile | Bitrate | Channels | Sampling Rate |
+|---------|---------|----------|---------------|
+| high | 192k | Original | Original |
+| medium | 128k | Original | 48kHz |
+| low | 96k | 2 | 44.1kHz |
+| minimum | 64k | 2 | 44.1kHz |
 
 ### File Size Analysis
 
@@ -448,8 +507,21 @@ The file size analysis feature generates detailed markdown reports including:
 ```bash
 python main.py --remote r2 --bucket videos \
   --directory videos --optimize-videos --codec h265 \
-  --quality-profile balanced --create-webm --target-resolution 1080p
+  --quality balanced --create-webm --target-resolution 1080p
 ```
+
+### In-Place Video Optimization 
+
+For optimizing large video files and replacing them in-place, reducing storage costs:
+
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --codec h265 --quality efficient \
+  --target-resolution 1080p --fit contain \
+  --audio-profile medium --size-threshold 100 --workers 4
+```
+
+This will find all videos larger than 100 MiB in the bucket, optimize them with H.265 encoding (HEVC) using the efficient quality profile, and replace the original files in-place with the optimized versions. Great for reducing storage costs while maintaining good quality.
 
 ### High-Volume File Processing
 

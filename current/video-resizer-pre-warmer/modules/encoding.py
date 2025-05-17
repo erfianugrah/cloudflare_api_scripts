@@ -64,9 +64,20 @@ def select_encoding_parameters(codec, quality_profile):
         'preset': preset
     }
 
-def select_resolution_parameters(resolution, video_info):
+def select_resolution_parameters(resolution, video_info, fit_mode='contain'):
     """
     Select target resolution parameters.
+    
+    Args:
+        resolution: Target resolution name ('4k', '1080p', etc.)
+        video_info: Video file metadata
+        fit_mode: How to fit video to target resolution:
+            - 'contain': Preserve aspect ratio and fit entire video within frame (same as 'decrease')
+            - 'cover': Preserve aspect ratio and fill entire frame, may crop (same as 'crop')
+            - 'pad': Preserve aspect ratio and add letterbox/pillarbox to fill target resolution
+            - 'stretch': Ignore aspect ratio and stretch to fill target resolution
+            - 'decrease': Legacy alias for 'contain'
+            - 'crop': Legacy alias for 'cover'
     """
     resolution_values = {
         '4k': (3840, 2160),
@@ -82,14 +93,37 @@ def select_resolution_parameters(resolution, video_info):
     
     width, height = resolution_values[resolution]
     
-    # Create FFmpeg scale filter
-    scale_filter = f"scale={width}:{height}:force_original_aspect_ratio=decrease"
+    # Create FFmpeg scale filter based on fit mode
+    if fit_mode in ['contain', 'decrease']:
+        # Preserve aspect ratio and fit entire video within frame
+        scale_filter = f"scale={width}:{height}:force_original_aspect_ratio=decrease"
+    elif fit_mode in ['cover', 'crop']:
+        # Preserve aspect ratio and fill entire frame (may crop)
+        scale_filter = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
+    elif fit_mode == 'pad':
+        # Preserve aspect ratio and add padding (letterbox/pillarbox)
+        scale_filter = f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2"
+    elif fit_mode == 'stretch':
+        # Ignore aspect ratio and stretch to fill target resolution
+        scale_filter = f"scale={width}:{height}"
+    else:
+        # Default to contain if an unknown mode is provided
+        logger.warning(f"Unknown fit mode: {fit_mode}, defaulting to 'contain'")
+        scale_filter = f"scale={width}:{height}:force_original_aspect_ratio=decrease"
     
+    # For reporting purposes, normalize aliases to their standard names
+    normalized_fit_mode = fit_mode
+    if fit_mode == 'decrease':
+        normalized_fit_mode = 'contain'
+    elif fit_mode == 'crop':
+        normalized_fit_mode = 'cover'
+
     return {
         'width': width,
         'height': height,
         'scale': scale_filter,
-        'name': resolution
+        'name': resolution,
+        'fit_mode': normalized_fit_mode
     }
 
 def select_audio_parameters(audio_profile):
@@ -224,8 +258,11 @@ def optimize_video(input_path, output_path, options=None):
     # Select encoding parameters based on codec and quality profile
     encoding_params = select_encoding_parameters(codec, quality_profile)
     
-    # Select resolution parameters
-    resolution_params = select_resolution_parameters(resolution, file_info)
+    # Get fit mode from options (default to 'decrease' if not specified)
+    fit_mode = options.get("fit_mode", "decrease")
+    
+    # Select resolution parameters with fit mode
+    resolution_params = select_resolution_parameters(resolution, file_info, fit_mode)
     
     # Select audio parameters
     audio_params = select_audio_parameters(audio_profile)
@@ -321,6 +358,7 @@ def optimize_video(input_path, output_path, options=None):
         "encoding_time": encoding_time,
         "output_path": output_path,
         "resolution": resolution_params["name"],
+        "fit_mode": resolution_params.get("fit_mode", "contain"),
         "codec": codec,
         "format": output_format
     }

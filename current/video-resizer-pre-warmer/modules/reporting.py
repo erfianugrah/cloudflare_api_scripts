@@ -589,12 +589,13 @@ def generate_size_report(file_list, size_threshold_mib, format_type='markdown'):
     
     return "\n".join(md_report)
 
-def generate_optimization_report(optimization_results):
+def generate_optimization_report(optimization_results, include_replacement_status=False):
     """
     Generate a report for video optimization results.
     
     Args:
         optimization_results: List of optimization result dictionaries
+        include_replacement_status: Whether to include in-place replacement status
         
     Returns:
         String containing the formatted report
@@ -618,24 +619,42 @@ def generate_optimization_report(optimization_results):
         "",
         f"## Summary",
         f"- Files processed: {len(optimization_results)}",
+    ]
+    
+    # Add replacement stats if needed
+    if include_replacement_status:
+        replaced_count = sum(1 for r in optimization_results if r.get('replaced_in_place', False))
+        md_report.append(f"- Files replaced in-place: {replaced_count} of {len(optimization_results)} ({(replaced_count/len(optimization_results))*100:.1f}%)")
+    
+    md_report.extend([
         f"- Total original size: {video_utils.format_file_size(total_original_size)}",
         f"- Total optimized size: {video_utils.format_file_size(total_new_size)}",
         f"- Total reduction: {video_utils.format_file_size(total_reduction)} ({percent_reduction:.1f}%)",
         "",
         "## Individual File Results",
         "",
-    ]
+    ])
     
-    # Create table header based on whether we have WebM results
-    if has_webm:
+    # Create table header based on whether we have WebM results and replacement status
+    if has_webm and include_replacement_status:
         md_report.extend([
-            "| File | Original Size | Optimized Size | Reduction | WebM Size | WebM Reduction | Codec | Resolution |",
-            "|------|---------------|----------------|-----------|-----------|---------------|-------|------------|",
+            "| File | Original Size | Optimized Size | Reduction | WebM Size | WebM Reduction | Codec | Resolution | Fit Mode | Replaced In-place |",
+            "|------|---------------|----------------|-----------|-----------|---------------|-------|------------|----------|-------------------|",
+        ])
+    elif has_webm:
+        md_report.extend([
+            "| File | Original Size | Optimized Size | Reduction | WebM Size | WebM Reduction | Codec | Resolution | Fit Mode |",
+            "|------|---------------|----------------|-----------|-----------|---------------|-------|------------|----------|",
+        ])
+    elif include_replacement_status:
+        md_report.extend([
+            "| File | Original Size | Optimized Size | Reduction | Codec | Resolution | Fit Mode | Replaced In-place |",
+            "|------|---------------|----------------|-----------|-------|------------|----------|-------------------|",
         ])
     else:
         md_report.extend([
-            "| File | Original Size | Optimized Size | Reduction | Codec | Resolution |",
-            "|------|---------------|----------------|-----------|-------|------------|",
+            "| File | Original Size | Optimized Size | Reduction | Codec | Resolution | Fit Mode |",
+            "|------|---------------|----------------|-----------|-------|------------|----------|",
         ])
     
     # Add rows for each file
@@ -646,19 +665,34 @@ def generate_optimization_report(optimization_results):
         reduction = result.get('reduction_percent', 0)
         codec = result.get('codec', 'unknown')
         resolution = result.get('resolution', 'unknown')
+        fit_mode = result.get('fit_mode', 'contain')
+        replaced = "✅ Yes" if result.get('replaced_in_place', False) else "❌ No"
         
-        if has_webm and 'webm_size' in result:
+        if has_webm and include_replacement_status and 'webm_size' in result:
             webm_size = video_utils.format_file_size(result.get('webm_size', 0))
             webm_reduction = result.get('webm_reduction_percent', 0)
             md_report.append(
                 f"| {output_path} | {original_size} | {new_size} | {reduction:.1f}% | "
-                f"{webm_size} | {webm_reduction:.1f}% | {codec} | {resolution} |"
+                f"{webm_size} | {webm_reduction:.1f}% | {codec} | {resolution} | {fit_mode} | {replaced} |"
             )
-        else:
-            # Add a row without WebM data
+        elif has_webm and 'webm_size' in result:
+            webm_size = video_utils.format_file_size(result.get('webm_size', 0))
+            webm_reduction = result.get('webm_reduction_percent', 0)
             md_report.append(
                 f"| {output_path} | {original_size} | {new_size} | {reduction:.1f}% | "
-                f"{codec} | {resolution} |"
+                f"{webm_size} | {webm_reduction:.1f}% | {codec} | {resolution} | {fit_mode} |"
+            )
+        elif include_replacement_status:
+            # Add a row with replacement status
+            md_report.append(
+                f"| {output_path} | {original_size} | {new_size} | {reduction:.1f}% | "
+                f"{codec} | {resolution} | {fit_mode} | {replaced} |"
+            )
+        else:
+            # Add a row without WebM data or replacement status
+            md_report.append(
+                f"| {output_path} | {original_size} | {new_size} | {reduction:.1f}% | "
+                f"{codec} | {resolution} | {fit_mode} |"
             )
     
     return "\n".join(md_report)
