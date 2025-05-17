@@ -375,14 +375,24 @@ def optimize_video_files(objects, args):
     os.makedirs(work_dir, exist_ok=True)
     
     # Configure optimization options
+    codec = args.codec
+    
+    # If browser compatibility is enabled and output format is mp4, force h264 codec
+    if args.browser_compatible and args.output_format == 'mp4' and codec != 'h264':
+        logger.warning(f"Forcing H.264 codec for MP4 format for browser compatibility. Overriding codec: {codec} → h264")
+        logger.warning(f"To use {codec} codec with MP4, add --browser-compatible=False to your command")
+        codec = 'h264'
+    
     optimization_options = {
-        "codec": args.codec,
+        "codec": codec,
         "quality_profile": args.quality,
         "resolution": args.target_resolution,
         "fit_mode": args.fit,
         "audio_profile": args.audio_profile,
         "output_format": args.output_format,
-        "create_webm": args.create_webm
+        "create_webm": args.create_webm,
+        "hardware_acceleration": args.hardware_acceleration,
+        "disable_hardware_acceleration": args.disable_hardware_acceleration
     }
     
     # Start optimization with parallel workers
@@ -521,14 +531,25 @@ def optimize_and_replace_in_place(objects, args):
     os.makedirs(optimized_dir, exist_ok=True)
     
     # Configure optimization options
+    codec = args.codec
+    
+    # If browser compatibility is enabled and output format is mp4, force h264 codec
+    if args.browser_compatible and args.output_format == 'mp4' and codec != 'h264':
+        logger.warning(f"Forcing H.264 codec for MP4 format for browser compatibility. Overriding codec: {codec} → h264")
+        logger.warning(f"To use {codec} codec with MP4, add --browser-compatible=False to your command")
+        logger.warning(f"Note: H.265/HEVC videos played directly from R2 storage may not work in all browsers")
+        codec = 'h264'
+    
     optimization_options = {
-        "codec": args.codec,
+        "codec": codec,
         "quality_profile": args.quality,
         "resolution": args.target_resolution,
         "fit_mode": args.fit,
         "audio_profile": args.audio_profile,
         "output_format": args.output_format,
-        "create_webm": False  # No WebM for in-place replacement
+        "create_webm": False,  # No WebM for in-place replacement
+        "hardware_acceleration": args.hardware_acceleration,
+        "disable_hardware_acceleration": args.disable_hardware_acceleration
     }
     
     # Start optimization with parallel workers

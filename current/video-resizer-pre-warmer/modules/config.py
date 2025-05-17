@@ -114,7 +114,9 @@ def parse_arguments():
     parser.add_argument('--optimize-in-place', action='store_true',
                       help='Re-encode large video files and replace them in-place')
     parser.add_argument('--codec', choices=['h264', 'h265', 'vp9', 'vp8', 'av1'],
-                      default='h264', help='Video codec to use for optimization')
+                      default='h264', help='Video codec to use for optimization (h264 recommended for browser compatibility)')
+    parser.add_argument('--browser-compatible', type=lambda x: (str(x).lower() == 'true'), nargs='?', const=True, default=True,
+                      help='Ensure browser compatibility (forces h264 codec for mp4 files). Set to False to disable.')
     parser.add_argument('--quality', choices=['maximum', 'high', 'balanced', 'efficient', 'minimum'],
                       default='balanced', help='Encoding quality profile')
     parser.add_argument('--target-resolution', choices=['4k', '1080p', '720p', '480p', '360p'],
@@ -129,6 +131,10 @@ def parse_arguments():
                       help='Also create WebM version during optimization')
     parser.add_argument('--optimized-videos-dir', default='optimized_videos',
                       help='Directory for optimized videos')
+    parser.add_argument('--hardware-acceleration', choices=['auto', 'nvidia', 'intel', 'amd', 'apple', 'none'], 
+                      default='auto', help='Hardware acceleration type to use (auto will detect available hardware)')
+    parser.add_argument('--disable-hardware-acceleration', action='store_true',
+                      help='Disable hardware acceleration even if available')
     
     return parser.parse_args()
 

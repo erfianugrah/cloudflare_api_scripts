@@ -179,16 +179,32 @@ Pre-warmer options:
   --error-report-format   Format for error report (markdown or json)
 
 Video Optimization options:
-  --optimize-videos        Re-encode large video files to reduce size
-  --optimize-in-place      Re-encode large videos and replace them in-place
+  --optimize-videos        Re-encode large video files to reduce size (saves to new location)
+  --optimize-in-place      Re-encode large videos and replace them in-place (reduces storage)
   --codec                  Video codec to use (h264, h265, vp9, vp8, av1)
+                           h264 offers best browser compatibility (default)
+                           h265 offers best compression but limited browser support
   --quality                Encoding quality (maximum, high, balanced, efficient, minimum)
   --target-resolution      Target resolution (4k, 1080p, 720p, 480p, 360p)
-  --fit                    How to fit video to target resolution (contain, cover, pad, stretch)
+  --fit                    How to fit video to target resolution:
+                           contain: preserve aspect ratio, fit entire video (default)
+                           cover: preserve aspect ratio, fill frame, may crop
+                           pad: preserve aspect ratio, add letterbox/pillarbox
+                           stretch: ignore aspect ratio, stretch to fill
   --audio-profile          Audio encoding profile (high, medium, low, minimum)
   --output-format          Container format (mp4, webm, mkv)
   --create-webm            Also create WebM version alongside primary format
   --optimized-videos-dir   Output directory for optimized videos (default: optimized_videos)
+  --size-threshold         Only process files larger than this size in MiB (default: 256)
+  --hardware-acceleration  Hardware acceleration type to use:
+                           auto: detect and use best available (default)
+                           nvidia: use NVIDIA NVENC
+                           intel: use Intel QuickSync
+                           amd: use AMD AMF
+                           apple: use Apple VideoToolbox
+                           none: disable hardware acceleration
+  --disable-hardware-acceleration
+                           Disable hardware acceleration even if available
 
 k6 load test options:
   --url-format FORMAT     URL format to use: 'imwidth' or 'derivative'
@@ -230,23 +246,25 @@ python main.py --remote r2 --bucket videos \
 
 ```bash
 python main.py --remote r2 --bucket videos \
-  --directory videos --optimize-videos --codec h265 \
+  --directory videos --optimize-videos --codec h264 \
   --quality balanced --create-webm \
+  --hardware-acceleration auto \
   --workers 4 --limit 10
 ```
 
-This will download videos, optimize them, and save the optimized versions to the `optimized_videos` directory (configurable with `--optimized-videos-dir`).
+This will download videos, optimize them, and save the optimized versions to the `optimized_videos` directory (configurable with `--optimized-videos-dir`). Hardware acceleration will be automatically used if available.
 
 #### In-Place Optimization (Replace Original Files)
 
 ```bash
 python main.py --remote r2 --bucket videos \
-  --optimize-in-place --codec h265 --quality balanced \
+  --optimize-in-place --codec h264 --quality balanced \
   --target-resolution 1080p --fit contain \
-  --audio-profile medium --size-threshold 256 --workers 4
+  --audio-profile medium --hardware-acceleration auto \
+  --size-threshold 256 --workers 4
 ```
 
-This will download videos larger than the specified threshold (256 MiB in this example), optimize them according to your settings, and replace the original files in the remote storage with the optimized versions.
+This will download videos larger than the specified threshold (256 MiB in this example), optimize them using hardware acceleration when available, and replace the original files in the remote storage with the optimized versions.
 
 ##### In-Place Optimization Parameters
 
@@ -260,6 +278,9 @@ This will download videos larger than the specified threshold (256 MiB in this e
 | `--audio-profile` | Audio quality profile | `high`, `medium` (default), `low`, `minimum` |
 | `--size-threshold` | Only process files larger than this (MiB) | Default: 256 |
 | `--workers` | Number of concurrent workers | Default: 5 |
+| `--hardware-acceleration` | Hardware acceleration type | `auto` (default), `nvidia`, `intel`, `amd`, `apple`, `none` |
+| `--disable-hardware-acceleration` | Disable hardware acceleration | Flag (no value) |
+| `--browser-compatible` | Ensure browser compatibility | `True` (default), `False` |
 
 ##### Fit Modes for Aspect Ratio Handling
 
@@ -268,32 +289,84 @@ This will download videos larger than the specified threshold (256 MiB in this e
 - `pad`: Preserves aspect ratio and adds letterbox/pillarbox to fill frame
 - `stretch`: Ignores aspect ratio and stretches to fill frame
 
+##### Codec Compatibility and Selection Guide
+
+| Codec | Compression | Browser Compatibility | Encoding Speed | Container | Best For |
+|-------|-------------|----------------------|---------------|-----------|----------|
+| H.264 | Good | Excellent | Fast | MP4 | Maximum browser compatibility, direct playback from R2 |
+| H.265 (HEVC) | Excellent | Limited | Slow | MP4 | Maximum compression, downloaded playback |
+| VP9 | Very Good | Good | Very Slow | WebM | Open formats, modern browsers |
+| VP8 | Moderate | Good | Fast | WebM | Legacy WebM support |
+| AV1 | Best | Limited | Extremely Slow | MP4/WebM | Future-proofing, experimental |
+
+##### Codec Browser Support Matrix
+
+| Browser | H.264 | H.265/HEVC | VP9 | VP8 | AV1 |
+|---------|-------|------------|-----|-----|-----|
+| Chrome | ✓ | Limited | ✓ | ✓ | Limited |
+| Firefox | ✓ | ✗ | ✓ | ✓ | Limited |
+| Safari | ✓ | ✓ (macOS/iOS) | ✗ | ✗ | ✗ |
+| Edge | ✓ | Limited | ✓ | ✓ | Limited |
+| Mobile Chrome | ✓ | Limited | ✓ | ✓ | Limited |
+| Mobile Safari | ✓ | ✓ | ✗ | ✗ | ✗ |
+
+> **Note about browser compatibility**: Use the `--browser-compatible` flag (enabled by default) to ensure videos can be played directly in browsers. This forces H.264 codec for MP4 files. You can disable this with `--browser-compatible=False` if you want to prioritize compression over browser compatibility.
+
 ##### Quality Settings
 
 Video quality profiles translate to the following codec-specific settings:
 
-| Profile | H.264 (CRF) | H.265 (CRF) | VP9 (CRF) | AV1 (CRF) | Preset |
-|---------|-------------|------------|-----------|-----------|--------|
-| maximum | 18 | 22 | 31 | 25 | slower |
-| high | 20 | 24 | 33 | 30 | slow |
-| balanced | 23 | 28 | 36 | 34 | medium |
-| efficient | 26 | 30 | 39 | 38 | fast |
-| minimum | 28 | 32 | 42 | 42 | faster |
+| Profile | H.264 (CRF) | H.265 (CRF) | VP9 (CRF) | AV1 (CRF) | Preset | Use Case |
+|---------|-------------|-------------|-----------|-----------|--------|----------|
+| maximum | 18 | 22 | 31 | 25 | slower | Archival, highest quality needed |
+| high | 20 | 24 | 33 | 30 | slow | Professional content, visually lossless |
+| balanced | 23 | 28 | 36 | 34 | medium | Standard use, good balance |
+| efficient | 26 | 30 | 39 | 38 | fast | Storage priority, acceptable quality |
+| minimum | 28 | 32 | 42 | 42 | faster | Maximum storage reduction |
 
-Audio quality profiles:
+Lower CRF values produce higher quality but larger file sizes. Faster presets encode quicker but result in slightly lower quality or larger files at the same quality level.
 
-| Profile | Bitrate | Channels | Sampling Rate |
-|---------|---------|----------|---------------|
-| high | 192k | Original | Original |
-| medium | 128k | Original | 48kHz |
-| low | 96k | 2 | 44.1kHz |
-| minimum | 64k | 2 | 44.1kHz |
+##### Compression Efficiency Comparison (Approximate)
 
-### File Size Analysis
+| Codec | Relative File Size | Quality Retention | Processing Speed |
+|-------|-------------------|-------------------|------------------|
+| H.264 | 100% (Baseline) | Baseline | 1x (Baseline) |
+| H.265 | 40-60% of H.264 | Same or better | 2-4x slower than H.264 |
+| VP9 | 45-65% of H.264 | Same or better | 5-7x slower than H.264 |
+| AV1 | 30-50% of H.264 | Same or better | 10-20x slower than H.264 |
+
+##### Audio Quality Profiles:
+
+| Profile | Bitrate | Channels | Sampling Rate | Use Case |
+|---------|---------|----------|---------------|----------|
+| high | 192k | Original | Original | Music videos, audio-focused content |
+| medium | 128k | Original | 48kHz | Standard videos, good quality |
+| low | 96k | 2 | 44.1kHz | Speech-focused content |
+| minimum | 64k | 2 | 44.1kHz | Maximum compression, basic audio |
+
+### File Size Analysis and Reporting
 
 ```bash
 python main.py --remote r2 --bucket videos \
-  --directory videos --list-files --size-threshold 256
+  --directory videos --list-files --size-threshold 256 \
+  --size-report-output file_sizes.md
+```
+
+This generates a detailed report of all file sizes in the specified directory, sorted by size in descending order. The report includes:
+- Size statistics (total, average, median)
+- Size distribution by category
+- List of files larger than the threshold (256 MiB by default)
+- Potential storage savings if these files were optimized
+
+You can customize the output file with `--size-report-output` and adjust the size threshold with `--size-threshold`.
+
+#### Using AWS CLI Instead of Rclone
+
+If you prefer using AWS CLI for listing S3 objects (which can be faster for very large buckets):
+
+```bash
+python main.py --remote r2 --bucket videos \
+  --directory videos --list-files --use-aws-cli
 ```
 
 ### Load Testing
@@ -506,32 +579,197 @@ The file size analysis feature generates detailed markdown reports including:
 
 ```bash
 python main.py --remote r2 --bucket videos \
-  --directory videos --optimize-videos --codec h265 \
+  --directory videos --optimize-videos --codec h264 \
   --quality balanced --create-webm --target-resolution 1080p
 ```
 
-### In-Place Video Optimization 
+### Browser Compatibility
 
-For optimizing large video files and replacing them in-place, reducing storage costs:
+By default, the tool now enforces browser compatibility for MP4 files by using the H.264 codec, which has the best browser support. If you want to use other codecs like H.265/HEVC (which offers better compression but limited browser support), you need to explicitly disable browser compatibility:
+
+```bash
+# Use H.265 codec for maximum compression (videos may not play directly in browser)
+python main.py --remote r2 --bucket videos --optimize-in-place \
+  --codec h265 --browser-compatible=False --quality balanced
+```
+
+> **IMPORTANT**: Videos encoded with H.265/HEVC and stored in R2 may not play directly in browsers when served via URL. They will play fine when downloaded locally. When browser compatibility is critical, stick with H.264 encoding (the default).
+
+### In-Place Video Optimization Examples
+
+#### Basic In-Place Optimization with H.264 (Maximum Browser Compatibility)
 
 ```bash
 python main.py --remote r2 --bucket videos \
-  --optimize-in-place --codec h265 --quality efficient \
-  --target-resolution 1080p --fit contain \
+  --optimize-in-place --codec h264 --quality balanced \
+  --target-resolution 1080p --size-threshold 100 --workers 4
+```
+
+This uses H.264 encoding which offers the best browser compatibility when served directly from R2 or other storage.
+
+#### In-Place Optimization with H.265 (Maximum Compression)
+
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --codec h265 --browser-compatible=False \
+  --quality efficient --target-resolution 1080p --fit contain \
   --audio-profile medium --size-threshold 100 --workers 4
 ```
 
-This will find all videos larger than 100 MiB in the bucket, optimize them with H.265 encoding (HEVC) using the efficient quality profile, and replace the original files in-place with the optimized versions. Great for reducing storage costs while maintaining good quality.
+H.265 offers superior compression (often 95-99% reduction for videos) but has limited browser compatibility. With `--browser-compatible=False`, you're explicitly acknowledging that these videos may need to be downloaded to be played in most browsers.
 
-### High-Volume File Processing
+#### Maximum Quality Preservation
 
-For processing thousands of files with maximum efficiency:
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --codec h264 --quality maximum \
+  --target-resolution 4k --audio-profile high \
+  --hardware-acceleration auto \
+  --size-threshold 500 --workers 2
+```
+
+This preserves maximum quality with H.264 encoding, 4K resolution, and high audio quality. Hardware acceleration ensures faster processing without quality loss. Good for archival purposes where quality is paramount.
+
+#### Maximum Compression
+
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --codec h265 --browser-compatible=False \
+  --quality minimum --target-resolution 720p \
+  --audio-profile minimum --hardware-acceleration auto \
+  --size-threshold 50 --workers 4
+```
+
+This applies maximum compression with H.265, lower resolution, and minimum audio quality. Hardware acceleration is used when available, dramatically speeding up the encoding process. Good for drastically reducing storage costs where extreme compression is needed.
+
+#### Hardware-Accelerated Encoding
+
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --codec h265 --browser-compatible=False \
+  --hardware-acceleration auto --workers 6
+```
+
+This uses automatic hardware acceleration detection to encode videos much faster than CPU encoding. The script will use the best available GPU acceleration (NVIDIA NVENC, Intel QuickSync, AMD AMF, or Apple VideoToolbox).
+
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --codec h264 --hardware-acceleration nvidia
+```
+
+This specifically uses NVIDIA GPU acceleration for encoding videos with H.264 codec.
+
+#### WebM Format with VP9 Codec
+
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --codec vp9 --quality balanced \
+  --target-resolution 1080p --output-format webm \
+  --hardware-acceleration auto \
+  --size-threshold 100 --workers 4
+```
+
+Uses VP9 codec with WebM container, good for web applications supporting modern open formats. Note that hardware acceleration for VP9 is less widely available than for H.264/H.265, but the script will use it when possible.
+
+#### Different Fit Modes
+
+Contain mode (default) - preserves aspect ratio, fits entire video:
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --fit contain --hardware-acceleration auto --size-threshold 100
+```
+
+Cover mode - preserves aspect ratio, fills frame (may crop):
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --fit cover --hardware-acceleration auto --size-threshold 100
+```
+
+Pad mode - preserves aspect ratio, adds letterbox/pillarbox:
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --fit pad --hardware-acceleration auto --size-threshold 100
+```
+
+Stretch mode - ignores aspect ratio, stretches to fill:
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --fit stretch --hardware-acceleration auto --size-threshold 100
+```
+
+#### Processing Files in a Specific Directory
+
+```bash
+python main.py --remote r2 --bucket videos --directory marketing \
+  --optimize-in-place --codec h264 --hardware-acceleration auto \
+  --size-threshold 100
+```
+
+Only processes files in the 'marketing' directory within the 'videos' bucket. Hardware acceleration is used if available.
+
+#### Limiting to Specific File Extension
+
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --extension .mov \
+  --codec h264 --hardware-acceleration auto \
+  --size-threshold 100
+```
+
+Only processes MOV files, converting them to MP4 with H.264 encoding. Hardware acceleration significantly speeds up this conversion process.
+
+#### Optimizing a Specific Number of Files
+
+```bash
+python main.py --remote r2 --bucket videos \
+  --optimize-in-place --limit 10 --codec h264 \
+  --hardware-acceleration auto --size-threshold 100
+```
+
+Only processes the 10 largest files above the size threshold, using hardware acceleration when available.
+
+### Advanced Processing Configuration
+
+#### Size-Based Worker Allocation
+
+The tool can optimize processing based on file sizes to improve throughput:
 
 ```bash
 python main.py --remote r2 --bucket videos --directory videos \
   --base-url https://cdn.example.com/ --optimize-by-size \
-  --workers 500 --small-file-workers 300 --medium-file-workers 150 --large-file-workers 50
+  --small-file-threshold 50 --medium-file-threshold 200 \
+  --small-file-workers 300 --medium-file-workers 150 --large-file-workers 50 \
+  --hardware-acceleration auto --workers 500
 ```
+
+This configuration:
+- Categorizes files by size:
+  - Small: <50 MiB (configurable with `--small-file-threshold`)
+  - Medium: 50-200 MiB (up to `--medium-file-threshold`)
+  - Large: >200 MiB
+- Allocates workers appropriately to each size category
+- Processes small files with more parallelism (300 workers)
+- Dedicates fewer but sufficient resources to large files (50 workers)
+- Prevents large files from blocking the processing of smaller files
+
+The `--optimize-by-size` flag enables intelligent worker allocation based on file distribution.
+
+#### Per-Derivative Parallel Processing
+
+Process each derivative (desktop, tablet, mobile) in parallel for maximum throughput:
+
+```bash
+python main.py --remote r2 --bucket videos --directory videos \
+  --base-url https://cdn.example.com/ --derivatives desktop,tablet,mobile \
+  --workers 30 --optimize-by-size --use-derivatives
+```
+
+With this approach:
+- Each derivative is processed as a separate task
+- Faster derivatives complete earlier, optimizing worker utilization
+- All derivatives are processed truly in parallel
+- Performance metrics are captured at the derivative level
+- The `--use-derivatives` flag includes derivatives in the URL path
 
 ### Performance Benchmarking
 
@@ -542,6 +780,38 @@ python main.py --remote r2 --bucket videos --directory videos \
   --base-url https://cdn.example.com/ --optimize-by-size \
   --performance-report detailed_performance.md
 ```
+
+### Performance Comparison with KV Data
+
+You can compare your transformation results with Cloudflare KV data to identify discrepancies and ensure consistency:
+
+```bash
+# First run a standard processing job and save results
+python main.py --remote r2 --bucket videos --base-url https://cdn.example.com \
+  --output my_results.json
+
+# Then compare these results with Cloudflare KV data
+python main.py --compare cloudflare_kv_data.json \
+  --output my_results.json \
+  --comparison-output comparison_results.json \
+  --summary-output comparison_summary.md \
+  --summary-format markdown
+```
+
+You can also skip processing and just run the comparison:
+
+```bash
+python main.py --only-compare \
+  --compare cloudflare_kv_data.json \
+  --output existing_results.json \
+  --comparison-output comparison_results.json
+```
+
+The comparison report provides:
+- Match rates between your results and KV data
+- Discrepancies in file sizes, TTFB, and other metrics
+- Lists of files that appear in one dataset but not the other
+- Detailed performance statistics for both datasets
 
 ### Error Analysis and Monitoring
 
@@ -632,6 +902,66 @@ python main.py --remote r2 --bucket videos \
    - Check codec support: `ffmpeg -codecs | grep <codec>`
    - For H.265/HEVC encoding issues, ensure libx265 is installed
    - For VP9 issues, ensure libvpx-vp9 is installed
+
+4. **Videos Not Playing in Browser After Optimization**
+   - If you used H.265/HEVC encoding (`--codec h265`), most browsers can't play these videos directly
+   - Switch to H.264 encoding (`--codec h264`) for maximum browser compatibility
+   - Try downloading the video to play it locally if it was encoded with H.265
+   - Consider using VP9 with WebM format (`--codec vp9 --output-format webm`) for modern browsers
+
+### FAQ: Video Optimization
+
+#### Q: Why do my optimized videos play locally but not in the browser when served from R2?
+A: This is likely due to the codec you chose. H.265/HEVC provides excellent compression (95-99% reduction) but has limited browser support. By default, the tool now uses H.264 (`--codec h264`) for maximum browser compatibility. If you disabled browser compatibility and used H.265, your videos may only play properly when downloaded.
+
+#### Q: How can I ensure my videos will play in all browsers?
+A: The tool now has a `--browser-compatible` flag (enabled by default) which forces the use of H.264 codec for MP4 files. This ensures maximum browser compatibility. To prioritize compression over compatibility, use `--browser-compatible=False --codec h265`.
+
+#### Q: What's the difference between `--optimize-videos` and `--optimize-in-place`?
+A: `--optimize-videos` creates optimized copies in a local directory, while `--optimize-in-place` replaces the original files directly in the remote storage to save space.
+
+#### Q: How do I choose between H.264 and H.265?
+A: Use H.264 when you need browser compatibility for direct playback from storage (this is now the default setting). Use H.265 when you want maximum compression and files will be downloaded before playback or played in compatible applications. With H.265, you'll need to use `--browser-compatible=False` to override the default behavior.
+
+#### Q: What compression ratio can I expect?
+A: With H.264, expect about 70-90% reduction in file size. With H.265, expect 90-99% reduction for most video content. The greater compression with H.265 comes at the cost of browser compatibility.
+
+#### Q: Can I serve H.265 videos through Cloudflare for browser playback?
+A: Direct browser playback of H.265/HEVC content from R2 or other storage is challenging because of limited browser support. For web playback, you have these options:
+1. Use H.264 encoding (now the default with `--browser-compatible`)
+2. Use VP9 with WebM format for modern browsers 
+3. Add a transcoding layer (like a media server) between your storage and the browser
+4. Configure your application to download H.265 videos before playing them locally
+
+#### Q: Will video quality be noticeably affected?
+A: With the default `balanced` quality profile, most viewers won't notice quality differences. If quality is critical, use the `high` or `maximum` profiles. For maximum compression, use `efficient` or `minimum` profiles.
+
+#### Q: How can I see the encoding parameters being used?
+A: Set the logging level to debug with `--verbose` flag. This will show the exact FFmpeg commands being executed.
+
+#### Q: Can I convert between formats (e.g., MOV to MP4)?
+A: Yes, use the `--extension .mov` parameter to target specific file types, and the `--output-format mp4` to specify the output format.
+
+#### Q: My server has limited CPU resources. How can I optimize for that?
+A: Use H.264 instead of H.265/VP9, reduce the number of workers with `--workers 2`, enable hardware acceleration, and consider the `efficient` quality profile which uses faster encoding presets.
+
+#### Q: Can I use GPU acceleration for encoding?
+A: Yes! The tool now supports hardware acceleration for multiple platforms:
+- NVIDIA GPUs via NVENC
+- Intel GPUs via QuickSync
+- AMD GPUs via AMF
+- Apple Silicon/macOS via VideoToolbox
+
+Use `--hardware-acceleration auto` (default) to automatically detect and use the best available option, or specify a platform with `--hardware-acceleration nvidia|intel|amd|apple`. You can disable hardware acceleration with `--disable-hardware-acceleration` if you prefer CPU encoding for any reason.
+
+#### Q: How much faster is hardware acceleration compared to CPU encoding?
+A: Performance varies by hardware, but you can expect:
+- NVIDIA GPUs: 3-10x faster than CPU encoding
+- Intel QuickSync: 2-6x faster than CPU
+- AMD AMF: 2-5x faster than CPU
+- Apple VideoToolbox: 3-8x faster than CPU
+
+Hardware acceleration is particularly beneficial for H.265/HEVC encoding, which is very CPU-intensive.
 
 4. **HTTP 500 Errors in Pre-warming**
    - Check access permissions for your CDN/storage
