@@ -1,0 +1,664 @@
+"""
+Reporting module for video resizer pre-warmer.
+Handles report generation, statistics, and output formatting.
+"""
+import json
+import time
+import logging
+import os
+import numpy as np
+import math
+from datetime import datetime
+from tabulate import tabulate
+from modules import video_utils
+
+# Set up module logger
+logger = logging.getLogger(__name__)
+
+def write_results_to_file(all_results, metadata, output_file, processed, total_objects, logger=None):
+    """
+    Write current results to the output file, with special sections for errors and performance metrics.
+    
+    Args:
+        all_results: Dictionary of processing results
+        metadata: Dictionary of metadata to include
+        output_file: Path to output file
+        processed: Number of processed objects
+        total_objects: Total number of objects
+        logger: Logger instance
+    """
+    try:
+        if logger:
+            logger.debug(f"Writing results to {output_file} ({processed}/{total_objects} processed)")
+        
+        # Create a list of all entries that have 500 errors
+        http_500_errors = []
+        
+        # Collect performance metrics data
+        performance_data = {
+            'by_size_category': {'small': [], 'medium': [], 'large': []},
+            'by_derivative': {},
+            'overall': []
+        }
+        
+        # Track file sizes for correlation with errors and performance
+        size_data = {
+            'error_sizes': [],
+            'success_sizes': [],
+            'by_size_category': {'small': [], 'medium': [], 'large': []}
+        }
+        
+        # Process all results to generate these special sections
+        for obj_path, obj_results in all_results.items():
+            size_category = obj_results.get('size_category', 'unknown')
+            size_bytes = obj_results.get('size_bytes', 0)
+            
+            # Track timing data by size category
+            if size_category in performance_data['by_size_category'] and obj_results.get('processing_time'):
+                performance_data['by_size_category'][size_category].append({
+                    'path': obj_path,
+                    'size_bytes': size_bytes,
+                    'processing_time': obj_results.get('processing_time')
+                })
+                
+                size_data['by_size_category'][size_category].append(size_bytes)
+            
+            if obj_results.get('processing_time'):
+                performance_data['overall'].append({
+                    'path': obj_path,
+                    'size_bytes': size_bytes,
+                    'size_category': size_category,
+                    'processing_time': obj_results.get('processing_time')
+                })
+            
+            # Check for HTTP 500 errors
+            derivatives = obj_results.get('derivatives', {})
+            has_error = False
+            
+            for derivative, derivative_results in derivatives.items():
+                # Initialize derivative-specific performance data if needed
+                if derivative not in performance_data['by_derivative']:
+                    performance_data['by_derivative'][derivative] = []
+                
+                # Add derivative performance data
+                if 'duration' in obj_results.get('derivatives', {}).get(derivative, {}):
+                    performance_data['by_derivative'][derivative].append({
+                        'path': obj_path,
+                        'size_bytes': size_bytes,
+                        'size_category': size_category,
+                        'duration': obj_results['derivatives'][derivative]['duration']
+                    })
+                
+                # Check for errors
+                if derivative_results.get('status_code') == 500:
+                    http_500_errors.append({
+                        'path': obj_path,
+                        'size_bytes': size_bytes,
+                        'size_category': size_category,
+                        'derivative': derivative,
+                        'details': derivative_results
+                    })
+                    has_error = True
+            
+            # Track sizes for correlation analysis
+            if has_error:
+                size_data['error_sizes'].append(size_bytes)
+            else:
+                size_data['success_sizes'].append(size_bytes)
+        
+        # Calculate stats based on collected data
+        performance_stats = calculate_performance_stats(performance_data, size_data, logger)
+        
+        # Assemble the complete results object
+        results_obj = {
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'parameters': metadata,
+            'summary': {
+                'total_processed': processed,
+                'total_count': total_objects,
+                'percent_complete': (processed / total_objects) * 100 if total_objects > 0 else 0,
+                'http_500_error_count': len(http_500_errors)
+            },
+            'results': all_results,
+            'http_500_errors': http_500_errors,
+            'performance_metrics': performance_stats
+        }
+        
+        # Write to file
+        os.makedirs(os.path.dirname(output_file) or '.', exist_ok=True)
+        with open(output_file, 'w') as f:
+            json.dump(results_obj, f, indent=2, default=str)
+        
+        if logger:
+            logger.info(f"Results written to {output_file}")
+    
+    except Exception as e:
+        if logger:
+            logger.error(f"Error writing results to file: {str(e)}", exc_info=True)
+
+def calculate_performance_stats(performance_data, size_data, logger=None):
+    """
+    Calculate performance statistics from collected data.
+    
+    Args:
+        performance_data: Dictionary of performance data
+        size_data: Dictionary of size data
+        logger: Logger instance
+        
+    Returns:
+        Dictionary of calculated statistics
+    """
+    stats = {
+        'overall': {},
+        'by_size_category': {},
+        'by_derivative': {},
+        'correlation': {}
+    }
+    
+    try:
+        # Calculate overall stats
+        if performance_data['overall']:
+            times = [entry['processing_time'] for entry in performance_data['overall'] 
+                    if entry.get('processing_time') is not None]
+            
+            if times:
+                stats['overall'] = {
+                    'count': len(times),
+                    'min_time': min(times),
+                    'max_time': max(times),
+                    'avg_time': sum(times) / len(times),
+                    'median_time': np.median(times) if times else None,
+                    'p90_time': np.percentile(times, 90) if times else None,
+                    'p95_time': np.percentile(times, 95) if times else None,
+                    'std_dev': np.std(times) if times else None
+                }
+        
+        # Calculate stats by size category
+        for category, entries in performance_data['by_size_category'].items():
+            times = [entry['processing_time'] for entry in entries 
+                    if entry.get('processing_time') is not None]
+            
+            if times:
+                stats['by_size_category'][category] = {
+                    'count': len(times),
+                    'min_time': min(times),
+                    'max_time': max(times),
+                    'avg_time': sum(times) / len(times),
+                    'median_time': np.median(times) if times else None,
+                    'p90_time': np.percentile(times, 90) if times else None,
+                    'p95_time': np.percentile(times, 95) if times else None,
+                    'std_dev': np.std(times) if times else None
+                }
+        
+        # Calculate stats by derivative
+        for derivative, entries in performance_data['by_derivative'].items():
+            times = [entry['duration'] for entry in entries 
+                    if entry.get('duration') is not None]
+            
+            if times:
+                stats['by_derivative'][derivative] = {
+                    'count': len(times),
+                    'min_time': min(times),
+                    'max_time': max(times),
+                    'avg_time': sum(times) / len(times),
+                    'median_time': np.median(times) if times else None,
+                    'p90_time': np.percentile(times, 90) if times else None,
+                    'p95_time': np.percentile(times, 95) if times else None,
+                    'std_dev': np.std(times) if times else None
+                }
+        
+        # Calculate size correlation metrics
+        # Correlation between size and processing time
+        overall_sizes = [entry['size_bytes'] for entry in performance_data['overall'] 
+                        if entry.get('size_bytes') is not None and entry.get('processing_time') is not None]
+        overall_times = [entry['processing_time'] for entry in performance_data['overall'] 
+                        if entry.get('size_bytes') is not None and entry.get('processing_time') is not None]
+        
+        if overall_sizes and overall_times and len(overall_sizes) == len(overall_times):
+            # Calculate Pearson correlation coefficient
+            correlation_coef = np.corrcoef(overall_sizes, overall_times)[0, 1]
+            stats['correlation']['size_time_pearson'] = correlation_coef
+            
+            # Calculate regression line (slope, intercept)
+            slope, intercept = np.polyfit(overall_sizes, overall_times, 1)
+            stats['correlation']['regression_slope'] = slope
+            stats['correlation']['regression_intercept'] = intercept
+            
+            # Estimate time for different file sizes
+            for size_mb in [10, 50, 100, 500, 1000]:
+                size_bytes = size_mb * 1024 * 1024
+                estimated_time = slope * size_bytes + intercept
+                stats['correlation'][f'estimated_time_{size_mb}MB'] = estimated_time
+        
+        # Error distribution analysis
+        error_sizes = size_data.get('error_sizes', [])
+        success_sizes = size_data.get('success_sizes', [])
+        
+        if error_sizes:
+            stats['error_distribution'] = {
+                'count': len(error_sizes),
+                'min_size': min(error_sizes) if error_sizes else None,
+                'max_size': max(error_sizes) if error_sizes else None,
+                'avg_size': sum(error_sizes) / len(error_sizes) if error_sizes else None,
+                'median_size': np.median(error_sizes) if error_sizes else None
+            }
+        
+        if success_sizes:
+            stats['success_distribution'] = {
+                'count': len(success_sizes),
+                'min_size': min(success_sizes) if success_sizes else None,
+                'max_size': max(success_sizes) if success_sizes else None,
+                'avg_size': sum(success_sizes) / len(success_sizes) if success_sizes else None,
+                'median_size': np.median(success_sizes) if success_sizes else None
+            }
+        
+        # Calculate error rate by size quartiles
+        all_sizes = error_sizes + success_sizes
+        if all_sizes:
+            quartiles = np.percentile(all_sizes, [25, 50, 75, 100])
+            quartile_ranges = [
+                (0, quartiles[0]),
+                (quartiles[0], quartiles[1]),
+                (quartiles[1], quartiles[2]),
+                (quartiles[2], quartiles[3])
+            ]
+            
+            stats['error_by_size_quartile'] = []
+            for i, (lower, upper) in enumerate(quartile_ranges):
+                errors_in_range = sum(1 for size in error_sizes if lower <= size < upper)
+                total_in_range = sum(1 for size in all_sizes if lower <= size < upper)
+                error_rate = (errors_in_range / total_in_range) * 100 if total_in_range > 0 else 0
+                
+                stats['error_by_size_quartile'].append({
+                    'quartile': i + 1,
+                    'size_range': {
+                        'lower_bytes': lower,
+                        'upper_bytes': upper,
+                        'lower_formatted': video_utils.format_file_size(lower),
+                        'upper_formatted': video_utils.format_file_size(upper)
+                    },
+                    'error_count': errors_in_range,
+                    'total_count': total_in_range,
+                    'error_rate': error_rate
+                })
+                
+    except Exception as e:
+        if logger:
+            logger.error(f"Error calculating performance stats: {str(e)}", exc_info=True)
+    
+    return stats
+
+def print_summary_statistics(all_results, elapsed_time, total_objects, logger=None):
+    """
+    Print summary statistics about the processing results.
+    
+    Args:
+        all_results: Dictionary of all results
+        elapsed_time: Total elapsed time
+        total_objects: Total number of objects
+        logger: Logger instance
+    """
+    try:
+        # Count successes and errors
+        total_processed = len(all_results)
+        
+        success_count = 0
+        error_count = 0
+        derivative_stats = {}
+        
+        for obj_path, obj_results in all_results.items():
+            derivatives = obj_results.get('derivatives', {})
+            
+            for derivative, derivative_results in derivatives.items():
+                # Initialize derivative stats if needed
+                if derivative not in derivative_stats:
+                    derivative_stats[derivative] = {
+                        'success': 0,
+                        'error': 0,
+                        'total': 0
+                    }
+                
+                status = derivative_results.get('status', 'unknown')
+                derivative_stats[derivative]['total'] += 1
+                
+                if status == 'success':
+                    derivative_stats[derivative]['success'] += 1
+                    success_count += 1
+                else:
+                    derivative_stats[derivative]['error'] += 1
+                    error_count += 1
+        
+        # Format statistics for display
+        overall_stats = [
+            ['Total Objects', total_objects],
+            ['Processed', total_processed],
+            ['Progress', f"{(total_processed / total_objects) * 100:.1f}%" if total_objects > 0 else "0%"],
+            ['Time Elapsed', f"{elapsed_time:.1f} seconds"],
+            ['Average Per Object', f"{(elapsed_time / total_processed):.2f} seconds" if total_processed > 0 else "N/A"]
+        ]
+        
+        result_stats = [
+            ['Success', success_count],
+            ['Error', error_count],
+            ['Success Rate', f"{(success_count / (success_count + error_count)) * 100:.1f}%" if (success_count + error_count) > 0 else "N/A"]
+        ]
+        
+        derivative_table = []
+        for derivative, stats in derivative_stats.items():
+            success_rate = (stats['success'] / stats['total']) * 100 if stats['total'] > 0 else 0
+            derivative_table.append([
+                derivative,
+                stats['success'],
+                stats['error'],
+                stats['total'],
+                f"{success_rate:.1f}%"
+            ])
+        
+        # Print the statistics
+        if logger:
+            logger.info("\n=== Processing Summary ===")
+            logger.info("\nOverall Statistics:")
+            logger.info(tabulate(overall_stats, tablefmt="simple"))
+            
+            logger.info("\nResults:")
+            logger.info(tabulate(result_stats, tablefmt="simple"))
+            
+            logger.info("\nBy Derivative:")
+            logger.info(tabulate(
+                derivative_table,
+                headers=["Derivative", "Success", "Error", "Total", "Success Rate"],
+                tablefmt="simple"
+            ))
+    
+    except Exception as e:
+        if logger:
+            logger.error(f"Error printing summary statistics: {str(e)}", exc_info=True)
+
+def generate_stats_report(stats, format_type='markdown'):
+    """
+    Generate a statistics report in markdown or JSON format.
+    
+    Args:
+        stats: Statistics dictionary
+        format_type: Output format ('markdown' or 'json')
+        
+    Returns:
+        String containing the formatted report
+    """
+    if format_type == 'json':
+        return json.dumps(stats, indent=2)
+    
+    # Calculate aggregated statistics
+    total_count = stats['total_processed']
+    success_rate = (stats['success_count'] / total_count) * 100 if total_count > 0 else 0
+    
+    ttfb_values = stats['ttfb_values']
+    total_time_values = stats['total_time_values']
+    
+    # Calculate timing percentiles if we have values
+    ttfb_percentiles = {}
+    total_time_percentiles = {}
+    
+    if ttfb_values:
+        ttfb_percentiles = {
+            'min': min(ttfb_values),
+            'p50': np.percentile(ttfb_values, 50),
+            'p90': np.percentile(ttfb_values, 90),
+            'p95': np.percentile(ttfb_values, 95),
+            'p99': np.percentile(ttfb_values, 99),
+            'max': max(ttfb_values)
+        }
+    
+    if total_time_values:
+        total_time_percentiles = {
+            'min': min(total_time_values),
+            'p50': np.percentile(total_time_values, 50),
+            'p90': np.percentile(total_time_values, 90),
+            'p95': np.percentile(total_time_values, 95),
+            'p99': np.percentile(total_time_values, 99),
+            'max': max(total_time_values)
+        }
+    
+    # Calculate size category statistics
+    size_category_rows = []
+    for category, category_stats in stats['by_size_category'].items():
+        cat_count = category_stats['count']
+        if cat_count == 0:
+            continue
+            
+        cat_ttfb = category_stats['ttfb_values']
+        cat_total_time = category_stats['total_time_values']
+        
+        row = [
+            category.capitalize(),
+            cat_count,
+            video_utils.format_file_size(category_stats['size_bytes']),
+            f"{(cat_count / total_count) * 100:.1f}%",
+        ]
+        
+        # Add timing stats if available
+        if cat_ttfb:
+            row.append(f"{np.median(cat_ttfb):.3f}s")
+            row.append(f"{np.percentile(cat_ttfb, 95):.3f}s")
+        else:
+            row.extend(["-", "-"])
+            
+        if cat_total_time:
+            row.append(f"{np.median(cat_total_time):.3f}s")
+            row.append(f"{np.percentile(cat_total_time, 95):.3f}s")
+        else:
+            row.extend(["-", "-"])
+            
+        size_category_rows.append(row)
+    
+    # Create error type breakdown
+    error_rows = []
+    for error_type, count in stats['errors_by_type'].items():
+        error_rows.append([
+            error_type,
+            count,
+            f"{(count / stats['error_count']) * 100:.1f}%" if stats['error_count'] > 0 else "0%"
+        ])
+    
+    # Build markdown report
+    md_report = [
+        f"# Video Transform Processing Report",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        f"## Summary",
+        f"- Total files processed: {total_count}",
+        f"- Total size: {video_utils.format_file_size(stats['total_size_bytes'])}",
+        f"- Success rate: {success_rate:.1f}%",
+        f"- Success count: {stats['success_count']}",
+        f"- Error count: {stats['error_count']}",
+        "",
+        f"## Response Time Statistics (successful requests)",
+    ]
+    
+    # Add timing tables if we have values
+    if ttfb_values:
+        md_report.extend([
+            "",
+            "### Time to First Byte (TTFB)",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| Minimum | {ttfb_percentiles['min']:.3f}s |",
+            f"| Median (p50) | {ttfb_percentiles['p50']:.3f}s |",
+            f"| p90 | {ttfb_percentiles['p90']:.3f}s |",
+            f"| p95 | {ttfb_percentiles['p95']:.3f}s |",
+            f"| p99 | {ttfb_percentiles['p99']:.3f}s |",
+            f"| Maximum | {ttfb_percentiles['max']:.3f}s |",
+            "",
+        ])
+    
+    if total_time_values:
+        md_report.extend([
+            "",
+            "### Total Download Time",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| Minimum | {total_time_percentiles['min']:.3f}s |",
+            f"| Median (p50) | {total_time_percentiles['p50']:.3f}s |",
+            f"| p90 | {total_time_percentiles['p90']:.3f}s |",
+            f"| p95 | {total_time_percentiles['p95']:.3f}s |",
+            f"| p99 | {total_time_percentiles['p99']:.3f}s |",
+            f"| Maximum | {total_time_percentiles['max']:.3f}s |",
+            "",
+        ])
+    
+    # Add size category table
+    if size_category_rows:
+        md_report.extend([
+            "",
+            "## Results by File Size Category",
+            "",
+            "| Category | Count | Total Size | % of Files | Median TTFB | p95 TTFB | Median Download | p95 Download |",
+            "|----------|-------|------------|------------|-------------|----------|----------------|--------------|",
+        ])
+        
+        for row in size_category_rows:
+            md_report.append("| " + " | ".join(str(col) for col in row) + " |")
+    
+    # Add error breakdown
+    if error_rows:
+        md_report.extend([
+            "",
+            "## Error Breakdown",
+            "",
+            "| Error Type | Count | Percentage |",
+            "|------------|-------|------------|",
+        ])
+        
+        for row in error_rows:
+            md_report.append("| " + " | ".join(str(col) for col in row) + " |")
+    
+    return "\n".join(md_report)
+
+def generate_size_report(file_list, size_threshold_mib, format_type='markdown'):
+    """
+    Generate a report of file sizes.
+    
+    Args:
+        file_list: List of (file_path, size_bytes) tuples
+        size_threshold_mib: Size threshold in MiB for reporting
+        format_type: Output format ('markdown' or 'json')
+        
+    Returns:
+        String containing the formatted report
+    """
+    if not file_list:
+        return "No files found matching criteria."
+    
+    # Sort files by size (largest first)
+    file_list.sort(key=lambda x: x[1], reverse=True)
+    
+    if format_type == 'json':
+        report_data = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "size_threshold_mib": size_threshold_mib,
+            "total_files": len(file_list),
+            "total_size_bytes": sum(size for _, size in file_list),
+            "files": [
+                {"path": path, "size_bytes": size, "size_mib": size / (1024 * 1024)}
+                for path, size in file_list
+            ]
+        }
+        return json.dumps(report_data, indent=2)
+    
+    # Generate markdown report
+    total_size = sum(size for _, size in file_list)
+    
+    md_report = [
+        f"# File Size Report",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        f"- Size threshold: {size_threshold_mib} MiB",
+        f"- Total files: {len(file_list)}",
+        f"- Total size: {video_utils.format_file_size(total_size)}",
+        "",
+        "## Files by Size (Largest First)",
+        "",
+        "| # | File Path | Size |",
+        "|---|----------|------|",
+    ]
+    
+    for i, (path, size) in enumerate(file_list):
+        md_report.append(f"| {i+1} | {path} | {video_utils.format_file_size(size)} |")
+    
+    return "\n".join(md_report)
+
+def generate_optimization_report(optimization_results):
+    """
+    Generate a report for video optimization results.
+    
+    Args:
+        optimization_results: List of optimization result dictionaries
+        
+    Returns:
+        String containing the formatted report
+    """
+    if not optimization_results:
+        return "No optimization results available."
+    
+    # Calculate totals
+    total_original_size = sum(result.get('original_size', 0) for result in optimization_results)
+    total_new_size = sum(result.get('new_size', 0) for result in optimization_results)
+    total_reduction = total_original_size - total_new_size
+    percent_reduction = (total_reduction / total_original_size) * 100 if total_original_size > 0 else 0
+    
+    # Check if we have WebM results
+    has_webm = any('webm_size' in result for result in optimization_results)
+    
+    # Generate markdown report
+    md_report = [
+        f"# Video Optimization Report",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        f"## Summary",
+        f"- Files processed: {len(optimization_results)}",
+        f"- Total original size: {video_utils.format_file_size(total_original_size)}",
+        f"- Total optimized size: {video_utils.format_file_size(total_new_size)}",
+        f"- Total reduction: {video_utils.format_file_size(total_reduction)} ({percent_reduction:.1f}%)",
+        "",
+        "## Individual File Results",
+        "",
+    ]
+    
+    # Create table header based on whether we have WebM results
+    if has_webm:
+        md_report.extend([
+            "| File | Original Size | Optimized Size | Reduction | WebM Size | WebM Reduction | Codec | Resolution |",
+            "|------|---------------|----------------|-----------|-----------|---------------|-------|------------|",
+        ])
+    else:
+        md_report.extend([
+            "| File | Original Size | Optimized Size | Reduction | Codec | Resolution |",
+            "|------|---------------|----------------|-----------|-------|------------|",
+        ])
+    
+    # Add rows for each file
+    for result in optimization_results:
+        output_path = os.path.basename(result.get('output_path', 'unknown'))
+        original_size = video_utils.format_file_size(result.get('original_size', 0))
+        new_size = video_utils.format_file_size(result.get('new_size', 0))
+        reduction = result.get('reduction_percent', 0)
+        codec = result.get('codec', 'unknown')
+        resolution = result.get('resolution', 'unknown')
+        
+        if has_webm and 'webm_size' in result:
+            webm_size = video_utils.format_file_size(result.get('webm_size', 0))
+            webm_reduction = result.get('webm_reduction_percent', 0)
+            md_report.append(
+                f"| {output_path} | {original_size} | {new_size} | {reduction:.1f}% | "
+                f"{webm_size} | {webm_reduction:.1f}% | {codec} | {resolution} |"
+            )
+        else:
+            # Add a row without WebM data
+            md_report.append(
+                f"| {output_path} | {original_size} | {new_size} | {reduction:.1f}% | "
+                f"{codec} | {resolution} |"
+            )
+    
+    return "\n".join(md_report)
