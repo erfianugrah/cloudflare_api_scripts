@@ -392,8 +392,8 @@ def generate_stats_report(stats, format_type='markdown'):
     total_count = stats['total_processed']
     success_rate = (stats['success_count'] / total_count) * 100 if total_count > 0 else 0
     
-    ttfb_values = stats['ttfb_values']
-    total_time_values = stats['total_time_values']
+    ttfb_values = stats.get('ttfb_values', [])
+    total_time_values = stats.get('total_time_values', [])
     
     # Calculate timing percentiles if we have values
     ttfb_percentiles = {}
@@ -426,8 +426,8 @@ def generate_stats_report(stats, format_type='markdown'):
         if cat_count == 0:
             continue
             
-        cat_ttfb = category_stats['ttfb_values']
-        cat_total_time = category_stats['total_time_values']
+        cat_ttfb = category_stats.get('ttfb_values', [])
+        cat_total_time = category_stats.get('total_time_values', [])
         
         row = [
             category.capitalize(),
@@ -662,3 +662,266 @@ def generate_optimization_report(optimization_results):
             )
     
     return "\n".join(md_report)
+def generate_error_report(results_data, format_type='markdown'):
+    """
+    Generate a detailed error report from results file.
+    
+    Args:
+        results_data: Loaded results data dictionary
+        format_type: Output format ('markdown' or 'json')
+        
+    Returns:
+        String containing the formatted report
+    """
+    from collections import Counter
+    import numpy as np
+    
+    # Extract all errors from the results
+    errors = []
+    error_file_sizes = []
+    success_file_sizes = []
+    
+    for obj_path, obj_result in results_data.get('results', {}).items():
+        size_bytes = obj_result.get('size_bytes', 0)
+        size_category = obj_result.get('size_category', 'unknown')
+        derivatives_dict = obj_result.get('derivatives', {})
+        
+        has_error = False
+        
+        # If structure has derivatives
+        if derivatives_dict:
+            for deriv, deriv_result in derivatives_dict.items():
+                if deriv_result.get('status') == 'error':
+                    has_error = True
+                    errors.append({
+                        'file': obj_path,
+                        'derivative': deriv,
+                        'status_code': deriv_result.get('status_code'),
+                        'error_type': deriv_result.get('error_type', 'unknown'),
+                        'url': deriv_result.get('url', ''),
+                        'error_msg': deriv_result.get('error_details', {}).get('response', ''),
+                        'size_bytes': size_bytes,
+                        'size_category': size_category,
+                        'ttfb': deriv_result.get('ttfb'),
+                        'duration': deriv_result.get('duration')
+                    })
+        # Alternative structure without derivatives wrapper
+        elif obj_result.get('status') == 'error':
+            has_error = True
+            errors.append({
+                'file': obj_path,
+                'derivative': 'default',
+                'status_code': obj_result.get('status_code'),
+                'error_type': obj_result.get('error_type', 'unknown'),
+                'url': obj_result.get('url', ''),
+                'error_msg': obj_result.get('error_details', {}).get('response', ''),
+                'size_bytes': size_bytes,
+                'size_category': size_category,
+                'ttfb': obj_result.get('ttfb'),
+                'duration': obj_result.get('duration')
+            })
+            
+        # Track file sizes for analysis
+        if has_error:
+            error_file_sizes.append(size_bytes)
+        else:
+            success_file_sizes.append(size_bytes)
+    
+    # If no errors found
+    if not errors:
+        if format_type == 'json':
+            return json.dumps({
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'error_count': 0,
+                'message': 'No errors found in the results file'
+            }, indent=2)
+        return "# Error Report\n\nNo errors found in the results file."
+    
+    # Count errors by type
+    error_types = Counter([e['error_type'] for e in errors])
+    
+    # Count errors by status code
+    status_codes = Counter([e['status_code'] for e in errors])
+    
+    # Find common error messages
+    error_msgs = Counter([e['error_msg'] for e in errors if e['error_msg']])
+    
+    # Count errors by size category
+    size_categories = Counter([e['size_category'] for e in errors])
+    
+    # Generate error counts by derivative type
+    derivatives = Counter([e['derivative'] for e in errors])
+    
+    # Calculate stats for error files
+    size_stats = {}
+    if error_file_sizes:
+        size_stats['error_files'] = {
+            'count': len(error_file_sizes),
+            'min_size': min(error_file_sizes),
+            'max_size': max(error_file_sizes),
+            'avg_size': sum(error_file_sizes) / len(error_file_sizes),
+            'median_size': np.median(error_file_sizes),
+            'total_size': sum(error_file_sizes)
+        }
+    
+    if success_file_sizes:
+        size_stats['success_files'] = {
+            'count': len(success_file_sizes),
+            'min_size': min(success_file_sizes),
+            'max_size': max(success_file_sizes),
+            'avg_size': sum(success_file_sizes) / len(success_file_sizes),
+            'median_size': np.median(success_file_sizes),
+            'total_size': sum(success_file_sizes)
+        }
+    
+    # Prepare detailed error information
+    detailed_errors = []
+    for e in errors:
+        detailed_errors.append({
+            'file': e['file'],
+            'derivative': e['derivative'],
+            'status_code': e['status_code'],
+            'error_type': e['error_type'],
+            'url': e['url'],
+            'error_msg': e['error_msg'],
+            'size_bytes': e['size_bytes'],
+            'size_formatted': video_utils.format_file_size(e['size_bytes']),
+            'size_category': e['size_category']
+        })
+    
+    # Group errors by type with examples
+    error_examples = {}
+    for error_type in error_types.keys():
+        examples = [e for e in errors if e['error_type'] == error_type]
+        if examples:
+            error_examples[error_type] = examples[0]
+    
+    # JSON output format
+    if format_type == 'json':
+        error_report = {
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'original_timestamp': results_data.get('timestamp', 'unknown'),
+            'summary': {
+                'total_errors': len(errors),
+                'total_processed': results_data.get('stats', {}).get('total_processed', 0),
+                'error_rate': len(errors) / results_data.get('stats', {}).get('total_processed', 1) * 100
+            },
+            'error_types': dict(error_types),
+            'status_codes': dict(status_codes),
+            'size_categories': dict(size_categories),
+            'derivatives': dict(derivatives),
+            'common_error_messages': dict(error_msgs.most_common(10)),
+            'size_statistics': size_stats,
+            'detailed_errors': detailed_errors,
+            'error_examples': {k: {
+                'file': v['file'],
+                'url': v['url'],
+                'status_code': v['status_code'],
+                'error_msg': v['error_msg'],
+                'size_bytes': v['size_bytes'],
+                'size_formatted': video_utils.format_file_size(v['size_bytes'])
+            } for k, v in error_examples.items()}
+        }
+        
+        return json.dumps(error_report, indent=2, default=str)
+    
+    # Generate markdown report
+    lines = [
+        "# Video Transformation Error Report",
+        f"\nGenerated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Original data timestamp: {results_data.get('timestamp', 'unknown')}\n",
+        "## Summary",
+        f"- **Total errors**: {len(errors)}",
+        f"- **Total processed files**: {results_data.get('stats', {}).get('total_processed', 'unknown')}",
+        f"- **Error rate**: {len(errors) / results_data.get('stats', {}).get('total_processed', 1) * 100:.2f}%\n",
+        "## Error Types",
+        tabulate([(k, v, f"{(v / len(errors)) * 100:.1f}%") for k, v in error_types.items()], 
+                headers=["Error Type", "Count", "Percentage"],
+                tablefmt="pipe"),
+        "\n## Status Codes",
+        tabulate([(k, v, f"{(v / len(errors)) * 100:.1f}%") for k, v in status_codes.items()], 
+                headers=["Status Code", "Count", "Percentage"],
+                tablefmt="pipe"),
+        "\n## Errors by Size Category",
+        tabulate([(k, v, f"{(v / len(errors)) * 100:.1f}%") for k, v in size_categories.items()], 
+                headers=["Size Category", "Count", "Percentage"],
+                tablefmt="pipe"),
+        "\n## Errors by Derivative",
+        tabulate([(k, v, f"{(v / len(errors)) * 100:.1f}%") for k, v in derivatives.items()], 
+                headers=["Derivative", "Count", "Percentage"],
+                tablefmt="pipe"),
+    ]
+    
+    # Add file size statistics
+    if size_stats:
+        lines.extend(["\n## File Size Statistics"])
+        
+        if 'error_files' in size_stats:
+            stats = size_stats['error_files']
+            lines.extend([
+                "\n### Error Files",
+                f"- Count: {stats['count']}", 
+                f"- Min size: {video_utils.format_file_size(stats['min_size'])}",
+                f"- Max size: {video_utils.format_file_size(stats['max_size'])}",
+                f"- Average size: {video_utils.format_file_size(stats['avg_size'])}",
+                f"- Median size: {video_utils.format_file_size(stats['median_size'])}",
+                f"- Total size: {video_utils.format_file_size(stats['total_size'])}"
+            ])
+        
+        if 'success_files' in size_stats:
+            stats = size_stats['success_files']
+            lines.extend([
+                "\n### Success Files",
+                f"- Count: {stats['count']}", 
+                f"- Min size: {video_utils.format_file_size(stats['min_size'])}",
+                f"- Max size: {video_utils.format_file_size(stats['max_size'])}",
+                f"- Average size: {video_utils.format_file_size(stats['avg_size'])}",
+                f"- Median size: {video_utils.format_file_size(stats['median_size'])}",
+                f"- Total size: {video_utils.format_file_size(stats['total_size'])}"
+            ])
+    
+    # Add common error messages section if we have data
+    if error_msgs:
+        lines.extend([
+            "\n## Common Error Messages",
+            tabulate([(msg[:100] + "..." if len(msg) > 100 else msg, count, f"{(count / len(errors)) * 100:.1f}%") 
+                     for msg, count in error_msgs.most_common(10)],
+                    headers=["Error Message", "Count", "Percentage"],
+                    tablefmt="pipe")
+        ])
+    
+    # Add a detailed list of errors
+    lines.extend([
+        "\n## Detailed Error List",
+        tabulate([(e['file'], e['derivative'], e['status_code'], 
+                   e['error_type'], video_utils.format_file_size(e['size_bytes']), e['size_category']) 
+                 for e in errors[:50]],  # Limit to first 50 errors for readability
+                headers=["File", "Derivative", "Status Code", "Error Type", "File Size", "Size Category"],
+                tablefmt="pipe")
+    ])
+    
+    if len(errors) > 50:
+        lines.append(f"\n*Note: Showing only the first 50 of {len(errors)} errors*")
+    
+    # Add specific error examples 
+    if errors:
+        lines.extend([
+            "\n## Error Examples",
+            "Here are examples of each error type:\n"
+        ])
+        
+        # Add examples for each error type
+        for error_type, example in error_examples.items():
+            lines.extend([
+                f"### {error_type}",
+                f"File: `{example['file']}`",
+                f"URL: `{example['url']}`",
+                f"Status Code: {example['status_code']}",
+                f"File Size: {video_utils.format_file_size(example['size_bytes'])} ({example['size_category']})",
+                f"Error Message:",
+                "```",
+                example['error_msg'] if example['error_msg'] else "No message",
+                "```\n"
+            ])
+    
+    return '\n'.join(lines)

@@ -72,7 +72,8 @@ def list_objects(remote, bucket, directory, extension, limit=0, logger=None, use
             
     else:
         # Use rclone for listing
-        cmd = ["rclone", "ls", "--recursive", path]
+        # Note: 'ls' command in rclone is already recursive by default, no need for --recursive flag
+        cmd = ["rclone", "ls", path]
         
         if logger:
             logger.info(f"Listing objects using rclone: {' '.join(cmd)}")

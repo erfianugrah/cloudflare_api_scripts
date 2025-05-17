@@ -104,10 +104,15 @@ def initialize_stats(derivatives):
         }
     }
     
-    # Add derivative-specific stats
-    for derivative in derivatives:
-        stats[f'{derivative}_success'] = 0
-        stats[f'{derivative}_errors'] = 0
+    # Add derivative-specific stats if derivatives are used
+    if derivatives:
+        for derivative in derivatives:
+            stats[f'{derivative}_success'] = 0
+            stats[f'{derivative}_errors'] = 0
+    else:
+        # Add a default stat counter for non-derivative mode
+        stats['default_success'] = 0
+        stats['default_errors'] = 0
     
     return stats
 
@@ -190,7 +195,7 @@ def process_objects(objects, args, derivatives, stats):
     Args:
         objects: List of file metadata objects
         args: Command line arguments
-        derivatives: List of derivatives to process
+        derivatives: List of derivatives to process (can be empty)
         stats: Statistics dictionary
         
     Returns:
@@ -250,21 +255,37 @@ def process_objects(objects, args, derivatives, stats):
                 if not running or shutdown_event.is_set():
                     logger.info("Stopping submission of new tasks...")
                     break
-                    
-                future = executor.submit(
-                    processing.process_object,
-                    obj,
-                    args.base_url,
-                    args.bucket,
-                    args.directory,
-                    derivatives,
-                    args.timeout,
-                    args.retry,
-                    args.connection_close_delay,
-                    logger,
-                    args.small_file_threshold,
-                    args.medium_file_threshold
-                )
+                
+                # If derivatives is empty, process the file without specifying derivatives
+                if not derivatives:
+                    future = executor.submit(
+                        processing.process_object_without_derivatives,
+                        obj,
+                        args.base_url,
+                        args.bucket,
+                        args.directory,
+                        args.timeout,
+                        args.retry,
+                        args.connection_close_delay,
+                        logger,
+                        args.small_file_threshold,
+                        args.medium_file_threshold
+                    )
+                else:
+                    future = executor.submit(
+                        processing.process_object,
+                        obj,
+                        args.base_url,
+                        args.bucket,
+                        args.directory,
+                        derivatives,
+                        args.timeout,
+                        args.retry,
+                        args.connection_close_delay,
+                        logger,
+                        args.small_file_threshold,
+                        args.medium_file_threshold
+                    )
                 
                 future_to_obj[future] = obj
             
@@ -461,7 +482,35 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # Parse derivatives
+    # Handle error report generation if requested
+    if args.generate_error_report:
+        logger.info(f"Generating error report from {args.output} to {args.error_report_output}")
+        try:
+            # Load existing results file
+            with open(args.output, 'r') as f:
+                results_data = json.load(f)
+            
+            # Determine output format based on explicit option or file extension
+            if args.error_report_format:
+                format_type = args.error_report_format
+            else:
+                format_type = 'json' if args.error_report_output.endswith('.json') else 'markdown'
+            
+            # Generate error report
+            report = reporting.generate_error_report(results_data, format_type=format_type)
+            
+            # Save to output file
+            with open(args.error_report_output, 'w') as f:
+                f.write(report)
+                
+            logger.info(f"Error report saved to {args.error_report_output} (format: {format_type})")
+            return 0
+        except Exception as e:
+            logger.error(f"Error generating error report: {str(e)}", exc_info=True)
+            return 1
+    
+    # Process derivatives if they are specified in the command line
+    # If --derivatives is provided at all (even with default value), use them
     derivatives = args.derivatives.split(',')
     logger.info(f"Processing derivatives: {derivatives}")
     
@@ -475,14 +524,21 @@ def main():
         # List files from remote storage with sizes
         logger.info(f"Listing files from {args.remote}:{args.bucket}/{args.directory}")
         
-        file_list = storage.list_large_files(
+        # Use list_objects instead of list_large_files to get all files without size filtering
+        file_list = storage.list_objects(
             args.remote,
             args.bucket,
             args.directory,
             args.extension,
-            args.size_threshold,
-            args.limit
+            args.limit,
+            logger,
+            args.use_aws_cli,
+            get_sizes=True
         )
+        
+        # Convert to the expected format (list of tuples) if needed
+        if file_list and isinstance(file_list[0], dict):
+            file_list = [(item['path'], item['size']) for item in file_list]
         
         if not file_list:
             logger.error("No files found matching criteria")
@@ -512,6 +568,11 @@ def main():
         logger.info(f"File size distribution:")
         for category, count in file_sizes_by_category.items():
             logger.info(f"  {category.capitalize()}: {count} files")
+            
+        # Report on large files separately for reference (using size threshold)
+        size_threshold_bytes = args.size_threshold * 1024 * 1024
+        large_files_count = sum(1 for obj in objects if obj.size_bytes >= size_threshold_bytes)
+        logger.info(f"Found {large_files_count} files above {args.size_threshold} MiB (out of {len(objects)} total files)")
         
         # If only listing files, generate report and exit
         if args.list_files:
@@ -537,6 +598,88 @@ def main():
             # Calculate processing time
             processing_time = time.time() - start_time
             
+            # Remove lists of ttfb/time values from the stats to reduce file size
+            stats_for_output = stats.copy()
+            stats_for_output.pop('ttfb_values', None)
+            stats_for_output.pop('total_time_values', None)
+            
+            # Remove ttfb arrays from size categories too
+            for category in stats_for_output.get('by_size_category', {}).values():
+                category.pop('ttfb_values', None)
+                category.pop('total_time_values', None)
+            
+            # Calculate summary statistics instead
+            if stats.get('ttfb_values'):
+                ttfb_array = stats['ttfb_values']
+                stats_for_output['ttfb_summary'] = {
+                    'count': len(ttfb_array),
+                    'min': min(ttfb_array) if ttfb_array else None,
+                    'max': max(ttfb_array) if ttfb_array else None,
+                    'avg': sum(ttfb_array) / len(ttfb_array) if ttfb_array else None,
+                }
+            
+            if stats.get('total_time_values'):
+                time_array = stats['total_time_values']
+                stats_for_output['total_time_summary'] = {
+                    'count': len(time_array),
+                    'min': min(time_array) if time_array else None,
+                    'max': max(time_array) if time_array else None,
+                    'avg': sum(time_array) / len(time_array) if time_array else None,
+                }
+                
+            # Calculate and add size reduction statistics
+            size_reduction_percentages = []
+            original_sizes = []
+            response_sizes = []
+            
+            # Log the structure of the first result to help debug
+            if results and logger:
+                first_result_key = next(iter(results))
+                logger.debug(f"First result structure: {json.dumps(results[first_result_key], indent=2)[:500]}...")
+                
+            # Extract size data from results
+            for obj_path, obj_result in results.items():
+                derivatives_dict = obj_result.get('derivatives', {})
+                
+                # If structure has derivatives
+                if derivatives_dict:
+                    for deriv, deriv_result in derivatives_dict.items():
+                        if (deriv_result.get('status') == 'success' and 
+                            'size_reduction_percent' in deriv_result and 
+                            'original_size_bytes' in deriv_result and
+                            'response_size_bytes' in deriv_result):
+                            size_reduction_percentages.append(deriv_result['size_reduction_percent'])
+                            original_sizes.append(deriv_result['original_size_bytes'])
+                            response_sizes.append(deriv_result['response_size_bytes'])
+                            
+                # Alternative structure without derivatives wrapper
+                elif (obj_result.get('status') == 'success' and
+                      'size_reduction_percent' in obj_result and
+                      'original_size_bytes' in obj_result and
+                      'response_size_bytes' in obj_result):
+                    size_reduction_percentages.append(obj_result['size_reduction_percent'])
+                    original_sizes.append(obj_result['original_size_bytes'])
+                    response_sizes.append(obj_result['response_size_bytes'])
+            
+            # Add size reduction summary if we have data
+            if size_reduction_percentages:
+                # Total size statistics
+                total_original = sum(original_sizes)
+                total_response = sum(response_sizes)
+                total_reduction = total_original - total_response
+                overall_reduction_percent = (total_reduction / total_original) * 100 if total_original > 0 else 0
+                
+                stats_for_output['size_reduction_summary'] = {
+                    'count': len(size_reduction_percentages),
+                    'min_percent': min(size_reduction_percentages) if size_reduction_percentages else None,
+                    'max_percent': max(size_reduction_percentages) if size_reduction_percentages else None,
+                    'avg_percent': sum(size_reduction_percentages) / len(size_reduction_percentages) if size_reduction_percentages else None,
+                    'total_original_bytes': total_original,
+                    'total_transformed_bytes': total_response,
+                    'total_reduction_bytes': total_reduction,
+                    'overall_reduction_percent': overall_reduction_percent
+                }
+            
             # Save processing results
             with open(args.output, 'w') as f:
                 json.dump({
@@ -555,7 +698,7 @@ def main():
                         'small_threshold_mib': args.small_file_threshold,
                         'medium_threshold_mib': args.medium_file_threshold
                     },
-                    'stats': stats,
+                    'stats': stats_for_output,
                     'results': results
                 }, f, indent=2, default=str)
             

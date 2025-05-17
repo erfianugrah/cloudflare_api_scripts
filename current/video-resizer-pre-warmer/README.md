@@ -174,6 +174,9 @@ Pre-warmer options:
   --size-threshold NUM    Size threshold in MiB for file size reporting (default: 256 MiB)
   --optimize-by-size      Enable size-based optimization for parallel processing
   --connection-close-delay  Additional delay before closing connections (default: 10s)
+  --generate-error-report Generate a detailed error report from results file
+  --error-report-output   Output file path for error report (default: error_report.md)
+  --error-report-format   Format for error report (markdown or json)
 
 Video Optimization options:
   --optimize-videos        Re-encode large video files to reduce size
@@ -444,6 +447,23 @@ python main.py --remote r2 --bucket videos --directory videos \
   --performance-report detailed_performance.md
 ```
 
+### Error Analysis and Monitoring
+
+To analyze errors and transformation issues after a large batch run:
+
+```bash
+# Generate a detailed error report from results
+python main.py --generate-error-report \
+  --output video_transform_results.json \
+  --error-report-output error_report.md
+
+# Generate a JSON report for further analysis or visualization
+python main.py --generate-error-report \
+  --output video_transform_results.json \
+  --error-report-output error_report.json \
+  --error-report-format json
+```
+
 ## Performance Optimization
 
 ### Per-Derivative Parallel Processing
@@ -504,7 +524,10 @@ python main.py --remote r2 --bucket videos \
    - Check access permissions for your CDN/storage
    - Verify URL construction is correct
    - Reduce concurrency with fewer workers
-   - Check the generated detailed error report for patterns
+   - Generate and analyze error reports to identify patterns:
+     ```bash
+     python main.py --generate-error-report --output video_transform_results.json --error-report-output error_report.md
+     ```
 
 5. **Load Test Failures**
    - Check that pre-warming completed successfully
@@ -512,9 +535,9 @@ python main.py --remote r2 --bucket videos \
    - Reduce the number of virtual users
    - Increase the request timeout threshold
 
-## Error Handling and Recovery
+## Error Handling and Reporting
 
-The tool implements sophisticated error handling:
+The tool implements sophisticated error handling and reporting:
 
 1. **Graceful Shutdown**: Captures SIGINT/SIGTERM and performs orderly shutdown
 2. **Thread Pool Management**: Proper cleanup of executor threads
@@ -522,6 +545,31 @@ The tool implements sophisticated error handling:
 4. **Error Classification**: Categorizes errors by type for analysis
 5. **Detailed Logging**: Thread-aware logging with file and console output
 6. **Partial Results Saving**: Preserves results even if interrupted
+7. **Comprehensive Error Reporting**: Generates detailed error reports in multiple formats
+
+### Error Report Generation
+
+The tool includes an advanced error report generator that provides comprehensive analysis of transformation errors:
+
+```bash
+# Generate an error report in Markdown format
+python main.py --generate-error-report --output video_transform_results.json --error-report-output error_report.md
+
+# Generate an error report in JSON format
+python main.py --generate-error-report --output video_transform_results.json --error-report-output error_report.json
+
+# Explicitly specify the format
+python main.py --generate-error-report --output video_transform_results.json --error-report-output report.txt --error-report-format json
+```
+
+#### Error Report Features
+
+- **Multiple Output Formats**: Markdown and JSON options for different use cases
+- **Comprehensive Error Analysis**: Breakdown of errors by type, status code, size category, and derivative
+- **Size Correlation**: Statistics comparing file sizes of successful vs. failed transformations
+- **Detailed Error Examples**: Specific examples of each error type with context
+- **Percentage Calculations**: Error rates and distributions with percentage metrics
+- **Sortable Error Lists**: Complete inventory of all errors for further analysis
 
 ## License
 

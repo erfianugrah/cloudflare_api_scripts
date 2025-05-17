@@ -60,10 +60,14 @@ def parse_arguments():
     
     # Processing options
     parser.add_argument('--derivatives', default='desktop,tablet,mobile', help='Comma-separated list of derivatives')
+    parser.add_argument('--use-derivatives', action='store_true', help='Include derivatives in the URL path')
     parser.add_argument('--workers', type=int, default=5, help='Number of concurrent workers')
     parser.add_argument('--timeout', type=int, default=120, help='Request timeout in seconds')
     parser.add_argument('--connection-close-delay', type=int, default=10, help='Additional delay in seconds before closing connections')
     parser.add_argument('--retry', type=int, default=2, help='Number of retry attempts for failed requests')
+    parser.add_argument('--generate-error-report', action='store_true', help='Generate an error report from an existing results file')
+    parser.add_argument('--error-report-output', default='error_report.md', help='Output file path for error report')
+    parser.add_argument('--error-report-format', choices=['markdown', 'json'], help='Format for the error report (default is based on file extension)')
     
     # Output and reporting options
     parser.add_argument('--output', default='video_transform_results.json', help='Output JSON file path')
@@ -80,7 +84,6 @@ def parse_arguments():
     
     # S3 and listing options
     parser.add_argument('--use-aws-cli', action='store_true', help='Use AWS CLI instead of rclone for listing S3 objects')
-    parser.add_argument('--generate-error-report', action='store_true', help='Generate or regenerate the 500 error reports from an existing results file')
     parser.add_argument('--list-files', action='store_true', help='List all files with their sizes sorted in descending order')
     parser.add_argument('--size-threshold', type=int, default=256, help='Size threshold in MiB for file size reporting (default: 256 MiB)')
     parser.add_argument('--size-report-output', default='file_size_report.md', help='Output file for size report')

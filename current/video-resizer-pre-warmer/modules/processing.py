@@ -120,21 +120,23 @@ def process_single_derivative(obj_data, derivative, base_url, bucket, directory,
         'end_time': None,
     }
     
-    # Construct URL
-    # Remove leading slash from directory if present for URL construction
-    dir_no_leading_slash = directory.lstrip('/')
+    # For simplicity, just use the key directly as specified by the user
+    file_key = obj_path.split('/')[-1]  # Just get the filename without any path
     
-    # If the directory already exists in object_path, don't duplicate it
-    if not dir_no_leading_slash or obj_path.startswith(dir_no_leading_slash):
-        url_path = obj_path
-    else:
-        url_path = f"{dir_no_leading_slash}/{obj_path}"
-        
-    # Build final URL    
+    # Build final URL - just base_url and file_key as specified by user  
     if base_url.endswith('/'):
         base_url = base_url[:-1]
-        
-    url = f"{base_url}/vid/{derivative}/{url_path}"
+    
+    # Use simple URL format by default (just base_url/file_key)
+    url = f"{base_url}/{file_key}"
+    
+    # Add imwidth parameter for all cases - if derivative is empty/blank, use desktop dimensions
+    dimensions = get_derivative_dimensions(derivative or "desktop", logger)
+    url = f"{url}?imwidth={dimensions['width']}"
+    
+    # Store URL in the result for all cases, not just errors
+    result['url'] = url
+    
     if logger:
         logger.debug(f"Processing URL: {url}")
     
@@ -169,7 +171,7 @@ def process_single_derivative(obj_data, derivative, base_url, bucket, directory,
                     else:
                         result['error_type'] = 'other'
                         
-                    # Store error details
+                    # Store error details - keep for backward compatibility
                     result['error_details'] = {
                         'url': url,
                         'response': error_content
@@ -185,20 +187,46 @@ def process_single_derivative(obj_data, derivative, base_url, bucket, directory,
                     ttfb = response.elapsed.total_seconds()
                     result['time_to_first_byte'] = ttfb
                     
-                    # Start content download timer
-                    download_start = time.time()
-                    content_size = 0
+                    # Check if we have a Content-Length header
+                    if 'Content-Length' in response.headers:
+                        content_size = int(response.headers['Content-Length'])
+                        # Just read a small amount to validate the response
+                        chunk = next(response.iter_content(chunk_size=8192), None)
+                        download_time = time.time() - ttfb
+                    else:
+                        # If no Content-Length header, stream the content to get size
+                        download_start = time.time()
+                        content_size = 0
+                        
+                        # Stream response content
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                content_size += len(chunk)
+                        
+                        download_time = time.time() - download_start
                     
-                    # Stream response content
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            content_size += len(chunk)
+                    # Log details about content size
+                    if logger:
+                        logger.debug(f"Response for {url}: size={content_size}, headers={response.headers.get('Content-Type')}, content-length={response.headers.get('Content-Length')}")
                     
                     # Calculate total download time
-                    download_time = time.time() - download_start
                     result['total_time'] = ttfb + download_time
                     result['response_size_bytes'] = content_size
                     result['status'] = 'success'
+                    
+                    # Add size comparison metrics if we have the original size and a valid response size
+                    if hasattr(obj_data, 'size_bytes') and obj_data.size_bytes > 0 and content_size > 0:
+                        result['original_size_bytes'] = obj_data.size_bytes
+                        # Calculate size reduction
+                        size_diff = obj_data.size_bytes - content_size
+                        reduction_percent = (size_diff / obj_data.size_bytes) * 100 if obj_data.size_bytes > 0 else 0
+                        result['size_reduction_bytes'] = size_diff
+                        result['size_reduction_percent'] = reduction_percent
+                    elif content_size == 0:
+                        # If content size is 0, there was likely a problem with the response
+                        # Just store original size without reduction calculations
+                        result['original_size_bytes'] = obj_data.size_bytes
+                        result['size_reduction_note'] = "Could not calculate reduction - empty response"
                     
                     # Additional delay to ensure connection closure
                     if connection_close_delay > 0:
@@ -236,6 +264,44 @@ def process_single_derivative(obj_data, derivative, base_url, bucket, directory,
     obj_data.complete_derivative_processing(derivative)
     
     return result
+
+def process_object_without_derivatives(obj_data, base_url, bucket, directory, timeout,
+                               retry_attempts=2, connection_close_delay=10, logger=None,
+                               small_threshold_mib=50, medium_threshold_mib=200):
+    """
+    Process a video object without any derivatives - just simple URL request.
+    
+    Args:
+        obj_data: Dictionary containing object metadata
+        base_url: Base URL to prepend to object paths
+        bucket: S3 bucket name
+        directory: Directory path within bucket
+        timeout: Request timeout in seconds
+        retry_attempts: Number of retry attempts for failed requests
+        connection_close_delay: Additional delay in seconds before closing connections
+        logger: Logger instance
+        small_threshold_mib: Threshold for small files in MiB
+        medium_threshold_mib: Threshold for medium files in MiB
+        
+    Returns:
+        Dictionary with processing results
+    """
+    # Mark the start of processing
+    obj_data.start_processing()
+    
+    # Process results - make a single request without derivative
+    results = {
+        "default": process_single_derivative(
+            obj_data, "", base_url, bucket, directory, timeout,
+            retry_attempts, connection_close_delay, logger,
+            small_threshold_mib, medium_threshold_mib
+        )
+    }
+    
+    # Mark the completion of processing
+    obj_data.complete_processing()
+    
+    return results
 
 def process_object(obj_data, base_url, bucket, directory, derivatives, timeout,
                 retry_attempts=2, connection_close_delay=10, logger=None, 
@@ -286,7 +352,7 @@ def update_processing_stats(stats, obj_data, results, derivatives):
         stats: Statistics dictionary to update
         obj_data: Object metadata
         results: Processing results
-        derivatives: List of derivatives
+        derivatives: List of derivatives (can be empty)
         
     Returns:
         Updated statistics dictionary
@@ -301,12 +367,19 @@ def update_processing_stats(stats, obj_data, results, derivatives):
         stats['by_size_category'][size_cat]['count'] += 1
         stats['by_size_category'][size_cat]['size_bytes'] += obj_data.size_bytes
         
-        # Update derivative stats
-        for derivative in derivatives:
-            result = results.get(derivative, {})
+        # Get the list of keys to process - either derivatives or "default"
+        result_keys = derivatives if derivatives else ["default"]
+        
+        # Update stats for each result
+        for key in result_keys:
+            result = results.get(key, {})
             status = result.get('status', 'unknown')
             
+            # Track derivative-specific success/failure
             if status == 'success':
+                if f'{key}_success' in stats:
+                    stats[f'{key}_success'] += 1
+                
                 stats['success_count'] += 1
                 stats['success_bytes'] += obj_data.size_bytes
                 
@@ -324,6 +397,9 @@ def update_processing_stats(stats, obj_data, results, derivatives):
                 if 'total_time' in result:
                     stats['by_size_category'][size_cat]['total_time_values'].append(result['total_time'])
             else:
+                if f'{key}_errors' in stats:
+                    stats[f'{key}_errors'] += 1
+                    
                 stats['error_count'] += 1
                 stats['error_bytes'] += obj_data.size_bytes
                 
