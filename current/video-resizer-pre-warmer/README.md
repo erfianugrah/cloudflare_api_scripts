@@ -1,16 +1,35 @@
-# Video Transformation, File Analysis and Load Testing Tool
+# Video Transformation, Analysis and Optimization Toolkit
 
-A comprehensive toolkit for processing, analyzing, and load testing video assets across different resolutions with advanced size-based optimization and performance metrics.
+A comprehensive toolkit for processing, analyzing, optimizing, and load testing video assets across different resolutions with advanced size-based optimization and performance metrics.
 
 ## Overview
 
-This project consists of three integrated components:
+This project consists of several integrated components:
 
-1. **Video Pre-Warmer (`video-resizer-kv-pre-warmer.py`)**: Makes HTTP requests to transform videos into different derivatives (desktop, tablet, mobile), capturing size and metadata information. Also supports standalone file analysis and size reporting.
+1. **Video Pre-Warmer (`video-resizer-kv-pre-warmer.py`)**: Makes HTTP requests to transform videos into different derivatives (desktop, tablet, mobile), capturing size and metadata information.
 
-2. **Load Testing Tool (`video-load-test-integrated.js`)**: Uses k6 to simulate real-world load against your video CDN using the pre-warmed videos with configurable traffic patterns.
+2. **Video Optimizer**: Re-encodes large video files using FFmpeg with support for multiple codecs and quality profiles to reduce file size while maintaining acceptable quality.
 
-3. **Orchestration Script (`run-prewarmer-and-loadtest.sh`)**: Coordinates the pre-warming and load testing phases, making it easy to run the complete workflow with a single command.
+3. **File Analysis Tool**: Generates detailed reports of file sizes, distribution analysis, and identifies large files for optimization.
+
+4. **Load Testing Tool (`video-load-test-integrated.js`)**: Uses k6 to simulate real-world load against your video CDN using the pre-warmed videos with configurable traffic patterns.
+
+5. **Orchestration Script (`run-prewarmer-and-loadtest.sh`)**: Coordinates the pre-warming and load testing phases, making it easy to run the complete workflow with a single command.
+
+## Module Structure
+
+The project has been refactored into a modular architecture for improved maintainability:
+
+- `main.py`: Main entry point for the application
+- `modules/`: Directory containing modular components
+  - `__init__.py`: Package initialization
+  - `config.py`: Configuration and argument parsing
+  - `storage.py`: Remote storage access functions (rclone/S3)
+  - `video_utils.py`: Video file analysis and utility functions
+  - `encoding.py`: Video encoding parameters and optimization
+  - `processing.py`: Core URL processing functionality
+  - `reporting.py`: Report generation and statistics
+  - `comparison.py`: Comparison analysis between original and optimized files
 
 ## Key Features
 
@@ -23,6 +42,16 @@ This project consists of three integrated components:
 - **Size Reduction Analysis**: Quantifies compression ratios and space savings
 - **Advanced Error Handling**: Graceful shutdown, automatic retries, and comprehensive error reporting
 - **Detailed Statistical Analysis**: Generates correlation metrics between file size and performance
+
+### Video Optimization Features
+- **Re-encode Large Videos**: Automatically identifies and re-encodes large video files
+- **Multi-Codec Support**: H.264, H.265/HEVC, VP9, VP8, AV1
+- **Quality Profiles**: Options from maximum quality to minimum size
+- **Multi-Format Support**: MP4, WebM, MKV, and MOV containers
+- **Resolution Options**: 4K, 1080p, 720p, 480p, 360p
+- **Audio Optimization**: Multiple audio encoding profiles
+- **Parallel Encoding**: CPU-aware parallelization for batch processing
+- **WebM Generation**: Optional creation of WebM versions alongside primary format
 
 ### File Analysis Features
 - **File Size Reports**: Generates detailed reports of file sizes in your storage
@@ -38,34 +67,33 @@ This project consists of three integrated components:
 - **Byte-Range Requests**: Simulates partial content requests like real video players
 - **Performance Thresholds**: Customizable pass/fail criteria for automated testing
 - **Detailed Metrics Collection**: Response times, error rates, and throughput measurements
-
-### General Features
-- **Comprehensive Reporting**: Generates HTML, JSON, and text-based reports
-- **Cross-Platform Compatibility**: Works on Linux, macOS, and Windows
-- **Minimal Dependencies**: Lightweight requirements for easy deployment
-- **Flexible Authentication**: Works with AWS CLI, rclone, and other authentication methods
-- **Advanced Logging**: Structured logging with configurable verbosity levels
-- **Single Command Execution**: Run complex workflows with simple, unified commands
+- **Random Request Patterns**: Simulates real user access with randomized byte range requests
 
 ## Installation
 
 ### Requirements
 
 - Python 3.7+
+- FFmpeg 4.0+ (for video optimization)
 - k6 (for load testing)
 - Required Python packages:
   ```
   requests
   tabulate
+  numpy
   ```
 - For AWS CLI usage: AWS CLI installed and configured
 - For rclone usage: rclone installed and configured
 
-Install dependencies:
+### Install Dependencies
 
 ```bash
 # Install Python dependencies
-pip install requests tabulate
+pip install -r requirements.txt
+
+# Install FFmpeg (Ubuntu/Debian example)
+sudo apt update
+sudo apt install ffmpeg
 
 # Install k6 (instructions for Linux, see k6.io for other platforms)
 sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
@@ -75,30 +103,6 @@ sudo apt-get install k6
 ```
 
 ### Authentication Setup
-
-#### AWS CLI Authentication
-Before using the AWS CLI option, ensure you have AWS CLI installed and properly configured:
-
-1. Install AWS CLI:
-   ```bash
-   pip install awscli
-   ```
-
-2. Configure AWS credentials:
-   ```bash
-   aws configure
-   ```
-   
-   You'll need to provide:
-   - AWS Access Key ID
-   - AWS Secret Access Key
-   - Default region
-   - Default output format (json recommended)
-
-3. Verify configuration:
-   ```bash
-   aws s3 ls
-   ```
 
 #### rclone Authentication
 Before using the rclone option (default), ensure you have rclone installed and configured:
@@ -110,28 +114,46 @@ Before using the rclone option (default), ensure you have rclone installed and c
    rclone config
    ```
 
-3. Verify configuration:
+3. Configure Cloudflare R2 in rclone:
+   ```
+   # Create a new remote with the following details
+   Name: r2 (or any name you prefer)
+   Type: s3 (R2 uses S3-compatible API)
+   Provider: Cloudflare R2
+   Access Key ID: YOUR_ACCESS_KEY
+   Secret Access Key: YOUR_SECRET_KEY
+   Endpoint: https://ACCOUNT_ID.r2.cloudflarestorage.com
+   ```
+
+4. Verify configuration:
    ```bash
-   rclone lsf your-remote:your-bucket
+   rclone lsf r2:videos
    ```
 
 ## Usage
 
-### Using the All-in-One Script
+### Running the Application
 
-The simplest way to run both pre-warming and load testing is with the orchestration script:
+You can run the application using either:
 
 ```bash
-./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com \
-  --remote s3 --bucket my-video-bucket --directory videos \
-  --workers 10 --stage1-users 50 --stage2-users 100
+# Using the main script directly
+python3 main.py [options]
+
+# Or using the run.sh wrapper
+./run.sh [options]
+
+# Or using the all-in-one script for pre-warming and load testing
+./run-prewarmer-and-loadtest.sh [options]
 ```
 
 ### Command-Line Options
 
-Run the script with `--help` to see all available options:
+Run any script with `--help` to see all available options:
 
 ```bash
+./run.sh --help
+# or
 ./run-prewarmer-and-loadtest.sh --help
 ```
 
@@ -139,55 +161,80 @@ Run the script with `--help` to see all available options:
 
 ```
 Pre-warmer options:
-  -u, --base-url URL          Base URL for video assets
-  -r, --remote NAME           Rclone remote name
-  -b, --bucket NAME           S3 bucket name
-  -d, --directory PATH        Directory path within bucket
-  --derivatives LIST          Comma-separated list of derivatives
-  -w, --workers NUM           Number of concurrent workers
-  -t, --timeout SECONDS       Request timeout in seconds
-  -e, --extension EXT         File extension to filter by
-  -o, --output FILE           Output JSON file path
-  -l, --limit NUM             Limit number of objects to process
-  --aws-cli                   Use AWS CLI instead of rclone
-  --skip-prewarming           Skip the pre-warming phase
-  --list-files                List all files with their sizes sorted by size
-  --size-threshold NUM        Size threshold in MiB for file size reporting (default: 256 MiB)
-  --size-report-output FILE   Output file for size report (default: file_size_report.md)
-  --optimize-by-size          Enable size-based optimization for parallel processing
-  --small-file-threshold NUM  Threshold in MiB for small files (default: 50 MiB)
-  --medium-file-threshold NUM Threshold in MiB for medium files (default: 200 MiB)
-  --small-file-workers NUM    Number of workers for small files (default: auto-calculated)
-  --medium-file-workers NUM   Number of workers for medium files (default: auto-calculated)
-  --large-file-workers NUM    Number of workers for large files (default: auto-calculated)
-  --performance-report FILE   Output file for performance analysis report
+  --remote NAME           Rclone remote name
+  --bucket NAME           S3 bucket name
+  --directory PATH        Directory path within bucket
+  --base-url URL          Base URL for video assets
+  --derivatives LIST      Comma-separated list of derivatives
+  --workers NUM           Number of concurrent workers
+  --timeout SECONDS       Request timeout in seconds
+  --extension EXT         File extension to filter by
+  --limit NUM             Limit number of objects to process
+  --list-files            List all files with their sizes sorted by size
+  --size-threshold NUM    Size threshold in MiB for file size reporting (default: 256 MiB)
+  --optimize-by-size      Enable size-based optimization for parallel processing
+  --connection-close-delay  Additional delay before closing connections (default: 10s)
+
+Video Optimization options:
+  --optimize-videos        Re-encode large video files to reduce size
+  --codec                  Video codec to use (h264, h265, vp9, vp8, av1)
+  --quality-profile        Encoding quality (maximum, high, balanced, efficient, minimum)
+  --target-resolution      Target resolution (4k, 1080p, 720p, 480p, 360p)
+  --audio-profile          Audio encoding profile (high, medium, low, minimum)
+  --output-format          Container format (mp4, webm, mkv)
+  --create-webm            Also create WebM version alongside primary format
 
 k6 load test options:
-  --url-format FORMAT         URL format to use: 'imwidth' or 'derivative'
-  --stage1-users NUM          Number of users in stage 1
-  --stage1-duration TIME      Duration of stage 1
-  --stage2-users NUM          Number of users in stage 2
-  --stage2-duration TIME      Duration of stage 2
-  --stage3-users NUM          Number of users in stage 3
-  --stage3-duration TIME      Duration of stage 3
-  --stage4-users NUM          Number of users in stage 4
-  --stage4-duration TIME      Duration of stage 4
-  --stage5-users NUM          Number of users in stage 5
-  --stage5-duration TIME      Duration of stage 5
-  --skip-loadtest             Skip the load test phase
+  --url-format FORMAT     URL format to use: 'imwidth' or 'derivative'
+  --stage1-users NUM      Number of users in stage 1
+  --stage1-duration TIME  Duration of stage 1
+  --stage2-users NUM      Number of users in stage 2
+  --stage2-duration TIME  Duration of stage 2
+  --stage3-users NUM      Number of users in stage 3
+  --stage3-duration TIME  Duration of stage 3
+  --stage4-users NUM      Number of users in stage 4
+  --stage4-duration TIME  Duration of stage 4
+  --stage5-users NUM      Number of users in stage 5
+  --stage5-duration TIME  Duration of stage 5
 ```
 
-### Running Components Individually
+## Usage Examples
 
-#### Pre-warmer Only
+### Using the All-in-One Script
+
+The simplest way to run both pre-warming and load testing is with the orchestration script:
 
 ```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket my-video-bucket \
-  --directory videos --base-url https://cdn.example.com/videos/ \
-  --derivatives desktop,tablet,mobile --workers 10
+./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com \
+  --remote r2 --bucket videos --directory videos \
+  --workers 10 --stage1-users 50 --stage2-users 100
 ```
 
-#### Load Testing Only
+### Video Pre-warming
+
+```bash
+python main.py --remote r2 --bucket videos \
+  --directory videos --base-url https://cdn.example.com/videos/ \
+  --derivatives desktop,tablet,mobile --workers 10 --optimize-by-size
+```
+
+### Video Optimization
+
+```bash
+python main.py --remote r2 --bucket videos \
+  --directory videos --optimize-videos --codec h265 \
+  --quality-profile balanced --create-webm \
+  --workers 4 --limit 10
+```
+
+### File Size Analysis
+
+```bash
+python main.py --remote r2 --bucket videos \
+  --directory videos --list-files --size-threshold 256
+```
+
+### Load Testing
 
 ```bash
 # Run load test using results from a previous pre-warming run
@@ -197,22 +244,82 @@ k6 run video-load-test-integrated.js \
   -e STAGE1_USERS=50 -e STAGE2_USERS=100
 ```
 
+## Video Processing Architecture
+
+### Derivative Processing Model
+
+The tool uses the following dimensions for different derivatives:
+
+```python
+dimensions = {
+    'desktop': {'width': 1920, 'height': 1080},
+    'tablet': {'width': 1280, 'height': 720},
+    'mobile': {'width': 854, 'height': 640}
+}
+```
+
+When processing videos, each derivative results in a different resolution variant of the original video. The request URL structure for processing is:
+
+```
+{base_url}/vid/{derivative}/{path_to_video}
+```
+
+### Worker Allocation Strategy
+
+The tool dynamically allocates workers based on file size categories:
+
+1. **Small Files**: < 50 MiB (configurable with `--small-file-threshold`)
+2. **Medium Files**: 50-200 MiB (configurable with `--medium-file-threshold`)
+3. **Large Files**: > 200 MiB
+
+When `--optimize-by-size` is enabled, the worker allocation formula prioritizes small and medium files to optimize overall throughput. The algorithm uses the following weights by default:
+
+- Small files: 1.2x weight
+- Medium files: 1.0x weight
+- Large files: 0.8x weight
+
+### Connection Management
+
+The tool implements sophisticated connection handling with:
+
+- Configurable timeout values (`--timeout`)
+- Connection close delay (`--connection-close-delay`)
+- Automatic retries for 5xx errors
+- Detailed error tracking by category (timeout, connection_error, etc.)
+
+## Video Optimization Details
+
+### Video Codec Options
+
+| Codec | Efficiency | Compatibility | Encoding Speed | Container | Use Case |
+|-------|------------|---------------|----------------|-----------|----------|
+| H.264 | Good | Excellent | Fast | MP4/MOV | General purpose, maximum compatibility |
+| H.265/HEVC | Very Good | Good | Slow | MP4/MKV | Size optimization, supporting devices |
+| VP9 | Very Good | Good | Very Slow | WebM/MKV | Web delivery, open format |
+| VP8 | Good | Good | Fast | WebM | Legacy WebM support |
+| AV1 | Excellent | Limited | Extremely Slow | WebM/MP4/MKV | Future-proofing, best compression |
+
+### Quality Profiles
+
+| Profile | CRF (H.264) | CRF (HEVC) | CRF (VP9) | CRF (AV1) | Preset | Target |
+|---------|-------------|------------|-----------|-----------|--------|--------|
+| Maximum | 18 | 22 | 31 | 25 | slower | Highest quality, larger size |
+| High | 20 | 24 | 33 | 30 | slow | Visually lossless |
+| Balanced | 23 | 28 | 36 | 34 | medium | Good quality, good compression |
+| Efficient | 26 | 30 | 39 | 38 | fast | Priority to compression |
+| Minimum | 28 | 32 | 42 | 42 | faster | Maximum compression, acceptable quality |
+
+### FFmpeg Command Structure
+
+The tool generates FFmpeg commands with carefully tuned parameters for each codec. For example, here's an H.265 command with balanced quality at 1080p:
+
+```bash
+ffmpeg -i input.mp4 -c:v libx265 -crf 28 -preset medium \
+  -vf "scale=1920:1080:force_original_aspect_ratio=decrease" \
+  -c:a aac -b:a 128k -tag:v hvc1 -movflags +faststart output.mp4
+```
+
 ## Load Testing Details
-
-### Configuration Options
-
-All load testing configuration is done through environment variables:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `BASE_URL` | Base URL for your CDN | https://cdn.example.com |
-| `RESULTS_FILE` | Path to pre-warming results file | ./video_transform_results.json |
-| `URL_FORMAT` | URL format ('imwidth' or 'derivative') | imwidth |
-| `STAGE1_USERS` to `STAGE5_USERS` | Virtual users for each stage | 50, 50, 100, 100, 0 |
-| `STAGE1_DURATION` to `STAGE5_DURATION` | Duration for each stage | 30s, 1m, 30s, 1m, 30s |
-| `REQ_DURATION_THRESHOLD` | p95 threshold for request duration | 15000 (ms) |
-| `FAILURE_RATE_THRESHOLD` | Maximum acceptable failure rate | 0.05 (5%) |
-| `RESPONSE_TIME_THRESHOLD` | Threshold for "reasonable" response time in checks | 10000 (ms) |
 
 ### URL Formats
 
@@ -224,14 +331,80 @@ The load test supports two URL formats:
 2. **derivative format**:  
    `https://cdn.example.com/path/to/video.mp4?derivative=desktop&width=1920&height=1080`
 
-### Understanding the Load Profile
+### Request Patterns
 
-The default load profile has 5 stages:
-1. Ramp up to first user level (default: 50 VUs)
-2. Stay at first level (simulates normal load)
-3. Ramp up to second user level (default: 100 VUs)
-4. Stay at second level (simulates peak load)
-5. Ramp down to 0 (simulates end of traffic spike)
+The tool simulates real-world video player behavior with:
+
+- **Byte Range Requests**: 80% of requests use Range headers to request specific portions of videos
+- **Range Distribution**:
+  - 50% chance: First portion (0-33% of file)
+  - 40% chance: Middle portion (33-66% of file)
+  - 10% chance: End portion (66-85% of file)
+- **Variable Chunk Sizes**: Between 50KB and 500KB per request
+- **Random Sleep Intervals**: Between requests to simulate realistic user behavior
+
+### Load Test Thresholds
+
+The load test uses the following thresholds by default:
+
+```javascript
+thresholds: {
+  http_req_duration: [`p(95)<${__ENV.REQ_DURATION_THRESHOLD || "15000"}`], 
+  http_req_failed: [`rate<${__ENV.FAILURE_RATE_THRESHOLD || "0.05"}`],
+}
+```
+
+These ensure that 95% of requests complete within 15 seconds and that the failure rate is less than 5%.
+
+## Storage Integration
+
+### Cloudflare R2 Support
+
+The toolkit has specialized support for Cloudflare R2 storage through the rclone interface. It uses the standard S3 API but with R2-specific endpoint formatting:
+
+```
+https://ACCOUNT_ID.r2.cloudflarestorage.com
+```
+
+### File Listing Optimization
+
+For R2 buckets, the tool supports two listing modes:
+
+1. **rclone mode** (default): Uses `rclone ls --recursive` for listing files
+2. **AWS CLI mode**: Uses `aws s3 ls --recursive` when the `--aws-cli` flag is specified
+
+For very large buckets (1000+ files), the AWS CLI mode may be more efficient, while rclone offers better compatibility across different storage providers.
+
+## Report Generation
+
+### Performance Reports
+
+The tool generates comprehensive performance reports with:
+
+- Overall statistics (success rate, timing percentiles)
+- Category-specific metrics (by file size category)
+- Error breakdown by type
+- Correlation analysis between file size and processing time
+- Recommendations for optimization
+
+Example correlation metrics:
+```
+"correlation": {
+  "size_time_pearson": 0.872,  // Strong correlation between size and time
+  "regression_slope": 5.327e-7,  // Seconds per byte
+  "estimated_time_100MB": 55.76  // Estimated processing time for 100MB file
+}
+```
+
+### File Size Reports
+
+The file size analysis feature generates detailed markdown reports including:
+
+- Basic statistics (min/max/average sizes)
+- Size distribution by category
+- List of largest files
+- Percentage of space used by files above threshold
+- Potential storage savings calculations
 
 ## Common Use Cases
 
@@ -239,176 +412,41 @@ The default load profile has 5 stages:
 
 ```bash
 ./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com \
-  --remote s3 --bucket prod-video-bucket --workers 20 \
-  --stage1-users 100 --stage2-users 200 --stage3-users 300 \
-  --stage1-duration 1m --stage2-duration 5m --stage3-duration 5m
+  --remote r2 --bucket videos --workers 20 \
+  --stage1-users 100 --stage2-users 200 --stage3-users 300
 ```
 
-### Quick Test with Limited Videos
+### Video Optimization with WebM Generation
 
 ```bash
-./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com \
-  --remote s3 --bucket test-video-bucket --limit 5 \
-  --stage1-users 10 --stage1-duration 30s --stage2-duration 30s \
-  --stage3-users 0 --stage4-users 0 --stage5-users 0
+python main.py --remote r2 --bucket videos \
+  --directory videos --optimize-videos --codec h265 \
+  --quality-profile balanced --create-webm --target-resolution 1080p
 ```
 
-### Test with Pre-warmed Videos
+### High-Volume File Processing
+
+For processing thousands of files with maximum efficiency:
 
 ```bash
-./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com \
-  --skip-prewarming \
-  --stage1-users 50 --stage2-users 100 --stage3-users 150
+python main.py --remote r2 --bucket videos --directory videos \
+  --base-url https://cdn.example.com/ --optimize-by-size \
+  --workers 500 --small-file-workers 300 --medium-file-workers 150 --large-file-workers 50
 ```
 
-### Load Test with Custom URL Format
+### Performance Benchmarking
+
+To identify the optimal transformation parameters and worker allocation:
 
 ```bash
-./run-prewarmer-and-loadtest.sh --base-url https://cdn.example.com \
-  --remote s3 --bucket my-video-bucket \
-  --url-format derivative
+python main.py --remote r2 --bucket videos --directory videos \
+  --base-url https://cdn.example.com/ --optimize-by-size \
+  --performance-report detailed_performance.md
 ```
-
-### Advanced Load Testing Examples
-
-1. **CDN Performance Testing**:
-   ```bash
-   k6 run video-load-test-integrated.js -e STAGE3_USERS=250 -e STAGE4_USERS=250
-   ```
-
-2. **Quick Smoke Test**:
-   ```bash
-   k6 run video-load-test-integrated.js -e STAGE1_DURATION=10s -e STAGE2_DURATION=20s -e STAGE3_USERS=0
-   ```
-
-### File Size Analysis and Optimization
-
-#### Basic File Size Analysis
-
-Generate comprehensive reports of file sizes in your storage to identify large files:
-
-```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket my-video-bucket \
-  --directory videos --list-files --size-threshold 256
-```
-
-The report includes:
-- Summary statistics of all files (total size, count, min, max, average)
-- Distribution of files by size ranges with percentage breakdowns
-- ASCII histogram for visual representation of size distribution
-- List of the top 20 largest files with exact sizes
-- Count and percentage of files above the specified threshold
-- Storage optimization recommendations
-
-#### Advanced File Size Analysis
-
-For more detailed analysis, you can customize the report with additional parameters:
-
-```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket my-video-bucket \
-  --directory videos --list-files --size-threshold 100 \
-  --size-report-output detailed-size-report.md --workers 100
-```
-
-#### High-Performance File Analysis
-
-The file listing and analysis can be accelerated by using more workers:
-
-```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket my-video-bucket \
-  --directory videos --list-files --workers 1000
-```
-
-This configuration is optimized for:
-- Fast processing of large storage buckets with thousands of files
-- Efficient file metadata collection with minimal API calls
-- Quick generation of reports even with very large datasets
-
-#### Combined Pre-warming and File Analysis
-
-You can now combine file size analysis with pre-warming, which provides valuable insights into original file sizes and their impact on transformation performance:
-
-```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket my-video-bucket \
-  --directory videos --base-url https://cdn.example.com/ --optimize-by-size
-```
-
-This mode provides several advantages:
-- Automatically collects and correlates file sizes with transformation performance
-- Shows size reduction efficiency for each derivative
-- Identifies patterns between file sizes and error rates
-- Provides insights into resource usage based on file sizes 
-- Generates comprehensive reports with all metrics
-
-#### Custom Output Reports
-
-You can specify custom output file paths for the various reports:
-
-```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket my-video-bucket \
-  --output my-results.json --size-report-output size-report.md \
-  --performance-report performance.txt
-```
-
-## Troubleshooting
-
-### Pre-warmer Issues
-
-1. **Connection Timeouts**
-   - Increase the `--timeout` value
-   - Reduce the number of `--workers`
-   - Check network connectivity to your CDN
-
-2. **Path Resolution Problems**
-   - Ensure the correct `--remote` and `--bucket` names
-   - Check if `--directory` exists in your S3/rclone storage
-   - Verify permissions for accessing the storage
-
-3. **AWS CLI Issues**
-   - Verify AWS CLI is installed: `aws --version`
-   - Check AWS credentials are configured: `aws configure list`
-   - Test basic AWS CLI access: `aws s3 ls s3://your-bucket/`
-
-4. **rclone Issues**
-   - Verify rclone is installed: `rclone --version`
-   - Check rclone configuration: `rclone config show`
-   - Test basic rclone access: `rclone lsf your-remote:your-bucket/`
-
-### Load Testing Issues
-
-1. **No Test Data**
-   - Ensure you've run the pre-warmer first or have a valid results file
-   - Check that the results file contains successful transformations (status 200)
-   - Verify the path to the results file is correct
-
-2. **k6 Installation Issues**
-   - Verify k6 is installed: `k6 version`
-   - If not installed, follow instructions at k6.io
-
-3. **High Failure Rates**
-   - Check CDN capacity and configuration
-   - Verify network connectivity
-   - Consider reducing the number of virtual users
-
-4. **k6 Crashes or Errors**
-   - Update to the latest version of k6
-   - Check system resources (memory, network)
-   - Try running with fewer virtual users
 
 ## Performance Optimization
 
-### Basic Optimization
-- **AWS CLI vs. rclone**: For large AWS S3 buckets, AWS CLI is generally faster for listing objects
-- **Worker Count**: Adjust `--workers` based on your CPU cores and network capacity
-- **Timeout Values**: Set appropriate `--timeout` values based on video sizes
-- **k6 Settings**: Adjust load test stages based on your CDN's capacity and expected real-world usage
-- **Selective Processing**: Use `--directory` and `--limit` to process subsets for testing
-- **Load Testing Location**: Run k6 on a machine close to your target audience for realistic latency
-- **Monitoring**: Track both client and server-side metrics during load testing
-
-### Advanced Performance Optimizations
-
-#### Per-Derivative Parallel Processing
+### Per-Derivative Parallel Processing
 
 The pre-warmer uses an advanced parallelization model that treats each derivative as an independent task, providing significant performance improvements:
 
@@ -426,14 +464,7 @@ The pre-warmer uses an advanced parallelization model that treats each derivativ
 - **Higher Concurrency**: Safely scales to 1000+ workers without race conditions
 - **Granular Metrics**: Captures performance data at the derivative level
 
-##### Usage Example
-```bash
-# Run with 500 workers processing each derivative in parallel
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket my-video-bucket \
-  --base-url https://cdn.example.com/ --workers 500
-```
-
-#### Size-Based Optimization
+### Size-Based Optimization
 
 The pre-warmer can optimize processing based on file sizes, which significantly improves performance and resource utilization, especially when dealing with mixed file sizes.
 
@@ -443,153 +474,54 @@ The pre-warmer can optimize processing based on file sizes, which significantly 
 3. Resource allocation is optimized to prevent large files from blocking processing of smaller files
 4. Comprehensive performance metrics are collected and analyzed
 
-##### Enabling Size Optimization
+Enable Size Optimization:
 ```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket my-video-bucket \
-  --base-url https://cdn.example.com/ --optimize-by-size
+python main.py --remote r2 --bucket videos \
+  --directory videos --base-url https://cdn.example.com/ --optimize-by-size
 ```
 
-##### Customizing Size Categories
-You can adjust the size thresholds and worker allocation:
+## Troubleshooting
 
-```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket my-video-bucket \
-  --base-url https://cdn.example.com/ --optimize-by-size \
-  --small-file-threshold 75 --medium-file-threshold 300 \
-  --small-file-workers 8 --medium-file-workers 4 --large-file-workers 2
-```
+### Common Issues
 
-#### Combining Both Optimization Techniques
-For maximum performance, you can combine both per-derivative parallel processing and size-based optimization:
+1. **Connection Timeouts**
+   - Increase the `--timeout` value
+   - Reduce the number of `--workers`
+   - Increase `--connection-close-delay` to allow for proper connection cleanup
 
-```bash
-python video-resizer-kv-pre-warmer.py --remote s3 --bucket my-video-bucket \
-  --base-url https://cdn.example.com/ --optimize-by-size --workers 1000
-```
+2. **Path Resolution Problems**
+   - Ensure the correct `--remote` and `--bucket` names
+   - Check if `--directory` exists in your storage
+   - Verify permissions for accessing the storage
 
-This configuration:
-1. Categorizes files by size (small, medium, large)
-2. Allocates dedicated worker pools to each size category
-3. Processes each derivative as an independent task
-4. Applies thread-safe concurrent processing
+3. **FFmpeg Errors**
+   - Verify FFmpeg is installed: `ffmpeg -version`
+   - Check codec support: `ffmpeg -codecs | grep <codec>`
+   - For H.265/HEVC encoding issues, ensure libx265 is installed
+   - For VP9 issues, ensure libvpx-vp9 is installed
 
-#### Performance Reports
+4. **HTTP 500 Errors in Pre-warming**
+   - Check access permissions for your CDN/storage
+   - Verify URL construction is correct
+   - Reduce concurrency with fewer workers
+   - Check the generated detailed error report for patterns
 
-The script automatically generates detailed performance reports:
+5. **Load Test Failures**
+   - Check that pre-warming completed successfully
+   - Verify that the results file has successful transformations
+   - Reduce the number of virtual users
+   - Increase the request timeout threshold
 
-1. **JSON Performance Data**: Full metrics data in JSON format (`*_performance.json`)
-2. **Text Performance Report**: Human-readable summary with statistics (`*_performance.txt`)
-3. **Console Summary**: Brief performance overview in the console output
+## Error Handling and Recovery
 
-The reports include:
-- Processing time breakdown by file size category and derivative
-- Performance correlation analysis (e.g., correlation between file size and processing time)
-- Size reduction efficiency statistics
-- Derivative-specific performance metrics
-- Automatic recommendations for further optimization
+The tool implements sophisticated error handling:
 
-## Advanced Technical Details
-
-### Architecture Overview
-
-The video-resizer-pre-warmer uses a sophisticated architecture designed for maximum performance and reliability:
-
-#### Core Components
-1. **Command Processing Layer**: Handles CLI arguments and configurations
-2. **Storage Interface Layer**: Communicates with S3, Azure, Google Cloud via rclone/AWS CLI
-3. **Task Allocation System**: Distributes workloads efficiently based on file size and type
-4. **Worker Pool Management**: Handles thread creation, monitoring, and lifecycle
-5. **Request Processing Engine**: Makes HTTP requests with retry logic and error handling
-6. **Result Collection System**: Gathers and processes results from concurrent workers
-7. **Reporting Framework**: Generates various reports from collected data
-8. **Graceful Shutdown Handler**: Ensures clean termination on interruption
-
-#### Threading Model
-- **Thread Pool Executors**: Uses Python's `concurrent.futures.ThreadPoolExecutor` for work distribution
-- **Thread-Safe Data Structures**: Protected with locks to prevent race conditions
-- **Queue-Based Communication**: Uses thread-safe queues for inter-thread message passing 
-- **Thread Lifecycle Management**: Proper initialization and cleanup of worker threads
-- **Resource Management**: Controlled allocation and cleanup of system resources
-
-#### Optimization Techniques
-- **Asynchronous Processing**: Non-blocking operations for I/O-bound tasks
-- **Dynamic Resource Allocation**: Adjusts resources based on workload characteristics
-- **Efficient Data Structures**: Optimized for fast lookups and minimal memory usage
-- **Smart Batching**: Groups similar tasks for efficient processing
-- **Caching**: Avoids redundant operations with smart caching strategies
-
-### Performance Benchmarks
-
-The following benchmarks show the performance improvements with recent optimizations:
-
-| Configuration | Files Processed | Derivatives | Workers | Time (seconds) | Throughput (files/sec) |
-|---------------|----------------|------------|---------|----------------|------------------------|
-| Original      | 2000           | 3          | 100     | 720            | 2.78                   |
-| Size-Optimized| 2000           | 3          | 100     | 480            | 4.17                   |
-| Per-Derivative| 2000           | 3          | 300     | 250            | 8.00                   |
-| Combined      | 2000           | 3          | 1000    | 180            | 11.11                  |
-
-*Note: Actual performance may vary based on network conditions, file sizes, and server capacity.*
-
-### Extending the Tool
-
-The tool is designed to be extensible and can be customized for various use cases:
-
-#### Adding New Derivatives
-To add support for new derivatives beyond desktop, tablet, and mobile:
-
-1. Update the `get_derivative_dimensions` function:
-   ```python
-   def get_derivative_dimensions(derivative, logger=None):
-       dimensions = {
-           'desktop': {'width': 1920, 'height': 1080},
-           'tablet': {'width': 1280, 'height': 720},
-           'mobile': {'width': 854, 'height': 640},
-           'your_new_derivative': {'width': XXX, 'height': YYY}  # Add your new derivative
-       }
-       # ...
-   ```
-
-2. Update the CLI help text and argument parsing to include the new derivative.
-
-#### Adding New Storage Providers
-The tool already supports any storage provider that rclone can connect to. To add a new one:
-
-1. Configure rclone for your storage provider
-2. Use the provider's remote name with the `--remote` parameter
-
-#### Custom Reporting Formats
-To implement a custom report format:
-
-1. Add a new format handler in the relevant report generation function
-2. Update the CLI arguments to include your new format option
-3. Implement the formatter using Python string templating or a template engine
-
-### API Integration
-
-While primarily a CLI tool, the core functionality can be used programmatically:
-
-#### Python Module Usage
-```python
-from video_resizer import list_objects, process_single_derivative, generate_size_report
-
-# List objects with sizes
-objects = list_objects('my-remote', 'my-bucket', 'videos', '.mp4', logger=my_logger)
-
-# Process a single derivative
-result = process_single_derivative(
-    obj_data={'path': 'path/to/video.mp4', 'size': 10485760},
-    derivative='desktop',
-    base_url='https://cdn.example.com/',
-    bucket='my-bucket',
-    directory='videos',
-    timeout=120,
-    logger=my_logger
-)
-
-# Generate a report
-generate_size_report(file_sizes, 256, 'report.md', my_logger)
-```
+1. **Graceful Shutdown**: Captures SIGINT/SIGTERM and performs orderly shutdown
+2. **Thread Pool Management**: Proper cleanup of executor threads
+3. **Automatic Retries**: Configurable retry attempts for various error types
+4. **Error Classification**: Categorizes errors by type for analysis
+5. **Detailed Logging**: Thread-aware logging with file and console output
+6. **Partial Results Saving**: Preserves results even if interrupted
 
 ## License
 
