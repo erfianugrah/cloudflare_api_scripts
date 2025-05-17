@@ -205,7 +205,7 @@ All load testing configuration is done through environment variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `BASE_URL` | Base URL for your CDN | https://cdn.erfi.dev |
+| `BASE_URL` | Base URL for your CDN | https://cdn.example.com |
 | `RESULTS_FILE` | Path to pre-warming results file | ./video_transform_results.json |
 | `URL_FORMAT` | URL format ('imwidth' or 'derivative') | imwidth |
 | `STAGE1_USERS` to `STAGE5_USERS` | Virtual users for each stage | 50, 50, 100, 100, 0 |
