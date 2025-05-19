@@ -1214,7 +1214,6 @@ Below is a comprehensive list of all errors with complete details:
 ```
 Transformation failed and fallback could not be retrieved. Original error status: 400
 ```
-```
 
 #### Advanced Error Analysis Features
 
