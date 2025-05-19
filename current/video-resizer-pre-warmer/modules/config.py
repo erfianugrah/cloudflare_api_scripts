@@ -67,7 +67,7 @@ def parse_arguments():
     parser.add_argument('--retry', type=int, default=2, help='Number of retry attempts for failed requests')
     parser.add_argument('--generate-error-report', action='store_true', help='Generate an error report from an existing results file')
     parser.add_argument('--error-report-output', default='error_report.md', help='Output file path for error report')
-    parser.add_argument('--error-report-format', choices=['markdown', 'json'], help='Format for the error report (default is based on file extension)')
+    parser.add_argument('--format', choices=['markdown', 'json'], help='Format for the error report (default is based on file extension)')
     
     # Output and reporting options
     parser.add_argument('--output', default='video_transform_results.json', help='Output JSON file path')

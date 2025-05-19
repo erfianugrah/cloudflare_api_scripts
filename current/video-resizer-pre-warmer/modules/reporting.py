@@ -31,8 +31,9 @@ def write_results_to_file(all_results, metadata, output_file, processed, total_o
         if logger:
             logger.debug(f"Writing results to {output_file} ({processed}/{total_objects} processed)")
         
-        # Create a list of all entries that have 500 errors
+        # Create lists for errors of different types
         http_500_errors = []
+        all_errors = []  # Track all errors regardless of type
         
         # Collect performance metrics data
         performance_data = {
@@ -71,7 +72,7 @@ def write_results_to_file(all_results, metadata, output_file, processed, total_o
                     'processing_time': obj_results.get('processing_time')
                 })
             
-            # Check for HTTP 500 errors
+            # Check for errors of all types
             derivatives = obj_results.get('derivatives', {})
             has_error = False
             
@@ -89,16 +90,40 @@ def write_results_to_file(all_results, metadata, output_file, processed, total_o
                         'duration': obj_results['derivatives'][derivative]['duration']
                     })
                 
-                # Check for errors
-                if derivative_results.get('status_code') == 500:
-                    http_500_errors.append({
+                # Check for errors - track both 500 errors specifically and all errors
+                # Error statuses can be: 'error', 'timeout', 'connection_error', 'exception'
+                status = derivative_results.get('status', '')
+                if status != 'success' and status != 'unknown':
+                    # Add to all errors list - extract full error details
+                    # Preserve all details from the API response
+                    error_details = derivative_results.copy()
+                    
+                    # Ensure we capture the complete original API error if available
+                    if 'error_details' in derivative_results and isinstance(derivative_results['error_details'], dict):
+                        # Extract raw API response and error data
+                        if 'raw_response' in derivative_results['error_details']:
+                            error_details['raw_api_response'] = derivative_results['error_details']['raw_response']
+                        if 'original_error' in derivative_results['error_details']:
+                            error_details['original_api_error'] = derivative_results['error_details']['original_error']
+                    
+                    all_errors.append({
                         'path': obj_path,
                         'size_bytes': size_bytes,
                         'size_category': size_category,
                         'derivative': derivative,
-                        'details': derivative_results
+                        'details': error_details
                     })
                     has_error = True
+                    
+                    # Additionally track 500 errors separately for backward compatibility
+                    if derivative_results.get('status_code') == 500:
+                        http_500_errors.append({
+                            'path': obj_path,
+                            'size_bytes': size_bytes,
+                            'size_category': size_category,
+                            'derivative': derivative,
+                            'details': derivative_results
+                        })
             
             # Track sizes for correlation analysis
             if has_error:
@@ -117,10 +142,12 @@ def write_results_to_file(all_results, metadata, output_file, processed, total_o
                 'total_processed': processed,
                 'total_count': total_objects,
                 'percent_complete': (processed / total_objects) * 100 if total_objects > 0 else 0,
-                'http_500_error_count': len(http_500_errors)
+                'http_500_error_count': len(http_500_errors),
+                'all_error_count': len(all_errors)
             },
             'results': all_results,
             'http_500_errors': http_500_errors,
+            'all_errors': all_errors,  # Include all errors in the results
             'performance_metrics': performance_stats
         }
         
@@ -554,12 +581,24 @@ def generate_size_report(file_list, size_threshold_mib, format_type='markdown'):
     # Sort files by size (largest first)
     file_list.sort(key=lambda x: x[1], reverse=True)
     
+    # Find files above threshold
+    threshold_bytes = size_threshold_mib * 1024 * 1024
+    files_above_threshold = [(path, size) for path, size in file_list if size > threshold_bytes]
+    
     if format_type == 'json':
         report_data = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "size_threshold_mib": size_threshold_mib,
             "total_files": len(file_list),
             "total_size_bytes": sum(size for _, size in file_list),
+            "files_above_threshold": {
+                "count": len(files_above_threshold),
+                "total_size_bytes": sum(size for _, size in files_above_threshold),
+                "files": [
+                    {"path": path, "size_bytes": size, "size_mib": size / (1024 * 1024)}
+                    for path, size in files_above_threshold
+                ]
+            },
             "files": [
                 {"path": path, "size_bytes": size, "size_mib": size / (1024 * 1024)}
                 for path, size in file_list
@@ -569,20 +608,43 @@ def generate_size_report(file_list, size_threshold_mib, format_type='markdown'):
     
     # Generate markdown report
     total_size = sum(size for _, size in file_list)
+    threshold_size = sum(size for _, size in files_above_threshold)
     
     md_report = [
         f"# File Size Report",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         "",
+        f"## Summary",
         f"- Size threshold: {size_threshold_mib} MiB",
         f"- Total files: {len(file_list)}",
         f"- Total size: {video_utils.format_file_size(total_size)}",
+    ]
+    
+    # Add threshold summary section
+    if files_above_threshold:
+        md_report.extend([
+            f"",
+            f"### Files Above Threshold ({size_threshold_mib} MiB)",
+            f"- Files above threshold: {len(files_above_threshold)} of {len(file_list)} ({len(files_above_threshold)/len(file_list)*100:.1f}%)",
+            f"- Total size of large files: {video_utils.format_file_size(threshold_size)} ({threshold_size/total_size*100:.1f}% of total)",
+            f"",
+            f"| # | File Path | Size |",
+            f"|---|----------|------|",
+        ])
+        
+        for i, (path, size) in enumerate(files_above_threshold):
+            md_report.append(f"| {i+1} | {path} | {video_utils.format_file_size(size)} |")
+    else:
+        md_report.append(f"\n**No files above the {size_threshold_mib} MiB threshold found.**")
+    
+    # Add complete file list
+    md_report.extend([
         "",
-        "## Files by Size (Largest First)",
+        "## All Files by Size (Largest First)",
         "",
         "| # | File Path | Size |",
         "|---|----------|------|",
-    ]
+    ])
     
     for i, (path, size) in enumerate(file_list):
         md_report.append(f"| {i+1} | {path} | {video_utils.format_file_size(size)} |")
@@ -710,56 +772,119 @@ def generate_error_report(results_data, format_type='markdown'):
     from collections import Counter
     import numpy as np
     
-    # Extract all errors from the results
-    errors = []
-    error_file_sizes = []
-    success_file_sizes = []
-    
-    for obj_path, obj_result in results_data.get('results', {}).items():
-        size_bytes = obj_result.get('size_bytes', 0)
-        size_category = obj_result.get('size_category', 'unknown')
-        derivatives_dict = obj_result.get('derivatives', {})
+    # Use the all_errors list if available, otherwise extract from results
+    if 'all_errors' in results_data and results_data['all_errors']:
+        # Use the pre-extracted list of all errors
+        all_error_entries = results_data['all_errors']
+        errors = []
         
-        has_error = False
+        # Convert to the expected format
+        for entry in all_error_entries:
+            errors.append({
+                'file': entry.get('path', ''),
+                'derivative': entry.get('derivative', 'default'),
+                'status_code': entry.get('details', {}).get('status_code'),
+                'error_type': entry.get('details', {}).get('error_type', 'unknown'),
+                'url': entry.get('details', {}).get('url', ''),
+                'error_msg': entry.get('details', {}).get('error_details', {}).get('response', '') or 
+                             entry.get('details', {}).get('raw_api_response', '') or 
+                             entry.get('details', {}).get('original_api_error', '') or 
+                             entry.get('details', {}).get('error_message', ''),
+                'size_bytes': entry.get('size_bytes', 0),
+                'size_category': entry.get('size_category', 'unknown'),
+                'ttfb': entry.get('details', {}).get('ttfb'),
+                'duration': entry.get('details', {}).get('duration')
+            })
+    else:
+        # Extract all errors from the results (fallback for backward compatibility)
+        errors = []
         
-        # If structure has derivatives
-        if derivatives_dict:
-            for deriv, deriv_result in derivatives_dict.items():
-                if deriv_result.get('status') == 'error':
-                    has_error = True
+        for obj_path, obj_result in results_data.get('results', {}).items():
+            size_bytes = obj_result.get('size_bytes', 0)
+            size_category = obj_result.get('size_category', 'unknown')
+            derivatives_dict = obj_result.get('derivatives', {})
+            
+            # If structure has derivatives
+            if derivatives_dict:
+                for deriv, deriv_result in derivatives_dict.items():
+                    # Error statuses can be: 'error', 'timeout', 'connection_error', 'exception'
+                    status = deriv_result.get('status', '')
+                    if status != 'success' and status != 'unknown':
+                        errors.append({
+                            'file': obj_path,
+                            'derivative': deriv,
+                            'status_code': deriv_result.get('status_code'),
+                            'error_type': deriv_result.get('error_type', 'unknown'),
+                            'url': deriv_result.get('url', ''),
+                            'error_msg': deriv_result.get('error_details', {}).get('response', '') or
+                                 deriv_result.get('raw_api_response', '') or
+                                 deriv_result.get('original_api_error', '') or
+                                 deriv_result.get('error_message', ''),
+                            'size_bytes': size_bytes,
+                            'size_category': size_category,
+                            'ttfb': deriv_result.get('ttfb'),
+                            'duration': deriv_result.get('duration')
+                        })
+            # Alternative structure without derivatives wrapper
+            # Error statuses can be: 'error', 'timeout', 'connection_error', 'exception'
+            else:
+                status = obj_result.get('status', '')
+                if status != 'success' and status != 'unknown':
                     errors.append({
                         'file': obj_path,
-                        'derivative': deriv,
-                        'status_code': deriv_result.get('status_code'),
-                        'error_type': deriv_result.get('error_type', 'unknown'),
-                        'url': deriv_result.get('url', ''),
-                        'error_msg': deriv_result.get('error_details', {}).get('response', ''),
+                        'derivative': 'default',
+                        'status_code': obj_result.get('status_code'),
+                        'error_type': obj_result.get('error_type', 'unknown'),
+                        'url': obj_result.get('url', ''),
+                        'error_msg': obj_result.get('error_details', {}).get('response', '') or
+                             obj_result.get('raw_api_response', '') or
+                             obj_result.get('original_api_error', '') or
+                             obj_result.get('error_message', ''),
                         'size_bytes': size_bytes,
                         'size_category': size_category,
-                        'ttfb': deriv_result.get('ttfb'),
-                        'duration': deriv_result.get('duration')
+                        'ttfb': obj_result.get('ttfb'),
+                        'duration': obj_result.get('duration')
                     })
-        # Alternative structure without derivatives wrapper
-        elif obj_result.get('status') == 'error':
-            has_error = True
-            errors.append({
-                'file': obj_path,
-                'derivative': 'default',
-                'status_code': obj_result.get('status_code'),
-                'error_type': obj_result.get('error_type', 'unknown'),
-                'url': obj_result.get('url', ''),
-                'error_msg': obj_result.get('error_details', {}).get('response', ''),
-                'size_bytes': size_bytes,
-                'size_category': size_category,
-                'ttfb': obj_result.get('ttfb'),
-                'duration': obj_result.get('duration')
-            })
-            
-        # Track file sizes for analysis
-        if has_error:
-            error_file_sizes.append(size_bytes)
-        else:
-            success_file_sizes.append(size_bytes)
+    
+    # Analyze errors for more specific error types based on error messages
+    for error in errors:
+        # Try to identify more specific error types from error messages
+        error_msg = error.get('error_msg', '').lower()
+        
+        # Default error type is what's in the data
+        specific_error_type = error.get('error_type', 'unknown')
+        
+        # Look for more specific error indicators in the message
+        if 'timeout' in error_msg or 'timed out' in error_msg:
+            specific_error_type = 'timeout_error'
+        elif 'memory' in error_msg or 'out of memory' in error_msg:
+            specific_error_type = 'memory_error'
+        elif 'format' in error_msg and ('invalid' in error_msg or 'unsupported' in error_msg):
+            specific_error_type = 'format_error'
+        elif 'corrupt' in error_msg:
+            specific_error_type = 'corrupt_file_error'
+        elif 'bad request' in error_msg or '400' in error_msg:
+            specific_error_type = 'bad_request_error'
+        elif 'throttl' in error_msg or 'rate limit' in error_msg:
+            specific_error_type = 'rate_limit_error'
+        elif 'permission' in error_msg or 'access denied' in error_msg or 'unauthorized' in error_msg:
+            specific_error_type = 'permission_error'
+        
+        # Update the error with more specific type if we found one
+        error['specific_error_type'] = specific_error_type
+    
+    # Extract file sizes for analysis
+    error_file_sizes = [e['size_bytes'] for e in errors if 'size_bytes' in e]
+    
+    # Calculate success file sizes by subtracting error files from all files
+    success_file_sizes = []
+    for obj_path, obj_result in results_data.get('results', {}).items():
+        size_bytes = obj_result.get('size_bytes', 0)
+        if size_bytes > 0:
+            # Check if this file is in errors
+            is_error = any(e['file'] == obj_path for e in errors)
+            if not is_error:
+                success_file_sizes.append(size_bytes)
     
     # If no errors found
     if not errors:
@@ -771,8 +896,45 @@ def generate_error_report(results_data, format_type='markdown'):
             }, indent=2)
         return "# Error Report\n\nNo errors found in the results file."
     
-    # Count errors by type
+    # Count errors by type using both generic and specific types
     error_types = Counter([e['error_type'] for e in errors])
+    
+    # Also track the more specific error types we identified
+    specific_error_types = Counter([e.get('specific_error_type', 'unknown') for e in errors])
+    
+    # Initialize combined error types with the original types
+    combined_error_types = {}
+    
+    # Initialize recommendations lists for both output formats
+    recommendations = []
+    troubleshooting_recommendations = []
+    
+    # Map of generic error types to more specific types
+    error_type_mapping = {
+        'server_error': ['bad_request_error', 'timeout_error', 'memory_error', 
+                        'format_error', 'corrupt_file_error', 'rate_limit_error', 
+                        'permission_error'],
+        'error': ['bad_request_error', 'timeout_error', 'memory_error', 
+                'format_error', 'corrupt_file_error', 'rate_limit_error', 
+                'permission_error']
+    }
+    
+    # Track which errors have been assigned a specific type
+    errors_with_specific_type = set()
+    
+    # First add all specific error types
+    for i, error in enumerate(errors):
+        spec_type = error.get('specific_error_type')
+        if spec_type and spec_type != 'unknown':
+            # This error has a specific type
+            combined_error_types[spec_type] = combined_error_types.get(spec_type, 0) + 1
+            errors_with_specific_type.add(i)
+    
+    # Then add generic types only for errors that don't have a specific type
+    for i, error in enumerate(errors):
+        if i not in errors_with_specific_type:
+            gen_type = error.get('error_type', 'unknown')
+            combined_error_types[gen_type] = combined_error_types.get(gen_type, 0) + 1
     
     # Count errors by status code
     status_codes = Counter([e['status_code'] for e in errors])
@@ -832,21 +994,36 @@ def generate_error_report(results_data, format_type='markdown'):
     
     # JSON output format
     if format_type == 'json':
+        # Force add recommendations based on what we know exists in the data
+        if '400' in ''.join([e.get('error_msg', '') for e in errors[:5]]) and not troubleshooting_recommendations:
+            troubleshooting_recommendations.append("Bad Request (400) Errors: Check input file formats and parameters to ensure they meet API requirements.")
+            
+        if any(e.get('status_code') == 500 for e in errors) and not any("Server Errors (500)" in rec for rec in troubleshooting_recommendations):
+            troubleshooting_recommendations.append("Server Errors (500): These indicate issues on the server side. Consider retrying these files at a later time or contacting the API provider with specific error details.")
+            
+        if any(e.get('size_bytes', 0) > 100*1024*1024 for e in errors) and not any("Large File Errors" in rec for rec in troubleshooting_recommendations):
+            troubleshooting_recommendations.append("Large File Errors: Consider pre-processing large files (>100 MB) to reduce size before transformation.")
+    
         error_report = {
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'original_timestamp': results_data.get('timestamp', 'unknown'),
             'summary': {
                 'total_errors': len(errors),
                 'total_processed': results_data.get('stats', {}).get('total_processed', 0),
-                'error_rate': len(errors) / results_data.get('stats', {}).get('total_processed', 1) * 100
+                'error_rate': len(errors) / results_data.get('stats', {}).get('total_processed', 1) * 100,
+                'error_source': 'Extracted from results' if 'all_errors' not in results_data else 'Pre-collected errors',
+                'original_all_errors_count': len(results_data.get('all_errors', [])) if 'all_errors' in results_data else 0
             },
             'error_types': dict(error_types),
+            'specific_error_types': dict(specific_error_types),
+            'combined_error_types': combined_error_types,
             'status_codes': dict(status_codes),
             'size_categories': dict(size_categories),
             'derivatives': dict(derivatives),
             'common_error_messages': dict(error_msgs.most_common(10)),
             'size_statistics': size_stats,
             'detailed_errors': detailed_errors,
+            'troubleshooting_recommendations': troubleshooting_recommendations,
             'error_examples': {k: {
                 'file': v['file'],
                 'url': v['url'],
@@ -866,11 +1043,18 @@ def generate_error_report(results_data, format_type='markdown'):
         f"Original data timestamp: {results_data.get('timestamp', 'unknown')}\n",
         "## Summary",
         f"- **Total errors**: {len(errors)}",
+        f"- **Error source**: {'Extracted from results' if 'all_errors' not in results_data else f'Pre-collected errors'}",
         f"- **Total processed files**: {results_data.get('stats', {}).get('total_processed', 'unknown')}",
         f"- **Error rate**: {len(errors) / results_data.get('stats', {}).get('total_processed', 1) * 100:.2f}%\n",
         "## Error Types",
-        tabulate([(k, v, f"{(v / len(errors)) * 100:.1f}%") for k, v in error_types.items()], 
+        tabulate([(k, v, f"{(v / len(errors)) * 100:.1f}%") for k, v in combined_error_types.items()], 
                 headers=["Error Type", "Count", "Percentage"],
+                tablefmt="pipe"),
+                
+        "\n## Specific Error Types (Based on Error Message Analysis)",
+        tabulate([(k, v, f"{(v / len(errors)) * 100:.1f}%") for k, v in specific_error_types.items() 
+                if k != 'unknown' and v > 0], 
+                headers=["Detailed Error Type", "Count", "Percentage"],
                 tablefmt="pipe"),
         "\n## Status Codes",
         tabulate([(k, v, f"{(v / len(errors)) * 100:.1f}%") for k, v in status_codes.items()], 
@@ -937,6 +1121,56 @@ def generate_error_report(results_data, format_type='markdown'):
     if len(errors) > 50:
         lines.append(f"\n*Note: Showing only the first 50 of {len(errors)} errors*")
     
+    # Generate troubleshooting recommendations based on error types
+    # (variables already initialized above)
+    
+    # Debug to check specific error types
+    if format_type == 'json':
+        for e in errors[:3]:
+            print(f"DEBUG: Error type: {e.get('error_type')}, Specific error type: {e.get('specific_error_type')}")
+    
+    # Check for specific error patterns and add recommendations
+    if any(e.get('specific_error_type') == 'bad_request_error' for e in errors):
+        recommendations.append("- **Bad Request (400) Errors**: Check input file formats and parameters to ensure they meet API requirements.")
+        troubleshooting_recommendations.append("Bad Request (400) Errors: Check input file formats and parameters to ensure they meet API requirements.")
+        
+        # Debug print for troubleshooting this issue
+        if format_type == 'json':
+            print(f"DEBUG: Adding bad_request_error recommendation, list now has {len(troubleshooting_recommendations)} items")
+        
+    if any('timeout_error' == e.get('specific_error_type') for e in errors):
+        recommendations.append("- **Timeout Errors**: Consider increasing timeout settings or optimizing large files before processing.")
+        troubleshooting_recommendations.append("Timeout Errors: Consider increasing timeout settings or optimizing large files before processing.")
+        
+    if any('memory_error' == e.get('specific_error_type') for e in errors):
+        recommendations.append("- **Memory Errors**: Try processing files in smaller batches or with lower resolution settings.")
+        troubleshooting_recommendations.append("Memory Errors: Try processing files in smaller batches or with lower resolution settings.")
+        
+    if any('format_error' == e.get('specific_error_type') for e in errors):
+        recommendations.append("- **Format Errors**: Verify input files are valid video formats supported by the transformation service.")
+        troubleshooting_recommendations.append("Format Errors: Verify input files are valid video formats supported by the transformation service.")
+        
+    if any('corrupt_file_error' == e.get('specific_error_type') for e in errors):
+        recommendations.append("- **Corrupt File Errors**: Run a validation pass on source files to identify and repair corrupted videos.")
+        troubleshooting_recommendations.append("Corrupt File Errors: Run a validation pass on source files to identify and repair corrupted videos.")
+        
+    if any(e.get('size_bytes', 0) > 100*1024*1024 for e in errors):
+        recommendations.append("- **Large File Errors**: Consider pre-processing large files (>100 MB) to reduce size before transformation.")
+        troubleshooting_recommendations.append("Large File Errors: Consider pre-processing large files (>100 MB) to reduce size before transformation.")
+        
+    # Generic catch-all recommendation if we have server errors
+    if any(e.get('status_code') == 500 for e in errors):
+        recommendations.append("- **Server Errors (500)**: These indicate issues on the server side. Consider retrying these files at a later time or contacting the API provider with specific error details.")
+        troubleshooting_recommendations.append("Server Errors (500): These indicate issues on the server side. Consider retrying these files at a later time or contacting the API provider with specific error details.")
+    
+    # Add troubleshooting section if we have recommendations
+    if recommendations:
+        lines.extend([
+            "\n## Troubleshooting Recommendations",
+            "Based on the error patterns observed, consider the following recommendations:\n"
+        ])
+        lines.extend(recommendations)
+    
     # Add specific error examples 
     if errors:
         lines.extend([
@@ -957,5 +1191,29 @@ def generate_error_report(results_data, format_type='markdown'):
                 example['error_msg'] if example['error_msg'] else "No message",
                 "```\n"
             ])
+    
+    # Add a comprehensive list of all errors with complete details
+    lines.extend([
+        "\n## Complete Error Details",
+        "Below is a comprehensive list of all errors with complete details:\n"
+    ])
+    
+    # Add each error with full details
+    for i, error in enumerate(errors):
+        lines.extend([
+            f"### Error #{i+1}: {error.get('file', 'Unknown file')}",
+            f"- **Derivative**: {error.get('derivative', 'unknown')}",
+            f"- **URL**: {error.get('url', 'N/A')}",
+            f"- **Status Code**: {error.get('status_code', 'unknown')}",
+            f"- **Error Type**: {error.get('error_type', 'unknown')}",
+            f"- **Specific Error Type**: {error.get('specific_error_type', 'unknown')}",
+            f"- **File Size**: {video_utils.format_file_size(error.get('size_bytes', 0))} ({error.get('size_category', 'unknown')})",
+            f"- **TTFB**: {error.get('ttfb', 'N/A')}",
+            f"- **Duration**: {error.get('duration', 'N/A')}",
+            f"- **Error Message**:",
+            "```",
+            error.get('error_msg', 'No message'),
+            "```\n"
+        ])
     
     return '\n'.join(lines)

@@ -176,7 +176,7 @@ Pre-warmer options:
   --connection-close-delay  Additional delay before closing connections (default: 10s)
   --generate-error-report Generate a detailed error report from results file
   --error-report-output   Output file path for error report (default: error_report.md)
-  --error-report-format   Format for error report (markdown or json)
+  --format                Format for error report (markdown or json)
 
 Video Optimization options:
   --optimize-videos        Re-encode large video files to reduce size (saves to new location)
@@ -541,7 +541,7 @@ For production environments, consider setting up scheduled error reporting:
 0 7 * * * cd /path/to/project && python main.py --generate-error-report --output /path/to/results/latest.json --error-report-output /path/to/reports/error_report_$(date +\%Y\%m\%d).md >> /var/log/error-reporting.log 2>&1
 
 # Example for JSON reports for monitoring integration
-0 */4 * * * cd /path/to/project && python main.py --generate-error-report --output /path/to/results/latest.json --error-report-output /path/to/monitoring/cdn_errors.json --error-report-format json
+0 */4 * * * cd /path/to/project && python main.py --generate-error-report --output /path/to/results/latest.json --error-report-output /path/to/monitoring/cdn_errors.json --format json
 ```
 
 These scheduled reports can be integrated with monitoring systems or used for trend analysis over time.
@@ -827,7 +827,7 @@ python main.py --generate-error-report \
 python main.py --generate-error-report \
   --output video_transform_results.json \
   --error-report-output error_report.json \
-  --error-report-format json
+  --format json
 
 # Generate a report after filtering by specific parameters
 python main.py --generate-error-report \
@@ -838,7 +838,7 @@ python main.py --generate-error-report \
 python main.py --generate-error-report \
   --output video_transform_results.json \
   --error-report-output /var/log/monitoring/cdn_errors.json \
-  --error-report-format json
+  --format json
 ```
 
 The error reports provide detailed analysis for:
@@ -1008,7 +1008,7 @@ python main.py --generate-error-report --output video_transform_results.json --e
 python main.py --generate-error-report --output video_transform_results.json --error-report-output error_report.json
 
 # Explicitly specify the format
-python main.py --generate-error-report --output video_transform_results.json --error-report-output report.txt --error-report-format json
+python main.py --generate-error-report --output video_transform_results.json --error-report-output report.txt --format json
 ```
 
 #### Comprehensive Error Analysis Features

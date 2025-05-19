@@ -717,8 +717,8 @@ def main():
                 results_data = json.load(f)
             
             # Determine output format based on explicit option or file extension
-            if args.error_report_format:
-                format_type = args.error_report_format
+            if args.format:
+                format_type = args.format
             else:
                 format_type = 'json' if args.error_report_output.endswith('.json') else 'markdown'
             
