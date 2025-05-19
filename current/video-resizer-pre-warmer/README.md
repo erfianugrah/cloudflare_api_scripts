@@ -524,25 +524,78 @@ The tool generates comprehensive performance reports with:
 
 ### Error Reports
 
-The tool can generate detailed error analysis reports from results files, providing:
+The tool features a sophisticated error analysis system that generates detailed reports from processing results, providing deep insights into transformation issues:
 
-- Multi-dimensional error breakdowns (by type, status, file size, derivative)
-- Statistical analysis of file characteristics and error patterns
-- Performance metric comparisons between successful and failed requests
-- Identification of problematic files and common error patterns
-- Data-driven recommendations for optimization
+- **Multi-dimensional Error Breakdowns**:
+  - By error type (connection errors, server errors, timeout errors, etc.)
+  - By HTTP status code (400, 404, 500, 503, etc.)
+  - By file size category (small, medium, large)
+  - By derivative format (desktop, tablet, mobile)
+  - By specific error message patterns and root causes
+
+- **Statistical Analysis**:
+  - File size correlation with error occurrence
+  - Size quartile error distribution analysis
+  - Performance metrics comparison between successful and failed transformations
+  - Error rate by file type, size, and other dimensions
+
+- **Smart Error Pattern Detection**:
+  - Automatic categorization of generic errors into specific error types
+  - Error message analysis to determine root causes
+  - Detection of common patterns across multiple failures
+
+- **Actionable Recommendations**:
+  - Data-driven suggestions for error resolution
+  - Size-based optimization recommendations
+  - Server configuration or resource allocation suggestions
+  - Specific troubleshooting steps for each error type
+
+- **Comprehensive Error Details**:
+  - Complete URL information for each failed transform
+  - Full error message and response data
+  - Size and format information for problematic files
+  - Performance metrics (TTFB, download duration, etc.)
+
+- **Multiple Output Formats**:
+  - Markdown format for human-readable reports with formatting and tables
+  - JSON format for programmatic analysis, dashboards, and monitoring systems
+  - Customizable output file paths and format selection
+
+#### Error Report Command Options
+
+```bash
+# Basic error report generation (default format is markdown)
+python main.py --generate-error-report --output video_transform_results.json
+
+# Specify output file path
+python main.py --generate-error-report --output video_transform_results.json --error-report-output custom_error_report.md
+
+# Generate JSON format report
+python main.py --generate-error-report --output video_transform_results.json --format json
+
+# Generate JSON report to specific output file
+python main.py --generate-error-report --output video_transform_results.json --error-report-output api_errors.json --format json
+```
 
 #### Scheduled Error Monitoring
 
-For production environments, consider setting up scheduled error reporting:
+For production environments, set up scheduled error reporting for continuous monitoring:
 
 ```bash
-# Example crontab entry for daily error reports
+# Example crontab entry for daily markdown reports
 0 7 * * * cd /path/to/project && python main.py --generate-error-report --output /path/to/results/latest.json --error-report-output /path/to/reports/error_report_$(date +\%Y\%m\%d).md >> /var/log/error-reporting.log 2>&1
 
-# Example for JSON reports for monitoring integration
+# Example for JSON reports every 4 hours for monitoring system integration
 0 */4 * * * cd /path/to/project && python main.py --generate-error-report --output /path/to/results/latest.json --error-report-output /path/to/monitoring/cdn_errors.json --format json
 ```
+
+#### Error Report Integration
+
+The JSON format error reports can be easily integrated with:
+- Monitoring systems like Grafana, DataDog, or New Relic
+- Custom dashboards for real-time error visualization
+- Alerting systems for threshold-based notifications
+- CI/CD pipelines for automated testing and verification
 
 These scheduled reports can be integrated with monitoring systems or used for trend analysis over time.
 
@@ -996,77 +1049,291 @@ The tool implements sophisticated error handling and comprehensive reporting cap
 6. **Partial Results Saving**: Preserves results even if processing is interrupted
 7. **Comprehensive Error Reporting**: Generates detailed error reports in multiple formats with advanced analytics
 
-### Error Report Generation
+### Error Report Structure and Features
 
-The tool includes a powerful error report generator that provides deep insights into transformation issues:
+The comprehensive error reports are structured to provide maximum insight with minimal effort:
 
-```bash
-# Generate an error report in Markdown format
-python main.py --generate-error-report --output video_transform_results.json --error-report-output error_report.md
+#### Report Structure
 
-# Generate an error report in JSON format
-python main.py --generate-error-report --output video_transform_results.json --error-report-output error_report.json
+1. **Summary Section**
+   - Total error count and error rate
+   - Processing statistics and file counts
+   - Source data information and timestamps
 
-# Explicitly specify the format
-python main.py --generate-error-report --output video_transform_results.json --error-report-output report.txt --format json
+2. **Error Type Analysis**
+   - Breakdown by error type with percentages
+   - Specific error types identified through message analysis
+   - Combined error types showing the most detailed categorization 
+
+3. **Error Distribution Analysis**
+   - Status code distribution
+   - Size category distribution
+   - Derivative type distribution
+
+4. **File Size Statistics**
+   - Detailed size metrics for error files vs. successful files
+   - Min, max, average, and median sizes
+   - Total size statistics for correlation analysis
+
+5. **Common Error Messages**
+   - Frequency analysis of error messages
+   - Percentage breakdown of message types
+   - Pattern detection in error responses
+
+6. **Detailed Error List**
+   - Tabular view of all errors with key attributes
+   - Sortable by different dimensions
+   - Quick reference for common issues
+
+7. **Troubleshooting Recommendations**
+   - Actionable suggestions based on error patterns
+   - Size-specific optimization recommendations
+   - Server configuration guidance
+
+8. **Error Examples**
+   - Representative examples of each error type
+   - Full context including URL, size, and error details
+   - Complete error messages with formatting
+
+9. **Complete Error Details**
+   - Comprehensive listing of ALL errors
+   - Full request and response details for each error
+   - All metadata including performance metrics
+
+#### JSON Report Structure
+
+The JSON format provides a structured data format for programmatic processing:
+
+```json
+{
+  "timestamp": "2023-01-01 12:00:00",
+  "summary": {
+    "total_errors": 33,
+    "total_processed": 1914,
+    "error_rate": 1.72
+  },
+  "error_types": { ... },
+  "specific_error_types": { ... },
+  "status_codes": { ... },
+  "size_statistics": {
+    "error_files": { ... },
+    "success_files": { ... }
+  },
+  "detailed_errors": [ ... ],
+  "troubleshooting_recommendations": [ ... ]
+}
 ```
 
-#### Comprehensive Error Analysis Features
+#### Report Generation Commands
 
-- **Multiple Output Formats**: 
-  - Markdown for human-readable reports with formatting and tables
-  - JSON for programmatic analysis, dashboards, and custom visualizations
+```bash
+# Generate markdown report (default)
+python main.py --generate-error-report --output results.json
 
-- **Multi-dimensional Error Classification**:
-  - By error type (timeout, server_error, connection_error, etc.)
-  - By HTTP status code (400, 403, 404, 500, 502, etc.)
-  - By size category (small, medium, large)
-  - By derivative (desktop, tablet, mobile)
-  - By file extension and MIME type
+# Generate JSON report with explicit format
+python main.py --generate-error-report --output results.json --format json
 
-- **Advanced Statistical Analysis**:
-  - Detailed size statistics (min, max, average, median, quartiles)
-  - Performance metrics comparison (TTFB, total duration)
-  - Error rate by file size range
-  - Correlation between file characteristics and error rates
-  - File size distribution visualization (percentiles and ranges)
+# Specify custom output file location
+python main.py --generate-error-report --output results.json --error-report-output /path/to/custom_report.md
 
-- **Pattern Recognition**:
-  - Common error message identification and frequency analysis
-  - URL pattern analysis to identify problematic query parameters
-  - Error timeframe analysis (first to last error timestamps)
-  - Identification of most problematic files and patterns
+# Combine custom output and format
+python main.py --generate-error-report --output results.json --error-report-output metrics.json --format json
+```
 
-- **Root Cause Indicators**:
-  - Correlation between file size and error occurrence
-  - Comparison of performance metrics for successful vs. failed requests
-  - Analysis of error patterns by file characteristics
-  - Error clustering by time, type, and file properties
+#### Example Error Report
 
-- **Detailed Diagnostics**:
-  - Specific examples of each error type with full context
-  - Complete HTTP request information associated with errors
-  - Detailed file metadata for problematic files
-  - Stack traces and error details when available
+Below is an excerpt of what the Markdown format error report looks like:
 
-- **Actionable Recommendations**:
-  - Data-driven suggestions based on error patterns
-  - Configuration optimization recommendations
-  - Processing strategy adjustments
-  - Practical next steps based on error analysis
+```markdown
+# Video Transformation Error Report
 
-#### Sample Error Report Sections
+Generated on 2025-05-19 08:24:53
+Original data timestamp: 2025-05-19 06:55:27
 
-- **Summary Statistics**: Overview of error counts, rates, and distribution
-- **Error Distribution**: Breakdown by various dimensions with percentage metrics
-- **File Size Analysis**: Detailed size statistics for successful vs. failed transformations
-- **Performance Metrics**: Comparison of timing data between successful and failed requests
-- **Error Pattern Analysis**: Identification of common patterns and frequencies
-- **Problematic Files**: Listing of files with highest error counts
-- **Status Code Details**: In-depth analysis of each encountered HTTP status code
-- **Detailed Error Lists**: Complete inventory of all errors with file and request details
-- **Error Examples**: Representative examples of each error type with context
-- **Recommendations**: Actionable suggestions based on the error analysis
+## Summary
+- **Total errors**: 33
+- **Error source**: Extracted from results
+- **Total processed files**: 1914
+- **Error rate**: 1.72%
+
+## Error Types
+| Error Type        |   Count | Percentage   |
+|:------------------|--------:|:-------------|
+| bad_request_error |      33 | 100.0%       |
+
+## Specific Error Types (Based on Error Message Analysis)
+| Detailed Error Type   |   Count | Percentage   |
+|:----------------------|--------:|:-------------|
+| bad_request_error     |      33 | 100.0%       |
+
+## Status Codes
+|   Status Code |   Count | Percentage   |
+|--------------:|--------:|:-------------|
+|           500 |      33 | 100.0%       |
+
+## Errors by Size Category
+| Size Category   |   Count | Percentage   |
+|:----------------|--------:|:-------------|
+| small           |      24 | 72.7%        |
+| medium          |       9 | 27.3%        |
+
+## File Size Statistics
+
+### Error Files
+- Count: 33
+- Min size: 0 B
+- Max size: 146.66 MiB
+- Average size: 37.33 MiB
+- Median size: 4.07 MiB
+- Total size: 1.20 GiB
+
+## Troubleshooting Recommendations
+Based on the error patterns observed, consider the following recommendations:
+
+- **Bad Request (400) Errors**: Check input file formats and parameters to ensure they meet API requirements.
+- **Large File Errors**: Consider pre-processing large files (>100 MB) to reduce size before transformation.
+- **Server Errors (500)**: These indicate issues on the server side. Consider retrying these files at a later time or contacting the API provider with specific error details.
+
+## Complete Error Details
+Below is a comprehensive list of all errors with complete details:
+
+### Error #1: 1462506_fe003965.mp4
+- **Derivative**: desktop
+- **URL**: https://api.example.com/transform/1462506_fe003965.mp4?imwidth=1920
+- **Status Code**: 500
+- **Error Type**: server_error
+- **Specific Error Type**: bad_request_error
+- **File Size**: 26.10 MiB (small)
+- **TTFB**: None
+- **Duration**: 8.326662540435791
+- **Error Message**:
+```
+Transformation failed and fallback could not be retrieved. Original error status: 400
+```
+```
+
+#### Advanced Error Analysis Features
+
+The error reporting system includes a number of sophisticated capabilities:
+
+1. **Intelligent Error Classification**
+   - Automatic categorization of generic errors into specific types
+   - Message pattern analysis to identify root causes
+   - Hierarchical error categorization (general → specific)
+
+2. **Size-Error Correlation Analysis**
+   - Statistical breakdown of errors by file size
+   - Quartile analysis showing if larger files have higher error rates
+   - Comparison of error file characteristics vs. successful files
+
+3. **Performance Impact Assessment**
+   - Duration and TTFB metrics for failed requests
+   - Comparison between error types and their performance impact
+   - Size-adjusted performance metrics to identify optimization targets
+
+4. **Root Cause Identification**
+   - Detailed error message analysis to extract original error codes
+   - URL pattern analysis to identify problematic endpoints
+   - Common parameters that correlate with failures
+
+5. **Adaptive Recommendations**
+   - Error-specific troubleshooting guidance 
+   - Size-based recommendations for large files
+   - Server-side vs. client-side issue differentiation
+   - Concrete next steps for the most common error types
+
+6. **Comprehensive Metadata Collection**
+   - Complete URL information with all parameters
+   - Full error response details including HTTP headers
+   - Performance metrics (TTFB, download time, etc.)
+   - File metadata (size, type, format, resolution)
+
+7. **Advanced Statistical Analysis**
+   - Detailed size statistics (min, max, average, median, quartiles)
+   - Performance metrics comparison (TTFB, total duration)
+   - Success rate by file type and size
+   - Correlation between file characteristics and success probability
+   - Error rate by file size range
+   - Correlation between file characteristics and error rates
+   - File size distribution visualization (percentiles and ranges)
+
+8. **Pattern Recognition**
+   - Common error message identification and frequency analysis
+   - URL pattern analysis to identify problematic query parameters
+   - Error clustering to identify related issues
+   - Temporal pattern analysis for time-of-day correlations
+   - Error timeframe analysis (first to last error timestamps)
+   - Identification of most problematic files and patterns
+
+9. **Root Cause Indicators**
+   - Identification of server-side vs. client-side issues
+   - Error message analysis for underlying causes
+   - Performance pattern analysis
+   - Connection and timeout pattern identification
+   - Correlation between file size and error occurrence
+   - Comparison of performance metrics for successful vs. failed requests
+   - Analysis of error patterns by file characteristics
+   - Error clustering by time, type, and file properties
+
+10. **Detailed Diagnostics**
+    - Specific examples of each error type with full context
+    - Complete HTTP request information associated with errors
+    - Full error message details and stack traces
+    - Network performance metrics for each failed request
+    - Detailed file metadata for problematic files
+    - Stack traces and error details when available
+
+11. **Actionable Recommendations**
+    - Specific troubleshooting steps based on error types
+    - File optimization suggestions for problematic videos
+    - Server configuration recommendations
+    - Error-specific resolution steps with clear instructions
+    - Prioritized action list based on impact and frequency
+    - Data-driven suggestions based on error patterns
+    - Configuration optimization recommendations
+    - Processing strategy adjustments
+    - Practical next steps based on error analysis
+
+#### Report Format Options
+
+The error reports can be generated in two formats:
+
+1. **Markdown Format**
+   - Human-readable reports with formatted tables and sections
+   - Ideal for review, analysis, and documentation
+   - Supports rich formatting including tables, lists, and code blocks
+   - Default output format when no format is specified
+
+2. **JSON Format**
+   - Machine-readable format for programmatic processing
+   - Ideal for integration with monitoring systems, dashboards, and analytics
+   - Structured data for easy parsing and analysis
+   - Specify with `--format json` parameter
+
+#### Integration Options
+
+The error reports can be easily integrated into existing systems:
+
+1. **Monitoring Dashboards**
+   - Import JSON data into Grafana, DataDog, or New Relic
+   - Track error rates and trends over time
+   - Set up alerts for specific error thresholds
+
+2. **DevOps Pipelines**
+   - Include error report generation in CI/CD processes
+   - Set quality gates based on error metrics
+   - Trigger automated remediation workflows
+
+3. **Custom Analytics**
+   - Process JSON data with custom scripts
+   - Generate specialized visualizations
+   - Correlate with other system metrics
+
+4. **Enterprise Reporting**
+   - Include in periodic service quality reports
+   - Track error trends over time
+   - Identify systemic issues and long-term patterns
+   - Provide data-driven insights for service improvements
 
 ## License
 
