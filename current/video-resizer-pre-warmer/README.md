@@ -1127,17 +1127,21 @@ The JSON format provides a structured data format for programmatic processing:
 #### Report Generation Commands
 
 ```bash
-# Generate markdown report (default)
+# Generate markdown report (default) - creates error_report.md
 python main.py --generate-error-report --output results.json
 
-# Generate JSON report with explicit format
+# Generate JSON report with explicit format - creates error_report.json
 python main.py --generate-error-report --output results.json --format json
 
-# Specify custom output file location
+# Specify custom output file location (with markdown format)
 python main.py --generate-error-report --output results.json --error-report-output /path/to/custom_report.md
 
-# Combine custom output and format
-python main.py --generate-error-report --output results.json --error-report-output metrics.json --format json
+# Specify custom output (the extension will be changed to .json)
+python main.py --generate-error-report --output results.json --error-report-output metrics.txt --format json
+
+# File extension is automatically adjusted to match the specified format
+python main.py --generate-error-report --output results.json --error-report-output report.txt --format json  # creates report.json
+python main.py --generate-error-report --output results.json --error-report-output report.json --format markdown  # creates report.md
 ```
 
 #### Example Error Report
@@ -1303,12 +1307,14 @@ The error reports can be generated in two formats:
    - Ideal for review, analysis, and documentation
    - Supports rich formatting including tables, lists, and code blocks
    - Default output format when no format is specified
+   - Uses `.md` file extension by default
 
 2. **JSON Format**
    - Machine-readable format for programmatic processing
    - Ideal for integration with monitoring systems, dashboards, and analytics
    - Structured data for easy parsing and analysis
    - Specify with `--format json` parameter
+   - Automatically applies `.json` file extension
 
 #### Integration Options
 

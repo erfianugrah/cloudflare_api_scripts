@@ -722,14 +722,31 @@ def main():
             else:
                 format_type = 'json' if args.error_report_output.endswith('.json') else 'markdown'
             
+            # Adjust output file extension based on selected format
+            output_path = args.error_report_output
+            
+            # If format doesn't match file extension, adjust the file path
+            if format_type == 'json' and not output_path.endswith('.json'):
+                # Remove existing extension if present
+                if '.' in os.path.basename(output_path):
+                    output_path = os.path.splitext(output_path)[0] + '.json'
+                else:
+                    output_path = output_path + '.json'
+            elif format_type == 'markdown' and not (output_path.endswith('.md') or output_path.endswith('.markdown')):
+                # Remove existing extension if present
+                if '.' in os.path.basename(output_path):
+                    output_path = os.path.splitext(output_path)[0] + '.md'
+                else:
+                    output_path = output_path + '.md'
+            
             # Generate error report
             report = reporting.generate_error_report(results_data, format_type=format_type)
             
             # Save to output file
-            with open(args.error_report_output, 'w') as f:
+            with open(output_path, 'w') as f:
                 f.write(report)
                 
-            logger.info(f"Error report saved to {args.error_report_output} (format: {format_type})")
+            logger.info(f"Error report saved to {output_path} (format: {format_type})")
             return 0
         except Exception as e:
             logger.error(f"Error generating error report: {str(e)}", exc_info=True)
