@@ -50,7 +50,16 @@ def parse_arguments():
     Returns:
         args: Parsed command line arguments
     """
-    parser = argparse.ArgumentParser(description='Process video assets with different derivatives')
+    parser = argparse.ArgumentParser(description='Video Resizer Pre-Warmer and Optimizer')
+    
+    # Top-level workflow options
+    workflow_group = parser.add_argument_group('Workflow Options')
+    workflow_group.add_argument('--force-prewarm', action='store_true', 
+                              help='Force run pre-warming even if results file exists')
+    workflow_group.add_argument('--use-error-report-for-load-test', action='store_true',
+                              help='Use error report for load testing to exclude problematic files')
+    workflow_group.add_argument('--full-workflow', action='store_true',
+                              help='Run complete workflow: pre-warming → error report → load test')
     
     # Remote storage options
     parser.add_argument('--remote', help='rclone remote name')
@@ -63,10 +72,10 @@ def parse_arguments():
     parser.add_argument('--use-derivatives', action='store_true', help='Include derivatives in the URL path')
     parser.add_argument('--workers', type=int, default=5, help='Number of concurrent workers')
     parser.add_argument('--timeout', type=int, default=120, help='Request timeout in seconds')
-    parser.add_argument('--connection-close-delay', type=int, default=10, help='Additional delay in seconds before closing connections')
+    parser.add_argument('--connection-close-delay', type=int, default=15, help='Additional delay in seconds before closing connections (applies to both pre-warmer and load test)')
     parser.add_argument('--retry', type=int, default=2, help='Number of retry attempts for failed requests')
     parser.add_argument('--generate-error-report', action='store_true', help='Generate an error report from an existing results file')
-    parser.add_argument('--error-report-output', default='error_report.md', help='Output file path for error report')
+    parser.add_argument('--error-report-output', default='error_report.json', help='Output file path for error report')
     parser.add_argument('--format', choices=['markdown', 'json'], help='Format for the error report (default is based on file extension)')
     
     # Output and reporting options
@@ -135,6 +144,58 @@ def parse_arguments():
                       default='auto', help='Hardware acceleration type to use (auto will detect available hardware)')
     parser.add_argument('--disable-hardware-acceleration', action='store_true',
                       help='Disable hardware acceleration even if available')
+    
+    # k6 load testing options
+    parser.add_argument('--run-load-test', action='store_true',
+                      help='Run k6 load test after pre-warming')
+    parser.add_argument('--k6-script', default='video-load-test-integrated-improved.js',
+                      help='Path to k6 test script')
+    parser.add_argument('--url-format', choices=['imwidth', 'derivative'],
+                      default='imwidth', help='URL format to use for load testing')
+    parser.add_argument('--debug-mode', action='store_true',
+                      help='Enable debug mode for load testing')
+    parser.add_argument('--use-head-requests', action='store_true', default=True,
+                      help='Use HEAD requests to get content length')
+    parser.add_argument('--no-head-requests', action='store_false', dest='use_head_requests',
+                      help='Disable HEAD requests')
+    parser.add_argument('--skip-large-files', action='store_true', default=True,
+                      help='Skip large files in load test')
+    parser.add_argument('--no-skip-large-files', action='store_false', dest='skip_large_files',
+                      help='Test all files regardless of size')
+    parser.add_argument('--large-file-threshold-mib', type=int, default=256,
+                      help='Threshold in MiB for skipping large files (default: 256 MiB)')
+    parser.add_argument('--request-timeout', default='120s',
+                      help='Timeout for individual requests in load test')
+    parser.add_argument('--head-timeout', default='30s',
+                      help='Timeout for HEAD requests in load test')
+    parser.add_argument('--global-timeout', default='90s',
+                      help='Global timeout for the load test')
+    parser.add_argument('--failure-rate-threshold', default='0.05',
+                      help='Maximum acceptable failure rate (e.g. 0.05 = 5%)')
+    parser.add_argument('--max-retries', type=int, default=2,
+                      help='Maximum number of retry attempts for failed requests')
+
+    # Stage configuration for load test
+    parser.add_argument('--stage1-users', type=int, default=5,
+                      help='Number of users in stage 1')
+    parser.add_argument('--stage1-duration', default='30s',
+                      help='Duration of stage 1')
+    parser.add_argument('--stage2-users', type=int, default=10,
+                      help='Number of users in stage 2')
+    parser.add_argument('--stage2-duration', default='1m',
+                      help='Duration of stage 2')
+    parser.add_argument('--stage3-users', type=int, default=15,
+                      help='Number of users in stage 3')
+    parser.add_argument('--stage3-duration', default='30s',
+                      help='Duration of stage 3')
+    parser.add_argument('--stage4-users', type=int, default=10,
+                      help='Number of users in stage 4')
+    parser.add_argument('--stage4-duration', default='1m',
+                      help='Duration of stage 4')
+    parser.add_argument('--stage5-users', type=int, default=0,
+                      help='Number of users in stage 5')
+    parser.add_argument('--stage5-duration', default='30s',
+                      help='Duration of stage 5')
     
     return parser.parse_args()
 

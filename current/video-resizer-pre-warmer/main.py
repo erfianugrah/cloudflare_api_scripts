@@ -33,6 +33,7 @@ from modules import encoding
 from modules import processing
 from modules import reporting
 from modules import comparison
+from modules import load_testing
 
 # Global state
 running = True
@@ -708,172 +709,176 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # Handle error report generation if requested
-    if args.generate_error_report:
-        logger.info(f"Generating error report from {args.output} to {args.error_report_output}")
-        try:
-            # Load existing results file
-            with open(args.output, 'r') as f:
-                results_data = json.load(f)
-            
-            # Determine output format based on explicit option or file extension
-            if args.format:
-                format_type = args.format
-            else:
-                format_type = 'json' if args.error_report_output.endswith('.json') else 'markdown'
-            
-            # Adjust output file extension based on selected format
-            output_path = args.error_report_output
-            
-            # If format doesn't match file extension, adjust the file path
-            if format_type == 'json' and not output_path.endswith('.json'):
-                # Remove existing extension if present
-                if '.' in os.path.basename(output_path):
-                    output_path = os.path.splitext(output_path)[0] + '.json'
-                else:
-                    output_path = output_path + '.json'
-            elif format_type == 'markdown' and not (output_path.endswith('.md') or output_path.endswith('.markdown')):
-                # Remove existing extension if present
-                if '.' in os.path.basename(output_path):
-                    output_path = os.path.splitext(output_path)[0] + '.md'
-                else:
-                    output_path = output_path + '.md'
-            
-            # Generate error report
-            report = reporting.generate_error_report(results_data, format_type=format_type)
-            
-            # Save to output file
-            with open(output_path, 'w') as f:
-                f.write(report)
-                
-            logger.info(f"Error report saved to {output_path} (format: {format_type})")
-            return 0
-        except Exception as e:
-            logger.error(f"Error generating error report: {str(e)}", exc_info=True)
+    # Check if we need to run the pre-warming process
+    run_prewarming = True
+    
+    # Skip pre-warming if only error report is requested and results file exists
+    if args.generate_error_report and not args.run_load_test and os.path.exists(args.output):
+        run_prewarming = False
+        logger.info(f"Using existing results file: {args.output}")
+    
+    # Skip pre-warming if only load test is requested and results file exists
+    if args.run_load_test and not args.generate_error_report and os.path.exists(args.output):
+        run_prewarming = False
+        logger.info(f"Using existing results file: {args.output}")
+    
+    # Results data placeholder
+    results_data = None
+    
+    # If generating error report or running load test, but file doesn't exist, we need to run pre-warming
+    if (args.generate_error_report or args.run_load_test) and not os.path.exists(args.output):
+        logger.info(f"Results file {args.output} not found. Will run pre-warming process.")
+        run_prewarming = True
+        
+        # Check if required parameters for pre-warming are provided
+        if not args.remote or not args.bucket or not args.base_url:
+            logger.error("Remote, bucket, and base-url are required for pre-warming.")
+            logger.error("Please provide --remote, --bucket, and --base-url parameters.")
             return 1
+            
+    # Force run pre-warming if explicitly requested, even if file exists
+    if args.force_prewarm:
+        logger.info(f"Force pre-warming requested. Will run pre-warming process regardless of existing files.")
+        run_prewarming = True
     
-    # Process derivatives if they are specified in the command line
-    # If --derivatives is provided at all (even with default value), use them
-    derivatives = args.derivatives.split(',')
-    logger.info(f"Processing derivatives: {derivatives}")
+    # Only process derivatives and initialize stats if we're running pre-warming
+    if run_prewarming:
+        # Process derivatives if they are specified in the command line
+        # If --derivatives is provided at all (even with default value), use them
+        derivatives = args.derivatives.split(',')
+        logger.info(f"Processing derivatives: {derivatives}")
+        
+        # Initialize stats
+        stats = initialize_stats(derivatives)
+    else:
+        derivatives = args.derivatives.split(',')
+        stats = None
     
-    # Initialize stats
-    stats = initialize_stats(derivatives)
-    
+    # Handle full workflow option, which enables all steps
+    if args.full_workflow:
+        logger.info("Running full workflow: pre-warming → error report → load test")
+        args.generate_error_report = True
+        args.run_load_test = True
+        args.use_error_report_for_load_test = True
+        args.format = 'json'  # Force JSON format for error reports in full workflow
+        run_prewarming = True
+
     try:
-        # Start processing timer
-        start_time = time.time()
-        
-        # List files from remote storage with sizes
-        logger.info(f"Listing files from {args.remote}:{args.bucket}/{args.directory}")
-        
-        # Use list_objects instead of list_large_files to get all files without size filtering
-        file_list = storage.list_objects(
-            args.remote,
-            args.bucket,
-            args.directory,
-            args.extension,
-            args.limit,
-            logger,
-            args.use_aws_cli,
-            get_sizes=True
-        )
-        
-        # Convert to the expected format (list of tuples) if needed
-        if file_list and isinstance(file_list[0], dict):
-            file_list = [(item['path'], item['size']) for item in file_list]
-        
-        if not file_list:
-            logger.error("No files found matching criteria")
-            return 1
-        
-        logger.info(f"Found {len(file_list)} files matching criteria")
-        
-        # Create file metadata objects
-        objects = []
-        file_sizes_by_category = {
-            'small': 0,
-            'medium': 0,
-            'large': 0
-        }
-        
-        for file_path, size_bytes in file_list:
-            obj = config.FileMetadata(
-                file_path, 
-                size_bytes, 
-                args.small_file_threshold, 
-                args.medium_file_threshold
+        # If we need to run the pre-warming process
+        if run_prewarming:
+            # Start processing timer
+            start_time = time.time()
+            
+            # List files from remote storage with sizes
+            logger.info(f"Listing files from {args.remote}:{args.bucket}/{args.directory}")
+            
+            # Use list_objects instead of list_large_files to get all files without size filtering
+            file_list = storage.list_objects(
+                args.remote,
+                args.bucket,
+                args.directory,
+                args.extension,
+                args.limit,
+                logger,
+                args.use_aws_cli,
+                get_sizes=True
             )
-            objects.append(obj)
-            file_sizes_by_category[obj.size_category] += 1
         
-        # Print file size distribution
-        logger.info(f"File size distribution:")
-        for category, count in file_sizes_by_category.items():
-            logger.info(f"  {category.capitalize()}: {count} files")
+            # Convert to the expected format (list of tuples) if needed
+            if file_list and isinstance(file_list[0], dict):
+                file_list = [(item['path'], item['size']) for item in file_list]
             
-        # Report on large files separately for reference (using size threshold)
-        size_threshold_bytes = args.size_threshold * 1024 * 1024
-        large_files_count = sum(1 for obj in objects if obj.size_bytes >= size_threshold_bytes)
-        logger.info(f"Found {large_files_count} files above {args.size_threshold} MiB (out of {len(objects)} total files)")
-        
-        # If only listing files, generate report and exit
-        if args.list_files:
-            logger.info(f"Generating file size report to {args.size_report_output}")
-            report = reporting.generate_size_report(file_list, args.size_threshold)
-            with open(args.size_report_output, 'w') as f:
-                f.write(report)
-            logger.info(f"File size report saved to {args.size_report_output}")
-            return 0
-        
-        # Track progress for statistics
-        total_objects = len(objects)
-        processed = 0
-        
-        # Process files for pre-warming
-        if not args.only_compare and not args.optimize_videos:
-            logger.info(f"Processing {len(objects)} files with {args.workers} workers")
+            if not file_list:
+                logger.error("No files found matching criteria")
+                return 1
             
-            # Process the objects and collect results
-            results = process_objects(objects, args, derivatives, stats)
-            processed = len(results)
+            logger.info(f"Found {len(file_list)} files matching criteria")
             
-            # Calculate processing time
-            processing_time = time.time() - start_time
+            # Create file metadata objects
+            objects = []
+            file_sizes_by_category = {
+                'small': 0,
+                'medium': 0,
+                'large': 0
+            }
             
-            # Remove lists of ttfb/time values from the stats to reduce file size
-            stats_for_output = stats.copy()
-            stats_for_output.pop('ttfb_values', None)
-            stats_for_output.pop('total_time_values', None)
+            for file_path, size_bytes in file_list:
+                obj = config.FileMetadata(
+                    file_path, 
+                    size_bytes, 
+                    args.small_file_threshold, 
+                    args.medium_file_threshold
+                )
+                objects.append(obj)
+                file_sizes_by_category[obj.size_category] += 1
             
-            # Remove ttfb arrays from size categories too
-            for category in stats_for_output.get('by_size_category', {}).values():
-                category.pop('ttfb_values', None)
-                category.pop('total_time_values', None)
-            
-            # Calculate summary statistics instead
-            if stats.get('ttfb_values'):
-                ttfb_array = stats['ttfb_values']
-                stats_for_output['ttfb_summary'] = {
-                    'count': len(ttfb_array),
-                    'min': min(ttfb_array) if ttfb_array else None,
-                    'max': max(ttfb_array) if ttfb_array else None,
-                    'avg': sum(ttfb_array) / len(ttfb_array) if ttfb_array else None,
-                }
-            
-            if stats.get('total_time_values'):
-                time_array = stats['total_time_values']
-                stats_for_output['total_time_summary'] = {
-                    'count': len(time_array),
-                    'min': min(time_array) if time_array else None,
-                    'max': max(time_array) if time_array else None,
-                    'avg': sum(time_array) / len(time_array) if time_array else None,
-                }
+            # Print file size distribution
+            logger.info(f"File size distribution:")
+            for category, count in file_sizes_by_category.items():
+                logger.info(f"  {category.capitalize()}: {count} files")
                 
-            # Calculate and add size reduction statistics
-            size_reduction_percentages = []
-            original_sizes = []
-            response_sizes = []
+            # Report on large files separately for reference (using size threshold)
+            size_threshold_bytes = args.size_threshold * 1024 * 1024
+            large_files_count = sum(1 for obj in objects if obj.size_bytes >= size_threshold_bytes)
+            logger.info(f"Found {large_files_count} files above {args.size_threshold} MiB (out of {len(objects)} total files)")
+            
+            # If only listing files, generate report and exit
+            if args.list_files:
+                logger.info(f"Generating file size report to {args.size_report_output}")
+                report = reporting.generate_size_report(file_list, args.size_threshold)
+                with open(args.size_report_output, 'w') as f:
+                    f.write(report)
+                logger.info(f"File size report saved to {args.size_report_output}")
+                return 0
+            
+            # Track progress for statistics
+            total_objects = len(objects)
+            processed = 0
+            
+            # Process files for pre-warming
+            if not args.only_compare and not args.optimize_videos:
+                logger.info(f"Processing {len(objects)} files with {args.workers} workers")
+                
+                # Process the objects and collect results
+                results = process_objects(objects, args, derivatives, stats)
+                processed = len(results)
+                
+                # Calculate processing time
+                processing_time = time.time() - start_time
+                
+                # Remove lists of ttfb/time values from the stats to reduce file size
+                stats_for_output = stats.copy()
+                stats_for_output.pop('ttfb_values', None)
+                stats_for_output.pop('total_time_values', None)
+                
+                # Remove ttfb arrays from size categories too
+                for category in stats_for_output.get('by_size_category', {}).values():
+                    category.pop('ttfb_values', None)
+                    category.pop('total_time_values', None)
+                
+                # Calculate summary statistics instead
+                if stats.get('ttfb_values'):
+                    ttfb_array = stats['ttfb_values']
+                    stats_for_output['ttfb_summary'] = {
+                        'count': len(ttfb_array),
+                        'min': min(ttfb_array) if ttfb_array else None,
+                        'max': max(ttfb_array) if ttfb_array else None,
+                        'avg': sum(ttfb_array) / len(ttfb_array) if ttfb_array else None,
+                    }
+                
+                if stats.get('total_time_values'):
+                    time_array = stats['total_time_values']
+                    stats_for_output['total_time_summary'] = {
+                        'count': len(time_array),
+                        'min': min(time_array) if time_array else None,
+                        'max': max(time_array) if time_array else None,
+                        'avg': sum(time_array) / len(time_array) if time_array else None,
+                    }
+                    
+                # Calculate and add size reduction statistics
+                size_reduction_percentages = []
+                original_sizes = []
+                response_sizes = []
             
             # Log the structure of the first result to help debug
             if results and logger:
@@ -1034,6 +1039,196 @@ def main():
                     logger.error("Comparison failed - invalid data format")
             else:
                 logger.error("Comparison failed - missing data")
+        
+        # Generate error report if requested or if we're running a load test that needs an error report
+        if args.generate_error_report or (args.run_load_test and args.use_error_report_for_load_test):
+            error_report_generated = False
+            
+            # Only generate if not already done during this run
+            if results_data is not None or os.path.exists(args.output):
+                logger.info(f"Generating error report from {'results data' if results_data is not None else args.output} to {args.error_report_output}")
+                try:
+                    # Load existing results file if not already loaded
+                    if results_data is None:
+                        try:
+                            with open(args.output, 'r') as f:
+                                results_data = json.load(f)
+                        except Exception as e:
+                            logger.error(f"Error loading results file {args.output}: {str(e)}")
+                            return 1
+                    
+                    # Determine output format based on explicit option or file extension
+                    if args.format:
+                        format_type = args.format
+                    else:
+                        format_type = 'json' if args.error_report_output.endswith('.json') else 'markdown'
+                    
+                    # Adjust output file extension based on selected format
+                    output_path = args.error_report_output
+                    
+                    # If format doesn't match file extension, adjust the file path
+                    if format_type == 'json' and not output_path.endswith('.json'):
+                        # Remove existing extension if present
+                        if '.' in os.path.basename(output_path):
+                            output_path = os.path.splitext(output_path)[0] + '.json'
+                        else:
+                            output_path = output_path + '.json'
+                    elif format_type == 'markdown' and not (output_path.endswith('.md') or output_path.endswith('.markdown')):
+                        # Remove existing extension if present
+                        if '.' in os.path.basename(output_path):
+                            output_path = os.path.splitext(output_path)[0] + '.md'
+                        else:
+                            output_path = output_path + '.md'
+                    
+                    # Generate error report
+                    report = reporting.generate_error_report(results_data, format_type=format_type)
+                    
+                    # Save to output file
+                    with open(output_path, 'w') as f:
+                        f.write(report)
+                        
+                    logger.info(f"Error report saved to {output_path} (format: {format_type})")
+                    error_report_generated = True
+                except Exception as e:
+                    logger.error(f"Error generating error report: {str(e)}", exc_info=True)
+                    # Continue with the workflow even if error report generation fails
+            else:
+                logger.warning(f"Cannot generate error report: No results data available")
+            
+        # Run load test if requested
+        if args.run_load_test:
+            logger.info("========================================================")
+            logger.info("STARTING K6 LOAD TEST")
+            logger.info("========================================================")
+            
+            # Check if required parameters are present
+            if not args.base_url:
+                logger.error("Base URL (--base-url) is required for load testing")
+                return 1
+                
+            if not os.path.exists(args.output):
+                logger.error(f"Results file '{args.output}' not found. Run pre-warming first or specify a valid file with --output")
+                return 1
+                
+            logger.info(f"Base URL: {args.base_url}")
+            logger.info(f"URL Format: {args.url_format}")
+            logger.info(f"Results file: {args.output}")
+            
+            # Check if error report was generated or exists
+            error_report_file = None
+            if args.use_error_report_for_load_test and os.path.exists(args.error_report_output):
+                error_report_file = args.error_report_output
+                logger.info(f"Using error report file: {error_report_file}")
+            elif args.use_error_report_for_load_test and not os.path.exists(args.error_report_output):
+                logger.warning(f"Error report file {args.error_report_output} not found, load test will run without error exclusions")
+            
+            logger.info(f"Skip large files: {args.skip_large_files} (threshold: {args.large_file_threshold_mib} MiB)")
+            logger.info(f"Using HEAD requests: {args.use_head_requests}")
+            logger.info(f"Debug mode: {args.debug_mode}")
+            logger.info("========================================================")
+            
+            # Check if k6 script exists
+            if not os.path.exists(args.k6_script):
+                logger.error(f"k6 script '{args.k6_script}' not found")
+                return 1
+                
+            # Check if k6 is installed
+            k6_available, k6_version = load_testing.check_k6_installed()
+            if not k6_available:
+                logger.error("k6 is not installed or not in PATH. Please install k6 to run load tests.")
+                return 1
+            
+            logger.info(f"Using k6 version: {k6_version}")
+            
+            # Configure stages
+            stage_config = {
+                "stage1": {"users": args.stage1_users, "duration": args.stage1_duration},
+                "stage2": {"users": args.stage2_users, "duration": args.stage2_duration},
+                "stage3": {"users": args.stage3_users, "duration": args.stage3_duration},
+                "stage4": {"users": args.stage4_users, "duration": args.stage4_duration},
+                "stage5": {"users": args.stage5_users, "duration": args.stage5_duration},
+            }
+            
+            # Run the load test with clean output and aggregated metrics
+            success, test_results = load_testing.run_k6_test(
+                args.k6_script,
+                args.base_url,
+                args.output,
+                error_report_file,
+                args.url_format,
+                stage_config,
+                args.debug_mode,
+                args.use_head_requests,
+                args.skip_large_files,
+                args.large_file_threshold_mib,
+                args.request_timeout,
+                args.global_timeout,
+                args.head_timeout,
+                args.failure_rate_threshold,
+                args.max_retries,
+                clean_output=True,      # Use clean output to avoid duplicates
+                show_progress=True,     # Show progress indicators
+                output_format="json",   # Export detailed metrics to JSON
+                connection_close_delay=args.connection_close_delay
+            )
+            
+            if success:
+                logger.info("Load test completed successfully")
+                
+                # Parse results from k6 output if available
+                if 'output' in test_results:
+                    metrics = load_testing.parse_k6_results(test_results['output'])
+                    logger.info("========================================================")
+                    logger.info("LOAD TEST SUMMARY")
+                    logger.info("========================================================")
+                    
+                    if 'summary' in metrics:
+                        logger.info(f"Summary: {metrics['summary']}")
+                    else:
+                        for key, value in metrics.items():
+                            if key == 'avg_duration_ms':
+                                logger.info(f"Average Request Duration: {value:.2f}ms")
+                            elif key == 'failure_rate':
+                                logger.info(f"Failure Rate: {value*100:.2f}%")
+                            elif key == 'checks_rate':
+                                logger.info(f"Checks Passed: {value*100:.2f}%")
+                            elif key == 'iterations':
+                                logger.info(f"Total Requests: {value}")
+                            elif key == 'peak_vus':
+                                logger.info(f"Peak VUs: {value}")
+                            else:
+                                logger.info(f"{key.replace('_', ' ').title()}: {value}")
+                    
+                    # Show failure report info if available
+                    if 'failure_report_json' in test_results and test_results['failure_report_json']:
+                        try:
+                            with open(test_results['failure_report_json'], 'r') as f:
+                                failure_data = json.load(f)
+                                
+                                # Show overall test failure info
+                                logger.info("\nFailure Information:")
+                                logger.info(f"Total Failures: {failure_data.get('total_failures', 0)}")
+                                
+                                # Show top failure types
+                                tracking = failure_data.get('failure_tracking', {})
+                                if tracking and tracking.get('by_type'):
+                                    logger.info("\nTop Failure Types:")
+                                    for failure_type, count in sorted(tracking['by_type'].items(), 
+                                                                  key=lambda x: x[1], reverse=True)[:3]:
+                                        pct = (count / tracking['count']) * 100 if tracking['count'] > 0 else 0
+                                        logger.info(f"  - {failure_type}: {count} ({pct:.1f}%)")
+                                    
+                                # Show path to detailed report
+                                logger.info(f"\nDetailed failure report: {test_results['failure_report_json']}")
+                                if 'failure_report_markdown' in test_results and test_results['failure_report_markdown']:
+                                    logger.info(f"Failure summary (Markdown): {test_results['failure_report_markdown']}")
+                        except Exception as e:
+                            logger.debug(f"Error processing failure data: {str(e)}")
+                    
+                    logger.info("========================================================")
+            else:
+                logger.warning(f"Load test completed with issues: {test_results.get('error', 'Unknown error')}")
+                # Don't return non-zero code here, as the pre-warming was successful
         
         return 0
         
