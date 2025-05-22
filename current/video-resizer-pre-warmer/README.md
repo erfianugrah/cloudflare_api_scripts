@@ -35,13 +35,15 @@ python3 main.py --full-workflow \
     --base-url https://cdn.example.com/videos/ \
     --derivatives desktop,tablet,mobile \
     --workers 500 \
-    --url-format derivative \
-    --stage1-users 100 \
+    --url-format imwidth \
+    --stage1-users 10 \
     --stage1-duration 1m \
-    --stage2-users 300 \
+    --stage2-users 20 \
     --stage2-duration 2m \
-    --stage3-users 500 \
+    --stage3-users 30 \
     --stage3-duration 3m \
+    --stage4-users 20 \
+    --stage4-duration 2m \
     --skip-large-files \
     --large-file-threshold-mib 100
 ```
@@ -120,6 +122,8 @@ The project has been refactored into a modular architecture for improved maintai
 - **Random Request Patterns**: Simulates real user access with randomized byte range requests
 - **Error File Exclusion**: Automatically excludes files that failed during pre-warming
 - **Connection Management**: Explicit connection delays to match Python pre-warmer behavior
+- **Flexible Virtual User Configuration**: Configure the number of concurrent users per stage
+- **Custom Duration Control**: Set the duration for each load testing stage independently
 
 ## Installation
 
@@ -277,21 +281,24 @@ python3 main.py --full-workflow \
 
 ```bash
 python3 main.py --full-workflow \
-    --remote ikea-mcdc \
-    --bucket prod-ap-southeast-1-mcdc-media \
+    --remote r2 \
+    --bucket videos \
     --directory videos \
-    --base-url https://www.pp01.test.ikea.cn/pvid/ \
+    --base-url https://cdn.example.com/videos/ \
     --derivatives desktop,tablet,mobile \
     --workers 1500 \
-    --url-format derivative \
-    --stage1-users 100 \
+    --url-format imwidth \
+    --stage1-users 20 \
     --stage1-duration 1m \
-    --stage2-users 300 \
+    --stage2-users 40 \
     --stage2-duration 2m \
-    --stage3-users 500 \
+    --stage3-users 60 \
     --stage3-duration 3m \
+    --stage4-users 40 \
+    --stage4-duration 2m \
     --skip-large-files \
-    --large-file-threshold-mib 20
+    --large-file-threshold-mib 20 \
+    --connection-close-delay 15
 ```
 
 #### Customized Workflow with Explicit Steps
@@ -308,9 +315,15 @@ python3 main.py \
     --run-load-test \
     --use-error-report-for-load-test \
     --url-format imwidth \
-    --stage1-users 50 \
-    --stage2-users 100 \
-    --stage3-users 200
+    --stage1-users 10 \
+    --stage1-duration 30s \
+    --stage2-users 20 \
+    --stage2-duration 1m \
+    --stage3-users 30 \
+    --stage3-duration 30s \
+    --stage4-users 20 \
+    --stage4-duration 1m \
+    --connection-close-delay 15
 ```
 
 #### Force Pre-warming with Existing Results
@@ -353,17 +366,75 @@ python3 main.py \
 
 #### Just Load Testing
 
+#### Basic Load Testing
 ```bash
 python3 main.py \
     --run-load-test \
     --base-url https://cdn.example.com \
     --output existing_results.json \
     --use-error-report-for-load-test \
-    --url-format derivative \
-    --stage1-users 5 \
-    --stage2-users 10 \
-    --stage3-users 15 \
+    --url-format imwidth \
     --connection-close-delay 15 \
+    --use-head-requests \
+    --skip-large-files
+```
+
+#### Moderate Load Testing (Higher VU Count)
+```bash
+python3 main.py \
+    --run-load-test \
+    --base-url https://cdn.example.com \
+    --output existing_results.json \
+    --url-format imwidth \
+    --stage1-users 10 \
+    --stage2-users 20 \
+    --stage3-users 30 \
+    --stage4-users 20 \
+    --connection-close-delay 15 \
+    --use-head-requests \
+    --skip-large-files
+```
+
+#### High Load Testing (Extended Durations)
+```bash
+python3 main.py \
+    --run-load-test \
+    --base-url https://cdn.example.com \
+    --output existing_results.json \
+    --url-format imwidth \
+    --stage1-users 15 \
+    --stage1-duration 1m \
+    --stage2-users 30 \
+    --stage2-duration 5m \
+    --stage3-users 50 \
+    --stage3-duration 2m \
+    --stage4-users 30 \
+    --stage4-duration 5m \
+    --connection-close-delay 15 \
+    --use-head-requests \
+    --skip-large-files
+```
+
+#### Extreme Load Testing (Maximum Concurrent Users)
+```bash
+python3 main.py \
+    --run-load-test \
+    --base-url https://cdn.example.com \
+    --output existing_results.json \
+    --url-format imwidth \
+    --stage1-users 20 \
+    --stage1-duration 2m \
+    --stage2-users 50 \
+    --stage2-duration 5m \
+    --stage3-users 100 \
+    --stage3-duration 10m \
+    --stage4-users 75 \
+    --stage4-duration 5m \
+    --stage5-users 40 \
+    --stage5-duration 3m \
+    --connection-close-delay 15 \
+    --request-timeout 180s \
+    --global-timeout 300s \
     --use-head-requests \
     --skip-large-files
 ```
@@ -399,6 +470,30 @@ python main.py --remote r2 --bucket videos \
 ```
 
 ## Advanced Configurations
+
+### Custom Virtual User (VU) Configuration
+
+For fine-grained control of load test virtual users and durations:
+
+```bash
+# This example shows how to configure all 5 load testing stages
+python3 main.py \
+    --run-load-test \
+    --base-url https://cdn.example.com/videos/ \
+    --output existing_results.json \
+    --url-format imwidth \
+    --stage1-users 5 \      # Stage 1: Warm-up phase
+    --stage1-duration 30s \
+    --stage2-users 15 \     # Stage 2: Ramp-up phase
+    --stage2-duration 1m \
+    --stage3-users 30 \     # Stage 3: Peak load phase
+    --stage3-duration 2m \
+    --stage4-users 20 \     # Stage 4: Sustained load phase
+    --stage4-duration 3m \
+    --stage5-users 10 \     # Stage 5: Cool-down phase
+    --stage5-duration 1m \
+    --connection-close-delay 15
+```
 
 ### High-Performance Pre-warming
 

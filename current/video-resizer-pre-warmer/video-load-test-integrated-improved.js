@@ -61,7 +61,8 @@ const largeFailures = new Counter('large_file_failures');
 const BASE_URL = __ENV.BASE_URL || "https://cdn.erfi.dev";
 const RESULTS_FILE = __ENV.RESULTS_FILE || './video_transform_results.json';
 const ERROR_REPORT_FILE = __ENV.ERROR_REPORT_FILE || './error_report.json'; // Optional error report file
-const URL_FORMAT = __ENV.URL_FORMAT || "imwidth"; // "imwidth" or "derivative" 
+// URL_FORMAT is no longer used - always using imwidth format
+const URL_FORMAT = "imwidth";
 const MAX_RETRIES = parseInt(__ENV.MAX_RETRIES || "2");
 const DEBUG_MODE = __ENV.DEBUG_MODE === "true";
 const SIMULATE_REAL_PLAYER = __ENV.SIMULATE_REAL_PLAYER !== "false"; // Default to true
@@ -294,7 +295,7 @@ export const options = {
   timeout: __ENV.GLOBAL_TIMEOUT || "90s", // Increased global timeout
 };
 
-// Generate the appropriate URL based on the URL_FORMAT
+// Generate the URL with only imwidth parameter (no derivative parameter)
 function generateVideoUrl(videoInfo) {
   // Handle malformed/missing path
   if (!videoInfo || !videoInfo.path) {
@@ -305,19 +306,12 @@ function generateVideoUrl(videoInfo) {
   // Extract path (remove leading slash if present)
   const path = videoInfo.path.startsWith('/') ? videoInfo.path.slice(1) : videoInfo.path;
   
-  let url;
-  
   // Remove trailing slash from BASE_URL if it exists and path doesn't start with slash
   const baseUrl = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
   
-  // Match the URL format used in the pre-warmer
-  if (URL_FORMAT === "derivative") {
-    // Use derivative format with imwidth parameter
-    url = `${baseUrl}/${path}?derivative=${videoInfo.derivative}&imwidth=${videoInfo.width}`;
-  } else {
-    // Use imwidth format (default and common in CDN implementations)
-    url = `${baseUrl}/${path}?imwidth=${videoInfo.width}`;
-  }
+  // Always use the imwidth format (no derivative parameter) regardless of URL_FORMAT setting
+  // This matches the updated behavior of the pre-warmer
+  const url = `${baseUrl}/${path}?imwidth=${videoInfo.width}`;
   
   return url;
 }

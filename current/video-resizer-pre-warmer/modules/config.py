@@ -176,19 +176,19 @@ def parse_arguments():
                       help='Maximum number of retry attempts for failed requests')
 
     # Stage configuration for load test
-    parser.add_argument('--stage1-users', type=int, default=5,
+    parser.add_argument('--stage1-users', type=int, default=10,
                       help='Number of users in stage 1')
     parser.add_argument('--stage1-duration', default='30s',
                       help='Duration of stage 1')
-    parser.add_argument('--stage2-users', type=int, default=10,
+    parser.add_argument('--stage2-users', type=int, default=20,
                       help='Number of users in stage 2')
     parser.add_argument('--stage2-duration', default='1m',
                       help='Duration of stage 2')
-    parser.add_argument('--stage3-users', type=int, default=15,
+    parser.add_argument('--stage3-users', type=int, default=30,
                       help='Number of users in stage 3')
     parser.add_argument('--stage3-duration', default='30s',
                       help='Duration of stage 3')
-    parser.add_argument('--stage4-users', type=int, default=10,
+    parser.add_argument('--stage4-users', type=int, default=20,
                       help='Number of users in stage 4')
     parser.add_argument('--stage4-duration', default='1m',
                       help='Duration of stage 4')

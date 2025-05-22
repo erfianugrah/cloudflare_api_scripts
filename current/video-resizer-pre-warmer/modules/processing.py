@@ -134,6 +134,8 @@ def process_single_derivative(obj_data, derivative, base_url, bucket, directory,
     dimensions = get_derivative_dimensions(derivative or "desktop", logger)
     url = f"{url}?imwidth={dimensions['width']}"
     
+    # Note: We're using just imwidth parameter, not derivative parameter
+    
     # Store URL in the result for all cases, not just errors
     result['url'] = url
     
