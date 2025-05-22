@@ -312,8 +312,8 @@ function generateVideoUrl(videoInfo) {
   
   // Match the URL format used in the pre-warmer
   if (URL_FORMAT === "derivative") {
-    // Use derivative format with explicit width and height parameters
-    url = `${baseUrl}/${path}?derivative=${videoInfo.derivative}&width=${videoInfo.width}&height=${videoInfo.height}`;
+    // Use derivative format with imwidth parameter
+    url = `${baseUrl}/${path}?derivative=${videoInfo.derivative}&imwidth=${videoInfo.width}`;
   } else {
     // Use imwidth format (default and common in CDN implementations)
     url = `${baseUrl}/${path}?imwidth=${videoInfo.width}`;
