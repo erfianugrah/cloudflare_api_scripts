@@ -291,8 +291,8 @@ export const options = {
     'http_req_duration{derivative:desktop}': [`p(95)<${__ENV.DESKTOP_DURATION_THRESHOLD || "15000"}`],
     'http_req_duration{derivative:tablet}': [`p(95)<${__ENV.TABLET_DURATION_THRESHOLD || "12000"}`],
     'http_req_duration{derivative:mobile}': [`p(95)<${__ENV.MOBILE_DURATION_THRESHOLD || "10000"}`],
-  },
-  timeout: __ENV.GLOBAL_TIMEOUT || "90s", // Increased global timeout
+  }
+  // Removed invalid 'timeout' field that was causing the warning
 };
 
 // Generate the URL with only imwidth parameter (no derivative parameter)
@@ -767,7 +767,7 @@ export default function() {
       request_type: useRangeHeader ? "range" : "full", // Tag range vs full requests
     },
     responseType: "binary", // Handle binary data properly
-    timeout: __ENV.REQUEST_TIMEOUT || "120s", // Increased individual request timeout
+    timeout: __ENV.GLOBAL_TIMEOUT || "90s", // Moved timeout from global options to request params
   };
 
   if (useRangeHeader) {
