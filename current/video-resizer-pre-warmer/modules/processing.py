@@ -189,23 +189,24 @@ def process_single_derivative(obj_data, derivative, base_url, bucket, directory,
                     ttfb = response.elapsed.total_seconds()
                     result['time_to_first_byte'] = ttfb
                     
-                    # Check if we have a Content-Length header
+                    # Always stream the content to get actual size
+                    # Even if Content-Length is present, we need to download the content
+                    download_start = time.time()
+                    content_size = 0
+                    
+                    # Stream response content
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            content_size += len(chunk)
+                    
+                    download_time = time.time() - download_start
+                    
+                    # Log if Content-Length doesn't match actual size
                     if 'Content-Length' in response.headers:
-                        content_size = int(response.headers['Content-Length'])
-                        # Just read a small amount to validate the response
-                        chunk = next(response.iter_content(chunk_size=8192), None)
-                        download_time = time.time() - ttfb
-                    else:
-                        # If no Content-Length header, stream the content to get size
-                        download_start = time.time()
-                        content_size = 0
-                        
-                        # Stream response content
-                        for chunk in response.iter_content(chunk_size=8192):
-                            if chunk:
-                                content_size += len(chunk)
-                        
-                        download_time = time.time() - download_start
+                        expected_size = int(response.headers['Content-Length'])
+                        if expected_size != content_size:
+                            if logger:
+                                logger.warning(f"Content-Length mismatch for {url}: header={expected_size}, actual={content_size}")
                     
                     # Log details about content size
                     if logger:
