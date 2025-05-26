@@ -74,6 +74,7 @@ def parse_arguments():
     parser.add_argument('--timeout', type=int, default=120, help='Request timeout in seconds')
     parser.add_argument('--connection-close-delay', type=int, default=15, help='Additional delay in seconds before closing connections (applies to both pre-warmer and load test)')
     parser.add_argument('--retry', type=int, default=2, help='Number of retry attempts for failed requests')
+    parser.add_argument('--use-head-for-size', action='store_true', help='Use HEAD requests to verify content sizes (reduces bandwidth usage)')
     parser.add_argument('--generate-error-report', action='store_true', help='Generate an error report from an existing results file')
     parser.add_argument('--error-report-output', default='error_report.json', help='Output file path for error report')
     parser.add_argument('--format', choices=['markdown', 'json'], help='Format for the error report (default is based on file extension)')
@@ -171,7 +172,7 @@ def parse_arguments():
     parser.add_argument('--global-timeout', default='90s',
                       help='Global timeout for the load test')
     parser.add_argument('--failure-rate-threshold', default='0.05',
-                      help='Maximum acceptable failure rate (e.g. 0.05 = 5%)')
+                      help='Maximum acceptable failure rate (e.g. 0.05 = 5%%)')
     parser.add_argument('--max-retries', type=int, default=2,
                       help='Maximum number of retry attempts for failed requests')
 

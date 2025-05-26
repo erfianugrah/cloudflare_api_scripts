@@ -7,6 +7,7 @@ import tempfile
 import subprocess
 import logging
 import re
+import json
 from modules import video_utils
 
 # Set up module logger
@@ -120,9 +121,84 @@ def list_objects(remote, bucket, directory, extension, limit=0, logger=None, use
         
     return results
 
+def get_file_sizes_batch(remote, bucket, directory, file_paths, logger=None, batch_size=1000):
+    """
+    Get sizes of multiple files in batch using rclone lsjson.
+    Much more efficient than individual size queries.
+    
+    Args:
+        remote: The rclone remote name
+        bucket: The S3 bucket name
+        directory: The directory within the bucket
+        file_paths: List of file paths to get sizes for
+        logger: Logger instance
+        batch_size: Number of files to process in each batch
+        
+    Returns:
+        list: List of tuples (file_path, size_in_bytes)
+    """
+    if logger:
+        logger.info(f"Getting file sizes for {len(file_paths)} files using batch operations")
+    
+    file_sizes = []
+    
+    # Process files in batches to avoid command line length limits
+    for i in range(0, len(file_paths), batch_size):
+        batch_paths = file_paths[i:i + batch_size]
+        
+        try:
+            # Use rclone lsjson for efficient batch retrieval
+            path = f"{remote}:{bucket}/{directory}"
+            cmd = ['rclone', 'lsjson', path, '--files-only', '--no-modtime', '--no-mimetype']
+            
+            if logger:
+                logger.debug(f"Executing batch rclone command for {len(batch_paths)} files")
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            
+            # Parse JSON output
+            files_data = json.loads(result.stdout)
+            
+            # Create a map for quick lookup
+            size_map = {}
+            for file_info in files_data:
+                # Handle both Name and Path fields
+                file_path = file_info.get('Path', file_info.get('Name', ''))
+                file_size = file_info.get('Size', 0)
+                size_map[file_path] = file_size
+            
+            # Match requested paths
+            for path in batch_paths:
+                # Try exact match first
+                if path in size_map:
+                    file_sizes.append((path, size_map[path]))
+                else:
+                    # Try with directory prefix removed
+                    path_without_dir = path.split('/')[-1]
+                    if path_without_dir in size_map:
+                        file_sizes.append((path, size_map[path_without_dir]))
+                    else:
+                        if logger:
+                            logger.warning(f"File not found in batch: {path}")
+        
+        except subprocess.CalledProcessError as e:
+            if logger:
+                logger.error(f"Error in batch file size retrieval: {e.stderr}")
+        except json.JSONDecodeError as e:
+            if logger:
+                logger.error(f"Error parsing JSON from rclone: {str(e)}")
+    
+    if logger:
+        logger.info(f"Retrieved sizes for {len(file_sizes)} out of {len(file_paths)} files")
+    
+    return file_sizes
+
 def get_file_sizes(remote, bucket, directory, file_paths, logger=None, use_aws_cli=False):
     """
     Get sizes of files using either rclone or AWS CLI.
+    
+    NOTE: This function is kept for backward compatibility but now uses
+    the more efficient batch implementation internally.
     
     Args:
         remote: The rclone remote name
@@ -135,69 +211,53 @@ def get_file_sizes(remote, bucket, directory, file_paths, logger=None, use_aws_c
     Returns:
         list: List of tuples (file_path, size_in_bytes)
     """
+    # Use the more efficient batch implementation
+    if not use_aws_cli:
+        return get_file_sizes_batch(remote, bucket, directory, file_paths, logger)
+    
+    # AWS CLI approach kept for compatibility
     if logger:
-        logger.info(f"Getting file sizes for {len(file_paths)} files")
+        logger.info(f"Getting file sizes for {len(file_paths)} files using AWS CLI")
     file_sizes = []
     
     try:
-        if use_aws_cli:
-            # AWS CLI approach for getting file sizes
-            s3_path = f"s3://{bucket}/{directory}"
-            if directory and not s3_path.endswith('/'):
-                s3_path += '/'
-            
-            # For AWS CLI, we get all file sizes at once, then filter
-            cmd = ['aws', 's3', 'ls', '--recursive', '--human-readable', s3_path]
-            if logger:
-                logger.debug(f"Executing AWS CLI command: {' '.join(cmd)}")
-            
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            
-            # Parse output and build a lookup
-            size_lookup = {}
-            for line in result.stdout.splitlines():
-                parts = line.strip().split()
-                if len(parts) >= 4:  # Format: DATE TIME SIZE FILENAME
-                    size_str = parts[2]
-                    filename = ' '.join(parts[3:])  # Join in case of spaces in filename
-                    
-                    # Convert human-readable size to bytes
-                    size_bytes = parse_human_readable_size(size_str)
-                    
-                    size_lookup[filename] = size_bytes
-            
-            # Find matching files
-            for path in file_paths:
-                # For S3, the paths in the listing might include the directory
-                full_path = os.path.join(directory, path).replace('\\', '/')
-                if full_path in size_lookup:
-                    file_sizes.append((path, size_lookup[full_path]))
-                elif path in size_lookup:
-                    file_sizes.append((path, size_lookup[path]))
-        else:
-            # Rclone approach - we get file sizes one at a time
-            for path in file_paths:
-                full_path = f"{remote}:{bucket}/{directory}/{path}"
-                cmd = ['rclone', 'size', full_path]
+        # AWS CLI approach for getting file sizes
+        s3_path = f"s3://{bucket}/{directory}"
+        if directory and not s3_path.endswith('/'):
+            s3_path += '/'
+        
+        # For AWS CLI, we get all file sizes at once, then filter
+        cmd = ['aws', 's3', 'ls', '--recursive', '--human-readable', s3_path]
+        if logger:
+            logger.debug(f"Executing AWS CLI command: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        
+        # Parse output and build a lookup
+        size_lookup = {}
+        for line in result.stdout.splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 4:  # Format: DATE TIME SIZE FILENAME
+                size_str = parts[2]
+                filename = ' '.join(parts[3:])  # Join in case of spaces in filename
                 
-                try:
-                    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-                    
-                    # Parse output to get file size (format: "Total size: X")
-                    size_line = next((line for line in result.stdout.splitlines() 
-                                     if line.startswith('Total size:')), None)
-                    
-                    if size_line:
-                        size_str = size_line.split(':', 1)[1].strip()
-                        size_bytes = parse_human_readable_size(size_str)
-                        file_sizes.append((path, size_bytes))
-                except Exception as e:
-                    if logger:
-                        logger.warning(f"Could not get size for {path}: {str(e)}")
+                # Convert human-readable size to bytes
+                size_bytes = parse_human_readable_size(size_str)
+                
+                size_lookup[filename] = size_bytes
+        
+        # Find matching files
+        for path in file_paths:
+            # For S3, the paths in the listing might include the directory
+            full_path = os.path.join(directory, path).replace('\\', '/')
+            if full_path in size_lookup:
+                file_sizes.append((path, size_lookup[full_path]))
+            elif path in size_lookup:
+                file_sizes.append((path, size_lookup[path]))
     
     except Exception as e:
         if logger:
-            logger.error(f"Error getting file sizes: {str(e)}")
+            logger.error(f"Error getting file sizes with AWS CLI: {str(e)}")
     
     return file_sizes
 
