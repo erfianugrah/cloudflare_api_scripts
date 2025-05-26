@@ -346,7 +346,9 @@ export const options = {
       `p(95)<${__ENV.MOBILE_DURATION_THRESHOLD || "10000"}`,
     ],
   },
-  // Removed invalid 'timeout' field that was causing the warning
+  // Disable high-cardinality system tags to prevent metric explosion
+  // Exclude 'url' and 'name' tags which create unique metrics per URL
+  systemTags: ['status', 'method', 'group', 'check', 'error', 'error_code', 'tls_version', 'scenario', 'service', 'expected_response'],
 };
 
 // Generate the URL with only imwidth parameter (no derivative parameter)
@@ -945,6 +947,7 @@ export default function () {
       derivative: videoInfo.derivative, // Tag by derivative for metrics
       size_category: getSizeCategory(videoInfo.size), // Tag by size category
       request_type: useRangeHeader ? "range" : "full", // Tag range vs full requests
+      // Note: Do NOT add URL as a tag - it creates high cardinality metrics
     },
     responseType: "binary", // Handle binary data properly
     timeout: __ENV.GLOBAL_TIMEOUT || "90s", // Moved timeout from global options to request params
