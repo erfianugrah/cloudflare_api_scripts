@@ -82,7 +82,7 @@ def log_response_details(response, url, logger=None):
 
 def process_single_derivative(obj_data, derivative, base_url, bucket, directory, timeout, 
                             retry_attempts=2, connection_close_delay=10, logger=None,
-                            small_threshold_mib=50, medium_threshold_mib=200):
+                            small_threshold_mib=50, medium_threshold_mib=200, use_head_request=False):
     """
     Process a single derivative for a video object.
     
@@ -151,6 +151,42 @@ def process_single_derivative(obj_data, derivative, base_url, bucket, directory,
             time.sleep(2 * attempt)  # Back off with each retry
         
         try:
+            # Try HEAD request first if enabled
+            if use_head_request:
+                try:
+                    head_response = requests.head(url, timeout=timeout, allow_redirects=True)
+                    
+                    if head_response.status_code < 400 and 'Content-Length' in head_response.headers:
+                        # HEAD request successful and has Content-Length
+                        result['status_code'] = head_response.status_code
+                        result['time_to_first_byte'] = head_response.elapsed.total_seconds()
+                        result['total_time'] = result['time_to_first_byte']  # No download time for HEAD
+                        result['response_size_bytes'] = int(head_response.headers['Content-Length'])
+                        result['status'] = 'success'
+                        result['method_used'] = 'HEAD'
+                        
+                        # Add size comparison metrics
+                        if hasattr(obj_data, 'size_bytes') and obj_data.size_bytes > 0:
+                            result['original_size_bytes'] = obj_data.size_bytes
+                            content_size = result['response_size_bytes']
+                            if content_size > 0:
+                                size_diff = obj_data.size_bytes - content_size
+                                reduction_percent = (size_diff / obj_data.size_bytes) * 100
+                                result['size_reduction_bytes'] = size_diff
+                                result['size_reduction_percent'] = reduction_percent
+                        
+                        if logger:
+                            logger.debug(f"HEAD request successful for {url}: size={result['response_size_bytes']}")
+                        
+                        # Success with HEAD, no need for GET
+                        break
+                    
+                except (requests.exceptions.RequestException, KeyError, ValueError) as e:
+                    # HEAD failed or no Content-Length, fall back to GET
+                    if logger:
+                        logger.debug(f"HEAD request failed for {url}, falling back to GET: {str(e)}")
+            
+            # Regular GET request (either as primary method or fallback)
             with requests.get(url, stream=True, timeout=timeout) as response:
                 result['status_code'] = response.status_code
                 
@@ -188,25 +224,35 @@ def process_single_derivative(obj_data, derivative, base_url, bucket, directory,
                     # Record time to first byte
                     ttfb = response.elapsed.total_seconds()
                     result['time_to_first_byte'] = ttfb
+                    result['method_used'] = 'GET'
                     
-                    # Always stream the content to get actual size
-                    # Even if Content-Length is present, we need to download the content
-                    download_start = time.time()
-                    content_size = 0
-                    
-                    # Stream response content
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            content_size += len(chunk)
-                    
-                    download_time = time.time() - download_start
-                    
-                    # Log if Content-Length doesn't match actual size
-                    if 'Content-Length' in response.headers:
-                        expected_size = int(response.headers['Content-Length'])
-                        if expected_size != content_size:
-                            if logger:
-                                logger.warning(f"Content-Length mismatch for {url}: header={expected_size}, actual={content_size}")
+                    # Check if we can skip download for size verification
+                    if (use_head_request and 
+                        'Content-Length' in response.headers and 
+                        hasattr(obj_data, 'size_bytes')):
+                        # We can trust Content-Length for size calculation
+                        content_size = int(response.headers['Content-Length'])
+                        download_time = 0  # Skip actual download
+                        if logger:
+                            logger.debug(f"Skipping download for {url}, using Content-Length: {content_size}")
+                    else:
+                        # Stream the content to get actual size
+                        download_start = time.time()
+                        content_size = 0
+                        
+                        # Stream response content
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                content_size += len(chunk)
+                        
+                        download_time = time.time() - download_start
+                        
+                        # Log if Content-Length doesn't match actual size
+                        if 'Content-Length' in response.headers:
+                            expected_size = int(response.headers['Content-Length'])
+                            if expected_size != content_size:
+                                if logger:
+                                    logger.warning(f"Content-Length mismatch for {url}: header={expected_size}, actual={content_size}")
                     
                     # Log details about content size
                     if logger:
@@ -270,7 +316,7 @@ def process_single_derivative(obj_data, derivative, base_url, bucket, directory,
 
 def process_object_without_derivatives(obj_data, base_url, bucket, directory, timeout,
                                retry_attempts=2, connection_close_delay=10, logger=None,
-                               small_threshold_mib=50, medium_threshold_mib=200):
+                               small_threshold_mib=50, medium_threshold_mib=200, use_head_request=False):
     """
     Process a video object without any derivatives - just simple URL request.
     
@@ -297,7 +343,7 @@ def process_object_without_derivatives(obj_data, base_url, bucket, directory, ti
         "default": process_single_derivative(
             obj_data, "", base_url, bucket, directory, timeout,
             retry_attempts, connection_close_delay, logger,
-            small_threshold_mib, medium_threshold_mib
+            small_threshold_mib, medium_threshold_mib, use_head_request
         )
     }
     
@@ -308,7 +354,7 @@ def process_object_without_derivatives(obj_data, base_url, bucket, directory, ti
 
 def process_object(obj_data, base_url, bucket, directory, derivatives, timeout,
                 retry_attempts=2, connection_close_delay=10, logger=None, 
-                small_threshold_mib=50, medium_threshold_mib=200):
+                small_threshold_mib=50, medium_threshold_mib=200, use_head_request=False):
     """
     Process a video object with all its derivatives.
     
@@ -339,7 +385,7 @@ def process_object(obj_data, base_url, bucket, directory, derivatives, timeout,
         results[derivative] = process_single_derivative(
             obj_data, derivative, base_url, bucket, directory, timeout,
             retry_attempts, connection_close_delay, logger,
-            small_threshold_mib, medium_threshold_mib
+            small_threshold_mib, medium_threshold_mib, use_head_request
         )
     
     # Mark the completion of processing
@@ -388,17 +434,21 @@ def update_processing_stats(stats, obj_data, results, derivatives):
                 
                 # Record timing stats only for successful requests
                 if result.get('time_to_first_byte'):
-                    stats['ttfb_values'].append(result['time_to_first_byte'])
+                    stats['ttfb_stats'].add(result['time_to_first_byte'])
+                    stats['by_size_category'][size_cat]['ttfb_stats'].add(result['time_to_first_byte'])
                 
                 if result.get('total_time'):
-                    stats['total_time_values'].append(result['total_time'])
+                    stats['total_time_stats'].add(result['total_time'])
+                    stats['by_size_category'][size_cat]['total_time_stats'].add(result['total_time'])
                 
-                # Track size-specific timing stats
-                if 'time_to_first_byte' in result:
-                    stats['by_size_category'][size_cat]['ttfb_values'].append(result['time_to_first_byte'])
-                
-                if 'total_time' in result:
-                    stats['by_size_category'][size_cat]['total_time_values'].append(result['total_time'])
+                # Track size reduction stats
+                if ('original_size_bytes' in result and 
+                    'response_size_bytes' in result and 
+                    result['response_size_bytes'] > 0):
+                    stats['size_reduction_stats'].add(
+                        result['original_size_bytes'],
+                        result['response_size_bytes']
+                    )
             else:
                 if f'{key}_errors' in stats:
                     stats[f'{key}_errors'] += 1

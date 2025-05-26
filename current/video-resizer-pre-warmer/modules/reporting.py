@@ -419,32 +419,30 @@ def generate_stats_report(stats, format_type='markdown'):
     total_count = stats['total_processed']
     success_rate = (stats['success_count'] / total_count) * 100 if total_count > 0 else 0
     
-    ttfb_values = stats.get('ttfb_values', [])
-    total_time_values = stats.get('total_time_values', [])
+    # Handle both old array format and new summary format
+    ttfb_summary = stats.get('ttfb_summary', {})
+    total_time_summary = stats.get('total_time_summary', {})
     
-    # Calculate timing percentiles if we have values
-    ttfb_percentiles = {}
-    total_time_percentiles = {}
+    # For backward compatibility, check for old format
+    if not ttfb_summary and 'ttfb_values' in stats:
+        ttfb_values = stats.get('ttfb_values', [])
+        if ttfb_values:
+            ttfb_summary = {
+                'min': min(ttfb_values),
+                'max': max(ttfb_values),
+                'mean': sum(ttfb_values) / len(ttfb_values),
+                'count': len(ttfb_values)
+            }
     
-    if ttfb_values:
-        ttfb_percentiles = {
-            'min': min(ttfb_values),
-            'p50': np.percentile(ttfb_values, 50),
-            'p90': np.percentile(ttfb_values, 90),
-            'p95': np.percentile(ttfb_values, 95),
-            'p99': np.percentile(ttfb_values, 99),
-            'max': max(ttfb_values)
-        }
-    
-    if total_time_values:
-        total_time_percentiles = {
-            'min': min(total_time_values),
-            'p50': np.percentile(total_time_values, 50),
-            'p90': np.percentile(total_time_values, 90),
-            'p95': np.percentile(total_time_values, 95),
-            'p99': np.percentile(total_time_values, 99),
-            'max': max(total_time_values)
-        }
+    if not total_time_summary and 'total_time_values' in stats:
+        total_time_values = stats.get('total_time_values', [])
+        if total_time_values:
+            total_time_summary = {
+                'min': min(total_time_values),
+                'max': max(total_time_values),
+                'mean': sum(total_time_values) / len(total_time_values),
+                'count': len(total_time_values)
+            }
     
     # Calculate size category statistics
     size_category_rows = []
@@ -453,8 +451,26 @@ def generate_stats_report(stats, format_type='markdown'):
         if cat_count == 0:
             continue
             
-        cat_ttfb = category_stats.get('ttfb_values', [])
-        cat_total_time = category_stats.get('total_time_values', [])
+        # Handle both old and new formats
+        cat_ttfb_summary = category_stats.get('ttfb_summary', {})
+        cat_total_time_summary = category_stats.get('total_time_summary', {})
+        
+        # Backward compatibility
+        if not cat_ttfb_summary and 'ttfb_values' in category_stats:
+            cat_ttfb = category_stats.get('ttfb_values', [])
+            if cat_ttfb:
+                cat_ttfb_summary = {
+                    'mean': np.median(cat_ttfb),
+                    'max': np.percentile(cat_ttfb, 95)
+                }
+        
+        if not cat_total_time_summary and 'total_time_values' in category_stats:
+            cat_total_time = category_stats.get('total_time_values', [])
+            if cat_total_time:
+                cat_total_time_summary = {
+                    'mean': np.median(cat_total_time),
+                    'max': np.percentile(cat_total_time, 95)
+                }
         
         row = [
             category.capitalize(),
@@ -464,15 +480,15 @@ def generate_stats_report(stats, format_type='markdown'):
         ]
         
         # Add timing stats if available
-        if cat_ttfb:
-            row.append(f"{np.median(cat_ttfb):.3f}s")
-            row.append(f"{np.percentile(cat_ttfb, 95):.3f}s")
+        if cat_ttfb_summary:
+            row.append(f"{cat_ttfb_summary.get('mean', 0):.3f}s")
+            row.append(f"{cat_ttfb_summary.get('max', 0):.3f}s")
         else:
             row.extend(["-", "-"])
             
-        if cat_total_time:
-            row.append(f"{np.median(cat_total_time):.3f}s")
-            row.append(f"{np.percentile(cat_total_time, 95):.3f}s")
+        if cat_total_time_summary:
+            row.append(f"{cat_total_time_summary.get('mean', 0):.3f}s")
+            row.append(f"{cat_total_time_summary.get('max', 0):.3f}s")
         else:
             row.extend(["-", "-"])
             
@@ -503,35 +519,31 @@ def generate_stats_report(stats, format_type='markdown'):
     ]
     
     # Add timing tables if we have values
-    if ttfb_values:
+    if ttfb_summary and ttfb_summary.get('count', 0) > 0:
         md_report.extend([
             "",
             "### Time to First Byte (TTFB)",
             "",
             "| Metric | Value |",
             "|--------|-------|",
-            f"| Minimum | {ttfb_percentiles['min']:.3f}s |",
-            f"| Median (p50) | {ttfb_percentiles['p50']:.3f}s |",
-            f"| p90 | {ttfb_percentiles['p90']:.3f}s |",
-            f"| p95 | {ttfb_percentiles['p95']:.3f}s |",
-            f"| p99 | {ttfb_percentiles['p99']:.3f}s |",
-            f"| Maximum | {ttfb_percentiles['max']:.3f}s |",
+            f"| Count | {ttfb_summary.get('count', 0)} |",
+            f"| Minimum | {ttfb_summary.get('min', 0):.3f}s |",
+            f"| Mean | {ttfb_summary.get('mean', 0):.3f}s |",
+            f"| Maximum | {ttfb_summary.get('max', 0):.3f}s |",
             "",
         ])
     
-    if total_time_values:
+    if total_time_summary and total_time_summary.get('count', 0) > 0:
         md_report.extend([
             "",
             "### Total Download Time",
             "",
             "| Metric | Value |",
             "|--------|-------|",
-            f"| Minimum | {total_time_percentiles['min']:.3f}s |",
-            f"| Median (p50) | {total_time_percentiles['p50']:.3f}s |",
-            f"| p90 | {total_time_percentiles['p90']:.3f}s |",
-            f"| p95 | {total_time_percentiles['p95']:.3f}s |",
-            f"| p99 | {total_time_percentiles['p99']:.3f}s |",
-            f"| Maximum | {total_time_percentiles['max']:.3f}s |",
+            f"| Count | {total_time_summary.get('count', 0)} |",
+            f"| Minimum | {total_time_summary.get('min', 0):.3f}s |",
+            f"| Mean | {total_time_summary.get('mean', 0):.3f}s |",
+            f"| Maximum | {total_time_summary.get('max', 0):.3f}s |",
             "",
         ])
     
@@ -547,6 +559,34 @@ def generate_stats_report(stats, format_type='markdown'):
         
         for row in size_category_rows:
             md_report.append("| " + " | ".join(str(col) for col in row) + " |")
+    
+    # Add size reduction statistics if available
+    size_reduction_summary = stats.get('size_reduction_summary', {})
+    if size_reduction_summary and size_reduction_summary.get('count', 0) > 0:
+        md_report.extend([
+            "",
+            "## Size Reduction Statistics",
+            "",
+            f"- Files with size reduction data: {size_reduction_summary.get('count', 0)}",
+            f"- Total original size: {video_utils.format_file_size(size_reduction_summary.get('total_original_bytes', 0))}",
+            f"- Total transformed size: {video_utils.format_file_size(size_reduction_summary.get('total_transformed_bytes', 0))}",
+            f"- Total reduction: {video_utils.format_file_size(size_reduction_summary.get('total_reduction_bytes', 0))}",
+            f"- Overall reduction: {size_reduction_summary.get('overall_reduction_percent', 0):.1f}%",
+            "",
+        ])
+        
+        reduction_stats = size_reduction_summary.get('reduction_stats', {})
+        if reduction_stats:
+            md_report.extend([
+                "### Reduction Percentage Distribution",
+                "",
+                "| Metric | Value |",
+                "|--------|-------|",
+                f"| Minimum | {reduction_stats.get('min', 0):.1f}% |",
+                f"| Mean | {reduction_stats.get('mean', 0):.1f}% |",
+                f"| Maximum | {reduction_stats.get('max', 0):.1f}% |",
+                "",
+            ])
     
     # Add error breakdown
     if error_rows:

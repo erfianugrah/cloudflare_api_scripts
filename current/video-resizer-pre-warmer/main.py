@@ -34,6 +34,7 @@ from modules import processing
 from modules import reporting
 from modules import comparison
 from modules import load_testing
+from modules.stats import StreamingStats, SizeReductionStats
 
 # Global state
 running = True
@@ -81,27 +82,28 @@ def initialize_stats(derivatives):
         'total_size_bytes': 0,
         'success_bytes': 0,
         'error_bytes': 0,
-        'ttfb_values': [],
-        'total_time_values': [],
+        'ttfb_stats': StreamingStats('ttfb'),
+        'total_time_stats': StreamingStats('total_time'),
+        'size_reduction_stats': SizeReductionStats(),
         'errors_by_type': {},
         'by_size_category': {
             'small': {
                 'count': 0,
                 'size_bytes': 0,
-                'ttfb_values': [],
-                'total_time_values': [],
+                'ttfb_stats': StreamingStats('small_ttfb'),
+                'total_time_stats': StreamingStats('small_total_time'),
             },
             'medium': {
                 'count': 0,
                 'size_bytes': 0,
-                'ttfb_values': [],
-                'total_time_values': [],
+                'ttfb_stats': StreamingStats('medium_ttfb'),
+                'total_time_stats': StreamingStats('medium_total_time'),
             },
             'large': {
                 'count': 0,
                 'size_bytes': 0,
-                'ttfb_values': [],
-                'total_time_values': [],
+                'ttfb_stats': StreamingStats('large_ttfb'),
+                'total_time_stats': StreamingStats('large_total_time'),
             }
         }
     }
@@ -285,7 +287,8 @@ def process_objects(objects, args, derivatives, stats):
                         args.connection_close_delay,
                         logger,
                         args.small_file_threshold,
-                        args.medium_file_threshold
+                        args.medium_file_threshold,
+                        args.use_head_for_size
                     )
                 else:
                     future = executor.submit(
@@ -300,7 +303,8 @@ def process_objects(objects, args, derivatives, stats):
                         args.connection_close_delay,
                         logger,
                         args.small_file_threshold,
-                        args.medium_file_threshold
+                        args.medium_file_threshold,
+                        args.use_head_for_size
                     )
                 
                 future_to_obj[future] = obj
@@ -846,87 +850,30 @@ def main():
                 # Calculate processing time
                 processing_time = time.time() - start_time
                 
-                # Remove lists of ttfb/time values from the stats to reduce file size
+                # Convert streaming stats to output format
                 stats_for_output = stats.copy()
-                stats_for_output.pop('ttfb_values', None)
-                stats_for_output.pop('total_time_values', None)
                 
-                # Remove ttfb arrays from size categories too
-                for category in stats_for_output.get('by_size_category', {}).values():
-                    category.pop('ttfb_values', None)
-                    category.pop('total_time_values', None)
+                # Replace StreamingStats objects with their dictionary representations
+                stats_for_output['ttfb_summary'] = stats['ttfb_stats'].to_dict()
+                stats_for_output['total_time_summary'] = stats['total_time_stats'].to_dict()
+                stats_for_output['size_reduction_summary'] = stats['size_reduction_stats'].to_dict()
                 
-                # Calculate summary statistics instead
-                if stats.get('ttfb_values'):
-                    ttfb_array = stats['ttfb_values']
-                    stats_for_output['ttfb_summary'] = {
-                        'count': len(ttfb_array),
-                        'min': min(ttfb_array) if ttfb_array else None,
-                        'max': max(ttfb_array) if ttfb_array else None,
-                        'avg': sum(ttfb_array) / len(ttfb_array) if ttfb_array else None,
-                    }
+                # Remove the StreamingStats objects from output
+                stats_for_output.pop('ttfb_stats', None)
+                stats_for_output.pop('total_time_stats', None)
+                stats_for_output.pop('size_reduction_stats', None)
                 
-                if stats.get('total_time_values'):
-                    time_array = stats['total_time_values']
-                    stats_for_output['total_time_summary'] = {
-                        'count': len(time_array),
-                        'min': min(time_array) if time_array else None,
-                        'max': max(time_array) if time_array else None,
-                        'avg': sum(time_array) / len(time_array) if time_array else None,
-                    }
+                # Convert size category stats
+                for category_name, category_data in stats_for_output.get('by_size_category', {}).items():
+                    if 'ttfb_stats' in category_data:
+                        category_data['ttfb_summary'] = category_data['ttfb_stats'].to_dict()
+                        category_data.pop('ttfb_stats', None)
+                    if 'total_time_stats' in category_data:
+                        category_data['total_time_summary'] = category_data['total_time_stats'].to_dict()
+                        category_data.pop('total_time_stats', None)
                     
-                # Calculate and add size reduction statistics
-                size_reduction_percentages = []
-                original_sizes = []
-                response_sizes = []
-            
-            # Log the structure of the first result to help debug
-            if results and logger:
-                first_result_key = next(iter(results))
-                logger.debug(f"First result structure: {json.dumps(results[first_result_key], indent=2)[:500]}...")
-                
-            # Extract size data from results
-            for obj_path, obj_result in results.items():
-                derivatives_dict = obj_result.get('derivatives', {})
-                
-                # If structure has derivatives
-                if derivatives_dict:
-                    for deriv, deriv_result in derivatives_dict.items():
-                        if (deriv_result.get('status') == 'success' and 
-                            'size_reduction_percent' in deriv_result and 
-                            'original_size_bytes' in deriv_result and
-                            'response_size_bytes' in deriv_result):
-                            size_reduction_percentages.append(deriv_result['size_reduction_percent'])
-                            original_sizes.append(deriv_result['original_size_bytes'])
-                            response_sizes.append(deriv_result['response_size_bytes'])
-                            
-                # Alternative structure without derivatives wrapper
-                elif (obj_result.get('status') == 'success' and
-                      'size_reduction_percent' in obj_result and
-                      'original_size_bytes' in obj_result and
-                      'response_size_bytes' in obj_result):
-                    size_reduction_percentages.append(obj_result['size_reduction_percent'])
-                    original_sizes.append(obj_result['original_size_bytes'])
-                    response_sizes.append(obj_result['response_size_bytes'])
-            
-            # Add size reduction summary if we have data
-            if size_reduction_percentages:
-                # Total size statistics
-                total_original = sum(original_sizes)
-                total_response = sum(response_sizes)
-                total_reduction = total_original - total_response
-                overall_reduction_percent = (total_reduction / total_original) * 100 if total_original > 0 else 0
-                
-                stats_for_output['size_reduction_summary'] = {
-                    'count': len(size_reduction_percentages),
-                    'min_percent': min(size_reduction_percentages) if size_reduction_percentages else None,
-                    'max_percent': max(size_reduction_percentages) if size_reduction_percentages else None,
-                    'avg_percent': sum(size_reduction_percentages) / len(size_reduction_percentages) if size_reduction_percentages else None,
-                    'total_original_bytes': total_original,
-                    'total_transformed_bytes': total_response,
-                    'total_reduction_bytes': total_reduction,
-                    'overall_reduction_percent': overall_reduction_percent
-                }
+                # Size reduction statistics are already calculated in real-time
+                # during processing via update_processing_stats
             
             # Save processing results
             with open(args.output, 'w') as f:
