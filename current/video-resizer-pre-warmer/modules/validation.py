@@ -509,29 +509,126 @@ class VideoValidator:
                 "# Video Validation Report",
                 f"Generated: {self.validation_results['timestamp']}",
                 "",
-                "## Summary",
-                f"- Total files checked: {total}",
-                f"- Valid files: {valid} ({valid/total*100:.1f}%)" if total > 0 else "- Valid files: 0",
-                f"- Corrupted files: {corrupted}",
-                f"- Missing files: {missing}",
+                "## Executive Summary",
+                "",
+                f"**Total URLs Validated**: {total:,}",
+                f"**Success Rate**: {valid/total*100:.1f}%" if total > 0 else "**Success Rate**: 0%",
+                "",
+                "### Results Breakdown",
+                f"- ✅ **Valid URLs**: {valid:,} ({valid/total*100:.1f}%)" if total > 0 else "- ✅ **Valid URLs**: 0",
+                f"- ❌ **Failed URLs**: {corrupted:,} ({corrupted/total*100:.1f}%)" if total > 0 else "- ❌ **Failed URLs**: 0",
+                f"- ⚠️  **Missing Files**: {missing:,} ({missing/total*100:.1f}%)" if total > 0 else "- ⚠️  **Missing Files**: 0",
                 "",
             ]
             
+            # Add error analysis if there are errors
             if self.validation_results['validation_errors']:
+                # Group errors by type
+                error_types = {}
+                affected_files = set()
+                
+                for error in self.validation_results['validation_errors']:
+                    error_msg = error.get('error', 'Unknown error')
+                    # Simplify error message for grouping
+                    if 'HTTP 500' in error_msg:
+                        error_type = 'HTTP 500 - Internal Server Error'
+                    elif 'HTTP 502' in error_msg:
+                        error_type = 'HTTP 502 - Bad Gateway'
+                    elif 'HTTP 404' in error_msg:
+                        error_type = 'HTTP 404 - Not Found'
+                    elif 'HTTP 403' in error_msg:
+                        error_type = 'HTTP 403 - Forbidden'
+                    elif 'timeout' in error_msg.lower():
+                        error_type = 'Request Timeout'
+                    elif 'content type' in error_msg.lower():
+                        error_type = 'Invalid Content Type'
+                    else:
+                        error_type = error_msg[:30] + '...' if len(error_msg) > 30 else error_msg
+                    
+                    error_types[error_type] = error_types.get(error_type, 0) + 1
+                    
+                    # Track unique files
+                    path = error.get('path', '')
+                    if ':' in path:
+                        file_path = path.split(':')[0]
+                        affected_files.add(file_path)
+                
                 report.extend([
-                    "## Corrupted Files",
+                    "## Error Analysis",
                     "",
-                    "| File | Error | Checks Failed |",
-                    "|------|-------|---------------|",
+                    "### Error Types Distribution",
+                    "| Error Type | Count | Percentage |",
+                    "|------------|-------|------------|",
                 ])
                 
-                for error in self.validation_results['validation_errors'][:50]:  # Limit to 50
-                    failed_checks = [k for k, v in error['checks'].items() if not v]
+                # Sort by count descending
+                for error_type, count in sorted(error_types.items(), key=lambda x: x[1], reverse=True):
+                    percentage = (count / corrupted * 100) if corrupted > 0 else 0
+                    report.append(f"| {error_type} | {count} | {percentage:.1f}% |")
+                
+                report.extend([
+                    "",
+                    f"### Affected Files",
+                    f"**Unique files with errors**: {len(affected_files):,}",
+                    "",
+                ])
+                
+                # Sample of failed URLs
+                report.extend([
+                    "### Failed URL Details (First 50)",
+                    "",
+                    "| File | Derivative | Error | URL |",
+                    "|------|------------|-------|-----|",
+                ])
+                
+                for error in self.validation_results['validation_errors'][:50]:
+                    path = error.get('path', 'unknown')
+                    url = error.get('url', '')
+                    
+                    # Split path into file and derivative
+                    if ':' in path:
+                        file_path, derivative = path.split(':', 1)
+                        filename = file_path.split('/')[-1] if '/' in file_path else file_path
+                    else:
+                        filename = path
+                        derivative = 'N/A'
+                    
+                    error_msg = error.get('error', 'Unknown error')
+                    if len(error_msg) > 40:
+                        error_msg = error_msg[:40] + '...'
+                    
+                    # Don't truncate URL - show full URL
                     report.append(
-                        f"| {os.path.basename(error['path'])} | "
-                        f"{error['error'][:50]}... | "
-                        f"{', '.join(failed_checks)} |"
+                        f"| {filename} | {derivative} | {error_msg} | {url} |"
                     )
+                
+                if len(self.validation_results['validation_errors']) > 50:
+                    report.append(f"\n*... and {len(self.validation_results['validation_errors']) - 50} more errors*")
+            
+            # Add recommendations
+            report.extend([
+                "",
+                "## Recommendations",
+                "",
+            ])
+            
+            if corrupted > 0:
+                # Make sure error_types is defined
+                if 'error_types' not in locals():
+                    error_types = {}
+                
+                if error_types.get('HTTP 500 - Internal Server Error', 0) > corrupted * 0.5:
+                    report.append("- 🔧 **Server Issues**: Majority of failures are HTTP 500 errors. Check server logs and health.")
+                if error_types.get('HTTP 502 - Bad Gateway', 0) > 0:
+                    report.append("- 🌐 **Gateway Issues**: HTTP 502 errors detected. Check proxy/gateway configuration.")
+                if error_types.get('Request Timeout', 0) > 0:
+                    report.append("- ⏱️  **Performance**: Timeout errors detected. Consider increasing server resources or timeout limits.")
+                if len(affected_files) < 10:
+                    report.append(f"- 📁 **Isolated Issue**: Only {len(affected_files)} files affected. Consider re-uploading these specific files.")
+            else:
+                report.append("- ✅ **All Clear**: No issues detected. All video URLs are accessible and valid.")
+            
+            report.append("")
             
             return "\n".join(report)
         

@@ -727,6 +727,11 @@ def main():
         run_prewarming = False
         logger.info(f"Using existing results file: {args.output}")
     
+    # Skip pre-warming if only validation is requested
+    if args.validate_videos and args.validate_results and not args.full_workflow:
+        run_prewarming = False
+        logger.info(f"Running validation only")
+    
     # Results data placeholder
     results_data = None
     
@@ -1179,7 +1184,9 @@ def main():
                 logger.warning(f"Load test completed with issues: {test_results.get('error', 'Unknown error')}")
                 # Don't return non-zero code here, as the pre-warming was successful
         
-        # Video validation section
+        # End of pre-warming block
+        
+        # Video validation section (outside of pre-warming block)
         if args.validate_videos:
             logger.info("========================================================")
             logger.info("VIDEO VALIDATION")
@@ -1195,7 +1202,7 @@ def main():
                     args.validate_results,
                     base_path=args.validate_directory or ""
                 )
-            
+        
             # Option 2: Validate directory
             elif args.validate_directory:
                 logger.info(f"Validating videos in directory: {args.validate_directory}")
@@ -1256,7 +1263,7 @@ def main():
                 if corrupted > 0:
                     logger.warning(f"Found {corrupted} corrupted video files")
                     # Note: Not returning error code as validation is informational
-        
+    
         return 0
         
     except Exception as e:
