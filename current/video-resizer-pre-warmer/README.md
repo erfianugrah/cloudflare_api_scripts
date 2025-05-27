@@ -14,15 +14,18 @@ This project consists of several integrated components:
 
 4. **Load Testing Tool**: Uses k6 to simulate real-world load against your video CDN using the pre-warmed videos with configurable traffic patterns.
 
-5. **Unified Framework (`main.py`)**: Provides a single entry point for all functionality, making it easy to run the complete workflow with a single command.
+5. **Video Validation Tool**: Validates video files for corruption and integrity issues using FFmpeg/FFprobe, with parallel processing support.
+
+6. **Unified Framework (`main.py`)**: Provides a single entry point for all functionality, making it easy to run the complete workflow with a single command.
 
 ## End-to-End Workflow
 
 The tool now provides a seamless end-to-end (e2e) workflow that includes:
 
 1. **Pre-warming**: Cache video transformations in Cloudflare KV to ensure optimal performance
-2. **Error Report Generation**: Analyze failures and produce detailed reports
-3. **Load Testing**: Run k6 tests against the pre-warmed videos, excluding any problematic files
+2. **Video Validation**: Check video files for corruption and integrity issues
+3. **Error Report Generation**: Analyze failures and produce detailed reports
+4. **Load Testing**: Run k6 tests against the pre-warmed videos, excluding any problematic files
 
 ### Running the Complete E2E Workflow
 
@@ -53,6 +56,7 @@ This will:
 2. Generate an error report after pre-warming completes
 3. Use that error report to exclude problematic files from load testing
 4. Run a k6 load test with the specified stages
+5. Optionally validate videos for corruption if `--validate-videos` is added
 
 ### Workflow Control Options
 
@@ -81,6 +85,7 @@ The project has been refactored into a modular architecture for improved maintai
   - `reporting.py`: Report generation and statistics
   - `comparison.py`: Comparison analysis between original and optimized files
   - `load_testing.py`: Integration with k6 for load testing
+  - `validation.py`: Video file corruption detection and integrity checking
 - `video-load-test-integrated-improved.js`: Enhanced k6 test script with better error handling
 
 ## Key Features
@@ -97,6 +102,16 @@ The project has been refactored into a modular architecture for improved maintai
 - **Size Reduction Analysis**: Quantifies compression ratios and space savings
 - **Advanced Error Handling**: Graceful shutdown, automatic retries, and comprehensive error reporting
 - **Detailed Statistical Analysis**: Generates correlation metrics between file size and performance
+
+### Video Validation Features
+- **Corruption Detection**: Uses FFmpeg to decode frames and detect corrupted video files
+- **Metadata Verification**: Validates video metadata using FFprobe
+- **Stream Validation**: Checks for presence and validity of video/audio streams
+- **Parallel Validation**: Supports concurrent validation with configurable workers
+- **Multiple Input Sources**: Validate from directories, pre-warming results, or file lists
+- **Detailed Reports**: Generates comprehensive reports in text, markdown, or JSON format
+- **Error Classification**: Categorizes validation failures by type
+- **Permission Handling**: Gracefully handles file access permission issues
 
 ### Video Optimization Features
 - **Re-encode Large Videos**: Automatically identifies and re-encodes large video files
@@ -208,6 +223,15 @@ Workflow Options:
   --use-error-report-for-load-test
                          Use error report for load testing to exclude problematic files
 
+Video Validation Options:
+  --validate-videos      Validate video files for corruption and integrity
+  --validate-directory   Directory containing videos to validate
+  --validate-results     Path to pre-warming results JSON file to validate videos from
+  --validation-workers   Number of concurrent validation workers (default: 10)
+  --validation-report    Output file for validation report (default: validation_report.md)
+  --validation-format    Format for validation report (text/markdown/json, default: markdown)
+  --video-pattern        File pattern to match for validation (default: *.mp4)
+
 Pre-warmer options:
   --remote NAME           Rclone remote name
   --bucket NAME           S3 bucket name
@@ -304,6 +328,40 @@ python3 main.py --full-workflow \
     --large-file-threshold-mib 20 \
     --connection-close-delay 15
 ```
+
+#### Complete Workflow with Video Validation
+
+Run the entire workflow including corruption detection:
+
+```bash
+python3 main.py --full-workflow \
+    --remote ikea-mcdc \
+    --bucket prod-ap-southeast-1-mcdc-media \
+    --directory videos \
+    --base-url https://mt.exp.ingka.com/s3/ \
+    --derivatives desktop,tablet,mobile \
+    --workers 3000 \
+    --url-format derivative \
+    --stage1-users 500 \
+    --stage1-duration 5m \
+    --stage2-users 1000 \
+    --stage2-duration 5m \
+    --stage3-users 2000 \
+    --stage3-duration 5m \
+    --skip-large-files \
+    --large-file-threshold-mib 256 \
+    --validate-videos \
+    --validation-workers 50 \
+    --validation-report corruption_check.md
+```
+
+This configuration:
+- Runs pre-warming with 3000 workers for high throughput
+- Validates all pre-warmed videos for corruption
+- Generates error reports for failed pre-warming
+- Runs load testing with high concurrency (500-2000 users)
+- Skips large files over 256 MiB
+- Uses 50 parallel workers for video validation
 
 #### Customized Workflow with Explicit Steps
 
@@ -441,6 +499,49 @@ python3 main.py \
     --global-timeout 300s \
     --use-head-requests \
     --skip-large-files
+```
+
+### Video Validation Examples
+
+#### Validate Videos from Pre-warming Results
+
+```bash
+# Check if pre-warmed video URLs are accessible and valid
+# This will validate the actual URLs that were pre-warmed, not local files
+python3 main.py --validate-videos \
+    --validate-results video_transform_results.json \
+    --validation-workers 20 \
+    --validation-format markdown
+```
+
+Note: For pre-warmed results, validation will:
+- Check if each pre-warmed URL is still accessible (HTTP 200)
+- Verify content type is video
+- For smaller files (<100MB), download and validate with FFprobe
+- For larger files, assume valid if headers are correct
+
+#### Validate All Videos in a Directory
+
+```bash
+# Scan and validate all videos in a directory
+python3 main.py --validate-videos \
+    --validate-directory /path/to/videos \
+    --video-pattern "*.mp4" \
+    --validation-workers 30 \
+    --validation-report video_health_check.md
+```
+
+#### Validate After Pre-warming
+
+```bash
+# Run pre-warming and then validate the results
+python3 main.py \
+    --remote r2 \
+    --bucket videos \
+    --base-url https://cdn.example.com/ \
+    --workers 1000 \
+    --validate-videos \
+    --validation-workers 20
 ```
 
 ### Video Optimization Examples

@@ -34,6 +34,7 @@ from modules import processing
 from modules import reporting
 from modules import comparison
 from modules import load_testing
+from modules import validation
 from modules.stats import StreamingStats, SizeReductionStats
 
 # Global state
@@ -838,6 +839,7 @@ def main():
             # Track progress for statistics
             total_objects = len(objects)
             processed = 0
+            results = {}  # Initialize results dictionary
             
             # Process files for pre-warming
             if not args.only_compare and not args.optimize_videos:
@@ -1176,6 +1178,84 @@ def main():
             else:
                 logger.warning(f"Load test completed with issues: {test_results.get('error', 'Unknown error')}")
                 # Don't return non-zero code here, as the pre-warming was successful
+        
+        # Video validation section
+        if args.validate_videos:
+            logger.info("========================================================")
+            logger.info("VIDEO VALIDATION")
+            logger.info("========================================================")
+            
+            validator = validation.VideoValidator(workers=args.validation_workers)
+            validation_results = None
+            
+            # Option 1: Validate from results file
+            if args.validate_results:
+                logger.info(f"Validating videos from results file: {args.validate_results}")
+                validation_results = validator.validate_from_results(
+                    args.validate_results,
+                    base_path=args.validate_directory or ""
+                )
+            
+            # Option 2: Validate directory
+            elif args.validate_directory:
+                logger.info(f"Validating videos in directory: {args.validate_directory}")
+                validation_results = validation.validate_directory(
+                    args.validate_directory,
+                    pattern=args.video_pattern,
+                    workers=args.validation_workers
+                )
+            
+            # Option 3: Validate from current pre-warming results
+            elif run_prewarming and 'results' in locals() and results:
+                logger.info("Validating videos from current pre-warming results")
+                # Save current results to temp file for validation
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
+                    json.dump({'results': results}, tmp)
+                    tmp_path = tmp.name
+                
+                validation_results = validator.validate_from_results(
+                    tmp_path,
+                    base_path=args.validate_directory or ""
+                )
+                
+                # Clean up temp file
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
+            
+            else:
+                logger.error("No source specified for validation. Use --validate-results, --validate-directory, or run pre-warming first.")
+                return 1
+            
+            # Generate and save validation report
+            if validation_results:
+                report = validator.generate_report(output_format=args.validation_format)
+                
+                # Save report to file
+                with open(args.validation_report, 'w') as f:
+                    f.write(report)
+                
+                logger.info(f"Validation report saved to: {args.validation_report}")
+                
+                # Log summary
+                total = validation_results['total_files']
+                valid = validation_results['valid_files']
+                corrupted = validation_results['corrupted_files']
+                missing = validation_results['missing_files']
+                
+                logger.info(f"\nValidation Summary:")
+                logger.info(f"  Total files checked: {total}")
+                if total > 0:
+                    logger.info(f"  Valid files: {valid} ({valid/total*100:.1f}%)")
+                    logger.info(f"  Corrupted files: {corrupted} ({corrupted/total*100:.1f}%)")
+                    logger.info(f"  Missing files: {missing} ({missing/total*100:.1f}%)")
+                
+                # Return non-zero if corruption detected
+                if corrupted > 0:
+                    logger.warning(f"Found {corrupted} corrupted video files")
+                    # Note: Not returning error code as validation is informational
         
         return 0
         

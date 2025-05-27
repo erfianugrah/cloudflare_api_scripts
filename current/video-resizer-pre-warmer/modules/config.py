@@ -146,6 +146,23 @@ def parse_arguments():
     parser.add_argument('--disable-hardware-acceleration', action='store_true',
                       help='Disable hardware acceleration even if available')
     
+    # Video validation options
+    validation_group = parser.add_argument_group('Video Validation Options')
+    validation_group.add_argument('--validate-videos', action='store_true',
+                                help='Validate video files for corruption and integrity')
+    validation_group.add_argument('--validate-directory', 
+                                help='Directory containing videos to validate')
+    validation_group.add_argument('--validate-results', 
+                                help='Path to pre-warming results JSON file to validate videos from')
+    validation_group.add_argument('--validation-workers', type=int, default=10,
+                                help='Number of concurrent validation workers')
+    validation_group.add_argument('--validation-report', default='validation_report.md',
+                                help='Output file for validation report')
+    validation_group.add_argument('--validation-format', choices=['text', 'markdown', 'json'],
+                                default='markdown', help='Format for validation report')
+    validation_group.add_argument('--video-pattern', default='*.mp4',
+                                help='File pattern to match for validation (default: *.mp4)')
+    
     # k6 load testing options
     parser.add_argument('--run-load-test', action='store_true',
                       help='Run k6 load test after pre-warming')
