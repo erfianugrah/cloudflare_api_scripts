@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script to run the modular video-resizer-pre-warmer
+# Script to run the modular media-resizer-pre-warmer
 
 # Ensure we're in the right directory
 cd "$(dirname "$0")"

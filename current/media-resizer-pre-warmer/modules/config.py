@@ -1,6 +1,6 @@
 """
-Configuration module for the video resizer pre-warmer.
-Handles command line argument parsing and configuration settings.
+Configuration module for the media resizer pre-warmer.
+Handles command line argument parsing and configuration settings for both images and videos.
 """
 import argparse
 import logging
@@ -34,7 +34,7 @@ def setup_logging(verbose=False):
     
     # Add a file handler for debug logs
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"video_transform_{timestamp}.log"
+    log_file = f"media_transform_{timestamp}.log"
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(log_level)
     file_handler.setFormatter(logging.Formatter(log_format))
@@ -50,7 +50,7 @@ def parse_arguments():
     Returns:
         args: Parsed command line arguments
     """
-    parser = argparse.ArgumentParser(description='Video Resizer Pre-Warmer and Optimizer')
+    parser = argparse.ArgumentParser(description='Media Resizer Pre-Warmer and Optimizer (Images and Videos)')
     
     # Top-level workflow options
     workflow_group = parser.add_argument_group('Workflow Options')
@@ -68,7 +68,11 @@ def parse_arguments():
     parser.add_argument('--base-url', help='Base URL to prepend to object paths')
     
     # Processing options
-    parser.add_argument('--derivatives', default='desktop,tablet,mobile', help='Comma-separated list of derivatives')
+    parser.add_argument('--media-type', choices=['video', 'image', 'auto'], default='auto',
+                      help='Type of media to process (auto detects by extension)')
+    parser.add_argument('--derivatives', default='desktop,tablet,mobile', help='Comma-separated list of derivatives (for videos)')
+    parser.add_argument('--image-variants', default='thumbnail,small,medium,large,webp', 
+                      help='Comma-separated list of image variants')
     parser.add_argument('--use-derivatives', action='store_true', help='Include derivatives in the URL path')
     parser.add_argument('--workers', type=int, default=5, help='Number of concurrent workers')
     parser.add_argument('--timeout', type=int, default=120, help='Request timeout in seconds')
@@ -80,9 +84,13 @@ def parse_arguments():
     parser.add_argument('--format', choices=['markdown', 'json'], help='Format for the error report (default is based on file extension)')
     
     # Output and reporting options
-    parser.add_argument('--output', default='video_transform_results.json', help='Output JSON file path')
+    parser.add_argument('--output', default='media_transform_results.json', help='Output JSON file path')
     parser.add_argument('--limit', type=int, default=0, help='Limit number of objects to process (0 = no limit)')
-    parser.add_argument('--extension', default='.mp4', help='File extension to filter by (e.g., .mp4)')
+    parser.add_argument('--extension', help='File extension to filter by (e.g., .mp4, .jpg, .png)')
+    parser.add_argument('--image-extensions', default='.jpg,.jpeg,.png,.webp,.gif,.bmp,.svg', 
+                      help='Comma-separated list of image extensions')
+    parser.add_argument('--video-extensions', default='.mp4,.webm,.mov,.avi,.mkv,.m4v', 
+                      help='Comma-separated list of video extensions')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
     
     # Comparison options

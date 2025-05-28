@@ -22,7 +22,7 @@ def list_objects(remote, bucket, directory, extension, limit=0, logger=None, use
         remote: The rclone remote name
         bucket: The S3 bucket name
         directory: The directory within the bucket
-        extension: File extension to filter by
+        extension: File extension to filter by (can be comma-separated for multiple extensions)
         limit: Maximum number of objects to return (0 for no limit)
         logger: Logger instance
         use_aws_cli: Whether to use AWS CLI instead of rclone
@@ -60,7 +60,16 @@ def list_objects(remote, bucket, directory, extension, limit=0, logger=None, use
                     size_bytes = int(parts[2])
                     file_path = ' '.join(parts[3:])  # Handle paths with spaces
                     
-                    if not extension or file_path.lower().endswith(extension.lower()):
+                    # Handle multiple extensions (comma-separated)
+                    if extension:
+                        extensions = [ext.strip().lower() for ext in extension.split(',')]
+                        if any(file_path.lower().endswith(ext) for ext in extensions):
+                            if get_sizes:
+                                all_files.append((file_path, size_bytes))
+                            else:
+                                all_files.append(file_path)
+                    else:
+                        # No extension filter
                         if get_sizes:
                             all_files.append((file_path, size_bytes))
                         else:
@@ -90,7 +99,16 @@ def list_objects(remote, bucket, directory, extension, limit=0, logger=None, use
                     size_bytes = int(parts[0])
                     file_path = parts[1]
                     
-                    if not extension or file_path.lower().endswith(extension.lower()):
+                    # Handle multiple extensions (comma-separated)
+                    if extension:
+                        extensions = [ext.strip().lower() for ext in extension.split(',')]
+                        if any(file_path.lower().endswith(ext) for ext in extensions):
+                            if get_sizes:
+                                all_files.append((file_path, size_bytes))
+                            else:
+                                all_files.append(file_path)
+                    else:
+                        # No extension filter
                         if get_sizes:
                             all_files.append((file_path, size_bytes))
                         else:

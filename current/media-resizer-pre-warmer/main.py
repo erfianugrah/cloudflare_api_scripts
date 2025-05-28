@@ -3,12 +3,13 @@ import sys
 # Add the current directory to the path to allow module imports
 sys.path.insert(0, '.')
 """
-Video Resizer Pre-Warmer and Optimizer
+Media Resizer Pre-Warmer and Optimizer
 
 This tool helps with:
-1. Pre-warming Cloudflare KV cache for video transformations
+1. Pre-warming Cloudflare KV cache for media transformations (images and videos)
 2. Analyzing file sizes in remote storage
 3. Optimizing large video files using FFmpeg for better performance
+4. Testing image resizer variants and transformations
 """
 
 import os
@@ -36,6 +37,7 @@ from modules import comparison
 from modules import load_testing
 from modules import validation
 from modules.stats import StreamingStats, SizeReductionStats
+from modules import image_processing
 
 # Global state
 running = True
@@ -193,6 +195,36 @@ def allocate_workers(args, file_sizes):
         'large': large_workers
     }
 
+def detect_media_type(file_path, args):
+    """
+    Detect whether a file is an image or video based on extension.
+    
+    Args:
+        file_path: Path to the file
+        args: Command line arguments
+        
+    Returns:
+        'image' or 'video'
+    """
+    if args.media_type != 'auto':
+        return args.media_type
+    
+    # Get extension
+    ext = os.path.splitext(file_path)[1].lower()
+    
+    # Check against image extensions
+    image_exts = [e.strip() for e in args.image_extensions.split(',')]
+    if ext in image_exts:
+        return 'image'
+    
+    # Check against video extensions
+    video_exts = [e.strip() for e in args.video_extensions.split(',')]
+    if ext in video_exts:
+        return 'video'
+    
+    # Default to video for backward compatibility
+    return 'video'
+
 def process_objects(objects, args, derivatives, stats):
     """
     Process a list of objects with derivatives using multiple threads.
@@ -275,38 +307,57 @@ def process_objects(objects, args, derivatives, stats):
                 if args.optimize_in_place and not args.base_url:
                     continue
                 
-                # If derivatives is empty, process the file without specifying derivatives
-                if not derivatives:
+                # Detect media type
+                media_type = detect_media_type(obj.path, args)
+                obj.media_type = media_type
+                
+                if media_type == 'image':
+                    # Process as image with variants
+                    image_variants = args.image_variants.split(',')
                     future = executor.submit(
-                        processing.process_object_without_derivatives,
+                        image_processing.process_image_object,
                         obj,
                         args.base_url,
-                        args.bucket,
-                        args.directory,
+                        image_variants,
                         args.timeout,
                         args.retry,
                         args.connection_close_delay,
                         logger,
-                        args.small_file_threshold,
-                        args.medium_file_threshold,
                         args.use_head_for_size
                     )
                 else:
-                    future = executor.submit(
-                        processing.process_object,
-                        obj,
-                        args.base_url,
-                        args.bucket,
-                        args.directory,
-                        derivatives,
-                        args.timeout,
-                        args.retry,
-                        args.connection_close_delay,
-                        logger,
-                        args.small_file_threshold,
-                        args.medium_file_threshold,
-                        args.use_head_for_size
-                    )
+                    # Process as video with derivatives
+                    if not derivatives:
+                        future = executor.submit(
+                            processing.process_object_without_derivatives,
+                            obj,
+                            args.base_url,
+                            args.bucket,
+                            args.directory,
+                            args.timeout,
+                            args.retry,
+                            args.connection_close_delay,
+                            logger,
+                            args.small_file_threshold,
+                            args.medium_file_threshold,
+                            args.use_head_for_size
+                        )
+                    else:
+                        future = executor.submit(
+                            processing.process_object,
+                            obj,
+                            args.base_url,
+                            args.bucket,
+                            args.directory,
+                            derivatives,
+                            args.timeout,
+                            args.retry,
+                            args.connection_close_delay,
+                            logger,
+                            args.small_file_threshold,
+                            args.medium_file_threshold,
+                            args.use_head_for_size
+                        )
                 
                 future_to_obj[future] = obj
             
@@ -331,7 +382,9 @@ def process_objects(objects, args, derivatives, stats):
                             'path': obj.path,
                             'size_bytes': obj.size_bytes,
                             'size_category': obj.size_category,
-                            'derivatives': obj_results,
+                            'media_type': getattr(obj, 'media_type', 'unknown'),
+                            'derivatives': obj_results if getattr(obj, 'media_type', 'unknown') == 'video' else None,
+                            'variants': obj_results if getattr(obj, 'media_type', 'unknown') == 'image' else None,
                             'processing_time': obj.processing_duration
                         }
                     
@@ -340,7 +393,12 @@ def process_objects(objects, args, derivatives, stats):
                         processed_objects[obj.path] = obj.to_dict()
                     
                     # Update stats
-                    processing.update_processing_stats(stats, obj, obj_results, derivatives)
+                    if getattr(obj, 'media_type', 'video') == 'image':
+                        # For images, use variants instead of derivatives
+                        image_variants = args.image_variants.split(',')
+                        processing.update_processing_stats(stats, obj, obj_results, image_variants)
+                    else:
+                        processing.update_processing_stats(stats, obj, obj_results, derivatives)
                     
                 except Exception as e:
                     logger.error(f"Error processing {obj.path}: {str(e)}")
@@ -782,12 +840,26 @@ def main():
             # List files from remote storage with sizes
             logger.info(f"Listing files from {args.remote}:{args.bucket}/{args.directory}")
             
+            # Determine which extensions to use
+            if args.extension:
+                # Use explicitly provided extension(s)
+                extensions_to_use = args.extension
+            elif args.media_type == 'image':
+                # Use image extensions only
+                extensions_to_use = args.image_extensions
+            elif args.media_type == 'video':
+                # Use video extensions only
+                extensions_to_use = args.video_extensions
+            else:
+                # Auto mode - use both image and video extensions
+                extensions_to_use = f"{args.image_extensions},{args.video_extensions}"
+            
             # Use list_objects instead of list_large_files to get all files without size filtering
             file_list = storage.list_objects(
                 args.remote,
                 args.bucket,
                 args.directory,
-                args.extension,
+                extensions_to_use,
                 args.limit,
                 logger,
                 args.use_aws_cli,

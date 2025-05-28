@@ -1,18 +1,20 @@
-# Video Transformation, Analysis and Optimization Toolkit
+# Media Transformation, Analysis and Optimization Toolkit
 
-A comprehensive toolkit for processing, analyzing, optimizing, and load testing video assets across different resolutions with advanced size-based optimization and performance metrics.
+A comprehensive toolkit for processing, analyzing, optimizing, and load testing media assets (images and videos) across different resolutions and variants with advanced size-based optimization and performance metrics.
 
 ## Overview
 
 This project consists of several integrated components:
 
-1. **Video Pre-Warmer**: Makes HTTP requests to transform videos into different derivatives (desktop, tablet, mobile), capturing size and metadata information.
+1. **Media Pre-Warmer**: Makes HTTP requests to transform media assets:
+   - **Videos**: Different derivatives (desktop, tablet, mobile)
+   - **Images**: Multiple variants including sizes, formats, effects, and Akamai-compatible transformations
 
 2. **Video Optimizer**: Re-encodes large video files using FFmpeg with support for multiple codecs and quality profiles to reduce file size while maintaining acceptable quality.
 
 3. **File Analysis Tool**: Generates detailed reports of file sizes, distribution analysis, and identifies large files for optimization.
 
-4. **Load Testing Tool**: Uses k6 to simulate real-world load against your video CDN using the pre-warmed videos with configurable traffic patterns.
+4. **Load Testing Tool**: Uses k6 to simulate real-world load against your media CDN using the pre-warmed assets with configurable traffic patterns.
 
 5. **Video Validation Tool**: Validates video files for corruption and integrity issues using FFmpeg/FFprobe, with parallel processing support.
 
@@ -90,8 +92,17 @@ The project has been refactored into a modular architecture for improved maintai
 
 ## Key Features
 
-### Video Transformation Features
-- **Parallel Processing**: Processes multiple derivatives (desktop, tablet, mobile) independently with maximum efficiency
+### Media Transformation Features
+- **Parallel Processing**: Processes multiple derivatives/variants independently with maximum efficiency
+- **Video Support**: Desktop, tablet, mobile derivatives with custom dimensions
+- **Image Support**: 60+ predefined variants including:
+  - Size variants (thumbnail, small, medium, large, xlarge)
+  - Format conversions (WebP, AVIF, JPEG, PNG)
+  - Responsive variants (mobile, tablet, desktop optimized)
+  - Social media presets (OG images, Twitter cards, Instagram)
+  - Akamai Image Manager compatible syntax
+  - Path-based and query parameter transformations
+  - Smart cropping and effects (blur, grayscale, sharpen)
 - **Size-Based Optimization**: Dynamically allocates resources based on file sizes for optimal throughput
 - **Thread-Safe Design**: Ensures stability with high worker counts (1000+ concurrent workers)
 - **Smart Queue Management**: Prevents large files from blocking smaller ones
@@ -232,15 +243,21 @@ Video Validation Options:
   --validation-format    Format for validation report (text/markdown/json, default: markdown)
   --video-pattern        File pattern to match for validation (default: *.mp4)
 
+Media Type Options:
+  --media-type TYPE       Type of media to process: video, image, or auto (default: auto)
+  --image-extensions      Comma-separated list of image extensions (default: .jpg,.jpeg,.png,.webp,.gif,.bmp,.svg)
+  --video-extensions      Comma-separated list of video extensions (default: .mp4,.webm,.mov,.avi,.mkv,.m4v)
+
 Pre-warmer options:
   --remote NAME           Rclone remote name
   --bucket NAME           S3 bucket name
   --directory PATH        Directory path within bucket
-  --base-url URL          Base URL for video assets
-  --derivatives LIST      Comma-separated list of derivatives
+  --base-url URL          Base URL for media assets
+  --derivatives LIST      Comma-separated list of derivatives (for videos)
+  --image-variants LIST   Comma-separated list of image variants (default: thumbnail,small,medium,large,webp)
   --workers NUM           Number of concurrent workers
   --timeout SECONDS       Request timeout in seconds
-  --extension EXT         File extension to filter by
+  --extension EXT         File extension to filter by (overrides media type detection)
   --limit NUM             Limit number of objects to process
   --list-files            List all files with their sizes sorted by size
   --size-threshold NUM    Size threshold in MiB for file size reporting (default: 256 MiB)
@@ -291,6 +308,45 @@ k6 load test options:
 
 ## Usage Examples
 
+### Image Processing Examples
+
+#### Pre-warm Images with Common Variants
+
+```bash
+python3 main.py \
+    --remote r2 \
+    --bucket images \
+    --base-url https://cdn.example.com/ \
+    --media-type image \
+    --image-variants thumbnail,small,medium,large,webp,avif \
+    --workers 50
+```
+
+#### Pre-warm Images with Akamai-Compatible Variants
+
+```bash
+python3 main.py \
+    --remote r2 \
+    --bucket images \
+    --base-url https://cdn.example.com/ \
+    --media-type image \
+    --image-variants akamai_resize_small,akamai_resize_medium,akamai_resize_large,akamai_quality \
+    --workers 100
+```
+
+#### Pre-warm Both Images and Videos (Auto Mode)
+
+```bash
+python3 main.py \
+    --remote r2 \
+    --bucket media \
+    --base-url https://cdn.example.com/ \
+    --media-type auto \
+    --derivatives desktop,tablet,mobile \
+    --image-variants thumbnail,medium,large,webp \
+    --workers 100
+```
+
 ### End-to-End Workflow Examples
 
 #### Complete Workflow with Default Settings
@@ -302,7 +358,7 @@ python3 main.py --full-workflow \
     --remote r2 \
     --bucket videos \
     --directory videos \
-    --base-url https://cdn.example.com/videos/
+    --base-url https://cdn.example.com/
 ```
 
 #### Complete Workflow with Custom Configuration
@@ -979,6 +1035,73 @@ This toolkit has been optimized for large-scale operations:
 - Handles millions of files without memory issues
 - Supports 2000+ concurrent workers efficiently
 - Processes 1M statistics values in ~0.2 seconds
+
+## Available Image Variants
+
+The tool includes 60+ predefined image variants optimized for different use cases:
+
+### Size Variants
+- `thumbnail`: 150x150 (cover fit)
+- `small`: 400px width
+- `medium`: 800px width
+- `large`: 1200px width
+- `xlarge`: 1920px width
+- `xxlarge`: 2560px width
+
+### Mobile-Optimized
+- `mobile_small`: 320px width
+- `mobile_medium`: 640px width
+- `mobile_large`: 960px width
+
+### Aspect Ratios
+- `square`: 600x600 (1:1)
+- `landscape`: 800x450 (16:9)
+- `portrait`: 450x800 (9:16)
+- `banner`: 1200x300 (4:1)
+- `wide`: 1600x400 (4:1)
+
+### Format Conversions
+- `webp`: WebP format
+- `avif`: AVIF format
+- `jpeg`: JPEG format (85 quality)
+- `png`: PNG format
+
+### Social Media
+- `og_image`: 1200x630 (Open Graph)
+- `twitter_card`: 800x418 (Twitter)
+- `instagram_square`: 1080x1080
+- `instagram_portrait`: 1080x1350
+- `instagram_landscape`: 1080x608
+- `facebook_cover`: 851x315
+- `linkedin_post`: 1200x627
+
+### Akamai Image Manager Compatible
+- `akamai_resize_small`: im=resize=width:400,height:300,mode:fit
+- `akamai_resize_medium`: im=resize=width:800,height:600,mode:fit
+- `akamai_resize_large`: im=resize=width:1200,height:900,mode:fit
+- `akamai_crop`: im=resize=width:800,height:600,mode:crop
+- `akamai_quality`: im=quality=80
+- `akamai_format`: im=format=webp
+
+### Path-Based Parameters
+- `path_small`: /_width=400/
+- `path_medium`: /_width=800/
+- `path_webp`: /_format=webp/
+- `path_responsive`: /_width=800/_format=webp/
+
+### Effects
+- `blurred`: blur=10
+- `blurred_heavy`: blur=20
+- `grayscale`: grayscale=true
+- `sharpen`: sharpen=2
+
+### Smart Cropping
+- `smart_square`: 600x600 with smart crop
+- `smart_banner`: 1200x300 with smart crop
+- `smart_portrait`: 400x600 with smart crop
+- `smart_landscape`: 800x600 with smart crop
+
+To see all available variants, check the `IMAGE_VARIANTS` dictionary in `modules/image_processing.py`.
 
 ## License
 
