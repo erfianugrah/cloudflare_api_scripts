@@ -71,7 +71,7 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 	
 	// Get logger from context
 	logger, ok := ctx.Value("logger").(*zap.Logger)
-	if !ok {
+	if !ok || logger == nil {
 		return fmt.Errorf("logger not found in context")
 	}
 
@@ -286,6 +286,7 @@ func listFilesForAnalysis(ctx context.Context, storageClient storage.Storage, cf
 		zap.String("directory", cfg.Directory))
 
 	objects, err := storageClient.ListObjects(ctx, storage.ListRequest{
+		Bucket:    cfg.Bucket,
 		Directory: cfg.Directory,
 		GetSizes:  true,
 	})
@@ -502,14 +503,54 @@ func generateErrorReport(ctx context.Context, cfg *AnalysisConfig, logger *zap.L
 		zap.String("results_file", cfg.ResultsFile),
 		zap.String("output", cfg.ErrorReportOutput))
 
-	// Simple error report generation - read results and write summary
+	// Read and parse results file
 	data, err := os.ReadFile(cfg.ResultsFile)
 	if err != nil {
 		return fmt.Errorf("failed to read results file: %w", err)
 	}
 
-	// Write the error report (simplified implementation)
-	return os.WriteFile(cfg.ErrorReportOutput, data, 0644)
+	var results WorkflowResults
+	if err := json.Unmarshal(data, &results); err != nil {
+		return fmt.Errorf("failed to parse results file: %w", err)
+	}
+
+	// Extract and analyze errors
+	errorAnalysis, err := extractAndAnalyzeErrors(results, logger)
+	if err != nil {
+		return fmt.Errorf("failed to analyze errors: %w", err)
+	}
+
+	// Generate report
+	var reportContent []byte
+	format := cfg.Format
+	if format == "" {
+		// Determine format from output file extension
+		if strings.HasSuffix(cfg.ErrorReportOutput, ".md") {
+			format = "markdown"
+		} else {
+			format = "json"
+		}
+	}
+
+	if format == "markdown" {
+		reportContent = []byte(generateErrorMarkdownReport(errorAnalysis))
+	} else {
+		reportContent, err = json.MarshalIndent(errorAnalysis, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal error analysis: %w", err)
+		}
+	}
+
+	// Write the error report
+	if err := os.WriteFile(cfg.ErrorReportOutput, reportContent, 0644); err != nil {
+		return fmt.Errorf("failed to write error report: %w", err)
+	}
+
+	logger.Info("Error report generated successfully", 
+		zap.String("file", cfg.ErrorReportOutput),
+		zap.Int("total_errors", errorAnalysis.Summary.TotalErrors))
+
+	return nil
 }
 
 // runComparison runs comparison with KV data
@@ -530,4 +571,491 @@ func runComparison(ctx context.Context, cfg *AnalysisConfig, logger *zap.Logger)
 
 	// Write comparison results (simplified implementation)
 	return os.WriteFile(cfg.ComparisonOutput, data, 0644)
+}
+
+// Types for error analysis
+
+// WorkflowResults represents the structure of the results file
+type WorkflowResults struct {
+	WorkflowType   int              `json:"workflow_type"`
+	Success        bool             `json:"success"`
+	StartTime      time.Time        `json:"start_time"`
+	EndTime        time.Time        `json:"end_time"`
+	Duration       int64            `json:"duration"`
+	PrewarmResults []PrewarmResult  `json:"prewarm_results"`
+	Statistics     *StatsSummary    `json:"statistics,omitempty"`
+	WorkerStats    *WorkerStats     `json:"worker_stats,omitempty"`
+}
+
+// PrewarmResult represents a single file processing result
+type PrewarmResult struct {
+	Path           string                     `json:"path"`
+	SizeBytes      int64                      `json:"size_bytes"`
+	SizeCategory   string                     `json:"size_category"`
+	MediaType      string                     `json:"media_type"`
+	ProcessingTime int64                      `json:"processing_time"`
+	Success        bool                       `json:"success"`
+	Results        *VideoProcessResult        `json:"results"`
+	Error          string                     `json:"error,omitempty"`
+}
+
+// VideoProcessResult represents video processing results
+type VideoProcessResult struct {
+	Path           string                          `json:"path"`
+	SizeBytes      int64                           `json:"size_bytes"`
+	SizeCategory   string                          `json:"size_category"`
+	MediaType      string                          `json:"media_type"`
+	ProcessingTime int64                           `json:"processing_time"`
+	Success        bool                            `json:"success"`
+	Results        map[string]*DerivativeResult    `json:"results"`
+	Error          string                          `json:"error,omitempty"`
+}
+
+// DerivativeResult represents the result of processing a single derivative
+type DerivativeResult struct {
+	DerivativeName         string  `json:"derivative_name"`
+	URL                    string  `json:"url"`
+	Status                 string  `json:"status"`
+	StatusCode             int     `json:"status_code,omitempty"`
+	TimeToFirstByte        int64   `json:"time_to_first_byte,omitempty"`
+	TotalTime              int64   `json:"total_time"`
+	ResponseSize           int64   `json:"response_size_bytes,omitempty"`
+	ContentType            string  `json:"content_type,omitempty"`
+	Method                 string  `json:"method,omitempty"`
+	Retries                int     `json:"retries,omitempty"`
+	Error                  string  `json:"error,omitempty"`
+	ErrorType              string  `json:"error_type,omitempty"`
+	OriginalSize           int64   `json:"original_size_bytes,omitempty"`
+	SizeReductionBytes     int64   `json:"size_reduction_bytes,omitempty"`
+	SizeReductionPercent   float64 `json:"size_reduction_percent,omitempty"`
+}
+
+// StatsSummary represents statistics summary
+type StatsSummary struct {
+	TotalRequests    int64 `json:"total_requests"`
+	SuccessfulCount  int64 `json:"successful_count"`
+	ErrorCount       int64 `json:"error_count"`
+}
+
+// WorkerStats represents worker statistics  
+type WorkerStats struct {
+	TasksSubmitted int64 `json:"tasks_submitted"`
+	TasksCompleted int64 `json:"tasks_completed"`
+	TasksFailed    int64 `json:"tasks_failed"`
+}
+
+// ErrorAnalysis represents comprehensive error analysis
+type ErrorAnalysis struct {
+	Timestamp         string                      `json:"timestamp"`
+	OriginalTimestamp string                      `json:"original_timestamp"`
+	Summary           ErrorSummary                `json:"summary"`
+	ErrorTypes        map[string]int              `json:"error_types"`
+	StatusCodes       map[string]int              `json:"status_codes"`
+	SizeCategories    map[string]int              `json:"size_categories"`
+	Derivatives       map[string]int              `json:"derivatives"`
+	CommonMessages    map[string]int              `json:"common_error_messages"`
+	SizeStats         SizeStatistics              `json:"size_statistics"`
+	DetailedErrors    []DetailedError             `json:"detailed_errors"`
+	Recommendations   []string                    `json:"troubleshooting_recommendations"`
+	ErrorExamples     map[string]ErrorExample     `json:"error_examples"`
+}
+
+// ErrorSummary represents error summary statistics
+type ErrorSummary struct {
+	TotalErrors     int     `json:"total_errors"`
+	TotalProcessed  int     `json:"total_processed"`
+	ErrorRate       float64 `json:"error_rate"`
+}
+
+// SizeStatistics represents size-based error statistics
+type SizeStatistics struct {
+	ErrorFiles   *FileSizeStats `json:"error_files,omitempty"`
+	SuccessFiles *FileSizeStats `json:"success_files,omitempty"`
+}
+
+// FileSizeStats represents file size statistics
+type FileSizeStats struct {
+	Count      int   `json:"count"`
+	MinSize    int64 `json:"min_size"`
+	MaxSize    int64 `json:"max_size"`
+	AvgSize    int64 `json:"avg_size"`
+	MedianSize int64 `json:"median_size"`
+	TotalSize  int64 `json:"total_size"`
+}
+
+// DetailedError represents a single error with full details
+type DetailedError struct {
+	File          string `json:"file"`
+	Derivative    string `json:"derivative"`
+	StatusCode    int    `json:"status_code"`
+	ErrorType     string `json:"error_type"`
+	URL           string `json:"url"`
+	ErrorMessage  string `json:"error_msg"`
+	SizeBytes     int64  `json:"size_bytes"`
+	SizeFormatted string `json:"size_formatted"`
+	SizeCategory  string `json:"size_category"`
+}
+
+// ErrorExample represents an example of an error type
+type ErrorExample struct {
+	File          string `json:"file"`
+	URL           string `json:"url"`
+	StatusCode    int    `json:"status_code"`
+	ErrorMessage  string `json:"error_msg"`
+	SizeBytes     int64  `json:"size_bytes"`
+	SizeFormatted string `json:"size_formatted"`
+}
+
+// extractAndAnalyzeErrors extracts errors from results and performs analysis
+func extractAndAnalyzeErrors(results WorkflowResults, logger *zap.Logger) (*ErrorAnalysis, error) {
+	logger.Info("Extracting and analyzing errors from results")
+
+	analysis := &ErrorAnalysis{
+		Timestamp:         time.Now().Format(time.RFC3339),
+		OriginalTimestamp: results.StartTime.Format(time.RFC3339),
+		ErrorTypes:        make(map[string]int),
+		StatusCodes:       make(map[string]int),
+		SizeCategories:    make(map[string]int),
+		Derivatives:       make(map[string]int),
+		CommonMessages:    make(map[string]int),
+		DetailedErrors:    make([]DetailedError, 0),
+		Recommendations:   make([]string, 0),
+		ErrorExamples:     make(map[string]ErrorExample),
+	}
+
+	var allErrors []DetailedError
+	var errorSizes, successSizes []int64
+	errorTypeExamples := make(map[string]DetailedError)
+
+	// Extract errors from prewarm results
+	for _, result := range results.PrewarmResults {
+		if result.Results != nil && result.Results.Results != nil {
+			for derivativeName, derivative := range result.Results.Results {
+				if derivative.Status != "success" && derivative.Status != "" {
+					// This is an error
+					detailedError := DetailedError{
+						File:          result.Path,
+						Derivative:    derivativeName,
+						StatusCode:    derivative.StatusCode,
+						ErrorType:     derivative.ErrorType,
+						URL:           derivative.URL,
+						ErrorMessage:  derivative.Error,
+						SizeBytes:     result.SizeBytes,
+						SizeFormatted: utils.FormatBytes(result.SizeBytes),
+						SizeCategory:  result.SizeCategory,
+					}
+
+					allErrors = append(allErrors, detailedError)
+					errorSizes = append(errorSizes, result.SizeBytes)
+
+					// Count by various categories
+					analysis.ErrorTypes[derivative.ErrorType]++
+					analysis.StatusCodes[fmt.Sprintf("%d", derivative.StatusCode)]++
+					analysis.SizeCategories[result.SizeCategory]++
+					analysis.Derivatives[derivativeName]++
+					
+					if derivative.Error != "" {
+						analysis.CommonMessages[derivative.Error]++
+					}
+
+					// Store first example of each error type
+					if _, exists := errorTypeExamples[derivative.ErrorType]; !exists {
+						errorTypeExamples[derivative.ErrorType] = detailedError
+					}
+				}
+			}
+		}
+
+		// Track successful file sizes for comparison
+		if result.Success {
+			successSizes = append(successSizes, result.SizeBytes)
+		}
+	}
+
+	// Calculate summary statistics
+	totalProcessed := len(results.PrewarmResults)
+	totalErrors := len(allErrors)
+	errorRate := 0.0
+	if totalProcessed > 0 {
+		errorRate = float64(totalErrors) / float64(totalProcessed) * 100
+	}
+
+	analysis.Summary = ErrorSummary{
+		TotalErrors:    totalErrors,
+		TotalProcessed: totalProcessed,
+		ErrorRate:      errorRate,
+	}
+
+	// Calculate size statistics
+	analysis.SizeStats = calculateSizeStatistics(errorSizes, successSizes)
+
+	// Store detailed errors (limit to first 100 for performance)
+	maxErrors := 100
+	if len(allErrors) > maxErrors {
+		analysis.DetailedErrors = allErrors[:maxErrors]
+	} else {
+		analysis.DetailedErrors = allErrors
+	}
+
+	// Create error examples
+	for errorType, example := range errorTypeExamples {
+		analysis.ErrorExamples[errorType] = ErrorExample{
+			File:          example.File,
+			URL:           example.URL,
+			StatusCode:    example.StatusCode,
+			ErrorMessage:  example.ErrorMessage,
+			SizeBytes:     example.SizeBytes,
+			SizeFormatted: example.SizeFormatted,
+		}
+	}
+
+	// Generate troubleshooting recommendations
+	analysis.Recommendations = generateRecommendations(analysis)
+
+	logger.Info("Error analysis completed",
+		zap.Int("total_errors", totalErrors),
+		zap.Int("error_types", len(analysis.ErrorTypes)),
+		zap.Float64("error_rate", errorRate))
+
+	return analysis, nil
+}
+
+// calculateSizeStatistics calculates size-based statistics
+func calculateSizeStatistics(errorSizes, successSizes []int64) SizeStatistics {
+	stats := SizeStatistics{}
+
+	if len(errorSizes) > 0 {
+		stats.ErrorFiles = &FileSizeStats{
+			Count:      len(errorSizes),
+			MinSize:    minInt64(errorSizes),
+			MaxSize:    maxInt64(errorSizes),
+			AvgSize:    avgInt64(errorSizes),
+			MedianSize: medianInt64(errorSizes),
+			TotalSize:  sumInt64(errorSizes),
+		}
+	}
+
+	if len(successSizes) > 0 {
+		stats.SuccessFiles = &FileSizeStats{
+			Count:      len(successSizes),
+			MinSize:    minInt64(successSizes),
+			MaxSize:    maxInt64(successSizes),
+			AvgSize:    avgInt64(successSizes),
+			MedianSize: medianInt64(successSizes),
+			TotalSize:  sumInt64(successSizes),
+		}
+	}
+
+	return stats
+}
+
+// generateRecommendations generates troubleshooting recommendations based on error patterns
+func generateRecommendations(analysis *ErrorAnalysis) []string {
+	var recommendations []string
+
+	// Check for timeout errors
+	if analysis.ErrorTypes["request_error"] > 0 {
+		recommendations = append(recommendations, 
+			"Request Errors: Consider increasing timeout settings or reducing worker count to avoid overwhelming the server")
+	}
+
+	// Check for 500 errors
+	if analysis.StatusCodes["500"] > 0 {
+		recommendations = append(recommendations, 
+			"Server Errors (500): These indicate issues on the server side. Consider retrying failed files or contacting the API provider")
+	}
+
+	// Check for 404 errors
+	if analysis.StatusCodes["404"] > 0 {
+		recommendations = append(recommendations, 
+			"Not Found Errors (404): Verify file paths and base URL configuration are correct")
+	}
+
+	// Check for high error rate
+	if analysis.Summary.ErrorRate > 50 {
+		recommendations = append(recommendations, 
+			"High Error Rate: Consider reducing concurrency, checking network connectivity, or validating input files")
+	}
+
+	// Check for large file errors
+	if analysis.SizeCategories["large"] > 0 {
+		recommendations = append(recommendations, 
+			"Large File Errors: Consider pre-processing large files or increasing timeout settings for large file processing")
+	}
+
+	return recommendations
+}
+
+// generateErrorMarkdownReport generates a markdown format error report
+func generateErrorMarkdownReport(analysis *ErrorAnalysis) string {
+	var sb strings.Builder
+
+	sb.WriteString("# Video Transformation Error Report\n\n")
+	sb.WriteString(fmt.Sprintf("**Generated:** %s\n", analysis.Timestamp))
+	sb.WriteString(fmt.Sprintf("**Original Data:** %s\n\n", analysis.OriginalTimestamp))
+
+	// Summary
+	sb.WriteString("## Summary\n\n")
+	sb.WriteString(fmt.Sprintf("- **Total errors:** %d\n", analysis.Summary.TotalErrors))
+	sb.WriteString(fmt.Sprintf("- **Total processed:** %d\n", analysis.Summary.TotalProcessed))
+	sb.WriteString(fmt.Sprintf("- **Error rate:** %.2f%%\n\n", analysis.Summary.ErrorRate))
+
+	// Error Types
+	if len(analysis.ErrorTypes) > 0 {
+		sb.WriteString("## Error Types\n\n")
+		sb.WriteString("| Error Type | Count | Percentage |\n")
+		sb.WriteString("|------------|-------|------------|\n")
+		for errorType, count := range analysis.ErrorTypes {
+			percentage := float64(count) / float64(analysis.Summary.TotalErrors) * 100
+			sb.WriteString(fmt.Sprintf("| %s | %d | %.1f%% |\n", errorType, count, percentage))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Status Codes
+	if len(analysis.StatusCodes) > 0 {
+		sb.WriteString("## Status Codes\n\n")
+		sb.WriteString("| Status Code | Count | Percentage |\n")
+		sb.WriteString("|-------------|-------|------------|\n")
+		for statusCode, count := range analysis.StatusCodes {
+			percentage := float64(count) / float64(analysis.Summary.TotalErrors) * 100
+			sb.WriteString(fmt.Sprintf("| %s | %d | %.1f%% |\n", statusCode, count, percentage))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Size Categories
+	if len(analysis.SizeCategories) > 0 {
+		sb.WriteString("## Errors by Size Category\n\n")
+		sb.WriteString("| Size Category | Count | Percentage |\n")
+		sb.WriteString("|---------------|-------|------------|\n")
+		for sizeCategory, count := range analysis.SizeCategories {
+			percentage := float64(count) / float64(analysis.Summary.TotalErrors) * 100
+			sb.WriteString(fmt.Sprintf("| %s | %d | %.1f%% |\n", sizeCategory, count, percentage))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Derivatives
+	if len(analysis.Derivatives) > 0 {
+		sb.WriteString("## Errors by Derivative\n\n")
+		sb.WriteString("| Derivative | Count | Percentage |\n")
+		sb.WriteString("|------------|-------|------------|\n")
+		for derivative, count := range analysis.Derivatives {
+			percentage := float64(count) / float64(analysis.Summary.TotalErrors) * 100
+			sb.WriteString(fmt.Sprintf("| %s | %d | %.1f%% |\n", derivative, count, percentage))
+		}
+		sb.WriteString("\n")
+	}
+
+	// File Size Statistics
+	if analysis.SizeStats.ErrorFiles != nil || analysis.SizeStats.SuccessFiles != nil {
+		sb.WriteString("## File Size Statistics\n\n")
+		
+		if analysis.SizeStats.ErrorFiles != nil {
+			stats := analysis.SizeStats.ErrorFiles
+			sb.WriteString("### Error Files\n")
+			sb.WriteString(fmt.Sprintf("- Count: %d\n", stats.Count))
+			sb.WriteString(fmt.Sprintf("- Min size: %s\n", utils.FormatBytes(stats.MinSize)))
+			sb.WriteString(fmt.Sprintf("- Max size: %s\n", utils.FormatBytes(stats.MaxSize)))
+			sb.WriteString(fmt.Sprintf("- Average size: %s\n", utils.FormatBytes(stats.AvgSize)))
+			sb.WriteString(fmt.Sprintf("- Total size: %s\n\n", utils.FormatBytes(stats.TotalSize)))
+		}
+
+		if analysis.SizeStats.SuccessFiles != nil {
+			stats := analysis.SizeStats.SuccessFiles
+			sb.WriteString("### Success Files\n")
+			sb.WriteString(fmt.Sprintf("- Count: %d\n", stats.Count))
+			sb.WriteString(fmt.Sprintf("- Min size: %s\n", utils.FormatBytes(stats.MinSize)))
+			sb.WriteString(fmt.Sprintf("- Max size: %s\n", utils.FormatBytes(stats.MaxSize)))
+			sb.WriteString(fmt.Sprintf("- Average size: %s\n", utils.FormatBytes(stats.AvgSize)))
+			sb.WriteString(fmt.Sprintf("- Total size: %s\n\n", utils.FormatBytes(stats.TotalSize)))
+		}
+	}
+
+	// Troubleshooting Recommendations
+	if len(analysis.Recommendations) > 0 {
+		sb.WriteString("## Troubleshooting Recommendations\n\n")
+		for _, rec := range analysis.Recommendations {
+			sb.WriteString(fmt.Sprintf("- %s\n", rec))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Error Examples
+	if len(analysis.ErrorExamples) > 0 {
+		sb.WriteString("## Error Examples\n\n")
+		for errorType, example := range analysis.ErrorExamples {
+			sb.WriteString(fmt.Sprintf("### %s\n", errorType))
+			sb.WriteString(fmt.Sprintf("- **File:** %s\n", example.File))
+			sb.WriteString(fmt.Sprintf("- **URL:** %s\n", example.URL))
+			sb.WriteString(fmt.Sprintf("- **Status Code:** %d\n", example.StatusCode))
+			sb.WriteString(fmt.Sprintf("- **File Size:** %s\n", example.SizeFormatted))
+			sb.WriteString(fmt.Sprintf("- **Error Message:** %s\n\n", example.ErrorMessage))
+		}
+	}
+
+	// Detailed Error List (first 20)
+	if len(analysis.DetailedErrors) > 0 {
+		sb.WriteString("## Detailed Error List\n\n")
+		sb.WriteString("| File | Derivative | Status | Error Type | Size | Category |\n")
+		sb.WriteString("|------|------------|--------|------------|------|----------|\n")
+		
+		maxShow := 20
+		if len(analysis.DetailedErrors) < maxShow {
+			maxShow = len(analysis.DetailedErrors)
+		}
+		
+		for i := 0; i < maxShow; i++ {
+			err := analysis.DetailedErrors[i]
+			sb.WriteString(fmt.Sprintf("| %s | %s | %d | %s | %s | %s |\n",
+				err.File, err.Derivative, err.StatusCode, err.ErrorType, 
+				err.SizeFormatted, err.SizeCategory))
+		}
+		
+		if len(analysis.DetailedErrors) > maxShow {
+			sb.WriteString(fmt.Sprintf("\n*Note: Showing only the first %d of %d errors*\n", 
+				maxShow, len(analysis.DetailedErrors)))
+		}
+	}
+
+	return sb.String()
+}
+
+// Helper functions for statistics calculations
+func minInt64(vals []int64) int64 {
+	if len(vals) == 0 { return 0 }
+	min := vals[0]
+	for _, v := range vals[1:] {
+		if v < min { min = v }
+	}
+	return min
+}
+
+func maxInt64(vals []int64) int64 {
+	if len(vals) == 0 { return 0 }
+	max := vals[0]
+	for _, v := range vals[1:] {
+		if v > max { max = v }
+	}
+	return max
+}
+
+func avgInt64(vals []int64) int64 {
+	if len(vals) == 0 { return 0 }
+	return sumInt64(vals) / int64(len(vals))
+}
+
+func sumInt64(vals []int64) int64 {
+	sum := int64(0)
+	for _, v := range vals {
+		sum += v
+	}
+	return sum
+}
+
+func medianInt64(vals []int64) int64 {
+	if len(vals) == 0 { return 0 }
+	// Simple median calculation (would need sorting for accuracy)
+	return vals[len(vals)/2]
 }

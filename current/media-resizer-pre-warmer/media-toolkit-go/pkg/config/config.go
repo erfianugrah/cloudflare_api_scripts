@@ -143,28 +143,29 @@ func LoadConfig() (*Config, error) {
 
 // postProcessConfig performs validation and adjustments to the configuration
 func postProcessConfig(config *Config) error {
-	// Convert media type string to enum if needed
-	if config.MediaType == 0 { // Default value
-		mediaTypeStr := viper.GetString("media-type")
-		switch strings.ToLower(mediaTypeStr) {
-		case "auto":
-			config.MediaType = MediaTypeAuto
-		case "image":
-			config.MediaType = MediaTypeImage
-		case "video":
-			config.MediaType = MediaTypeVideo
-		default:
-			config.MediaType = MediaTypeAuto
-		}
+	// Convert media type string to enum
+	switch strings.ToLower(config.MediaTypeString) {
+	case "auto":
+		config.MediaType = MediaTypeAuto
+	case "image":
+		config.MediaType = MediaTypeImage
+	case "video":
+		config.MediaType = MediaTypeVideo
+	default:
+		config.MediaType = MediaTypeAuto
 	}
 
 	// Ensure derivatives and image variants are properly set
 	if len(config.Derivatives) == 0 {
 		derivativesStr := viper.GetString("derivatives")
 		if derivativesStr != "" {
-			config.Derivatives = strings.Split(derivativesStr, ",")
-			for i := range config.Derivatives {
-				config.Derivatives[i] = strings.TrimSpace(config.Derivatives[i])
+			parts := strings.Split(derivativesStr, ",")
+			config.Derivatives = make([]string, 0, len(parts))
+			for _, part := range parts {
+				trimmed := strings.TrimSpace(part)
+				if trimmed != "" {
+					config.Derivatives = append(config.Derivatives, trimmed)
+				}
 			}
 		}
 	}
@@ -172,9 +173,13 @@ func postProcessConfig(config *Config) error {
 	if len(config.ImageVariants) == 0 {
 		variantsStr := viper.GetString("image-variants")
 		if variantsStr != "" {
-			config.ImageVariants = strings.Split(variantsStr, ",")
-			for i := range config.ImageVariants {
-				config.ImageVariants[i] = strings.TrimSpace(config.ImageVariants[i])
+			parts := strings.Split(variantsStr, ",")
+			config.ImageVariants = make([]string, 0, len(parts))
+			for _, part := range parts {
+				trimmed := strings.TrimSpace(part)
+				if trimmed != "" {
+					config.ImageVariants = append(config.ImageVariants, trimmed)
+				}
 			}
 		}
 	}

@@ -81,9 +81,6 @@ func addPrewarmFlags(cmd *cobra.Command) {
 	cmd.MarkFlagRequired("remote")
 	cmd.MarkFlagRequired("bucket")
 	cmd.MarkFlagRequired("base-url")
-	
-	// Bind flags to viper
-	viper.BindPFlags(cmd.Flags())
 }
 
 func runPrewarm(cmd *cobra.Command, args []string) error {
@@ -91,11 +88,14 @@ func runPrewarm(cmd *cobra.Command, args []string) error {
 	
 	// Get logger from context
 	logger, ok := ctx.Value("logger").(*zap.Logger)
-	if !ok {
+	if !ok || logger == nil {
 		return fmt.Errorf("logger not found in context")
 	}
 
 	logger.Info("Starting pre-warming process")
+
+	// Bind flags to viper (needs to happen after flag parsing)
+	viper.BindPFlags(cmd.Flags())
 
 	// Load configuration
 	cfg, err := config.LoadConfig()
@@ -163,8 +163,12 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 	} else {
 		// Use rclone storage backend
 		storageConfig := storage.StorageConfig{
-			Remote:      cfg.Remote,
-			RcloneBinary: "rclone",
+			Remote:        cfg.Remote,
+			RcloneBinary:  "rclone",
+			Timeout:       time.Duration(cfg.Timeout) * time.Second,
+			BatchSize:     1000,
+			RetryAttempts: cfg.Retry,
+			RetryDelay:    time.Second,
 		}
 		storageClient = storage.NewRcloneStorage(storageConfig, logger)
 	}
@@ -192,11 +196,21 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 	statsCollector := stats.NewCollector()
 	
 	// 5. Create worker pool
+	// Calculate appropriate queue size based on worker count
+	totalWorkers := cfg.WorkerAllocation.SmallFileWorkers + cfg.WorkerAllocation.MediumFileWorkers + cfg.WorkerAllocation.LargeFileWorkers
+	if totalWorkers == 0 {
+		totalWorkers = cfg.Workers
+	}
+	queueSize := totalWorkers * 3 // 3x worker count for buffering
+	if queueSize < 1000 {
+		queueSize = 1000
+	}
+	
 	workerConfig := workers.WorkerPoolConfig{
 		SmallFileWorkers:  cfg.WorkerAllocation.SmallFileWorkers,
 		MediumFileWorkers: cfg.WorkerAllocation.MediumFileWorkers,
 		LargeFileWorkers:  cfg.WorkerAllocation.LargeFileWorkers,
-		QueueSize:         1000,
+		QueueSize:         queueSize,
 		WorkerTimeout:     time.Duration(cfg.Timeout) * time.Second,
 		ShutdownTimeout:   60 * time.Second,
 	}

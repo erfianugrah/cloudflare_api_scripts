@@ -283,20 +283,38 @@ func (wp *WorkerPool) processTask(w *worker, task *Task) TaskResult {
 	
 	// Execute the task
 	var err error
-	done := make(chan struct{})
+	done := make(chan error, 1) // Buffered to prevent goroutine leak
 	
 	go func() {
-		defer close(done)
-		err = task.ProcessFunc(taskCtx, task.Payload)
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Errorf("task panicked: %v", r)
+			}
+		}()
+		
+		// Check if context is already cancelled before starting
+		select {
+		case <-taskCtx.Done():
+			done <- taskCtx.Err()
+			return
+		default:
+		}
+		
+		// Execute the task function
+		taskErr := task.ProcessFunc(taskCtx, task.Payload)
+		done <- taskErr
 	}()
 	
-	// Wait for completion or timeout
+	// Wait for completion, timeout, or worker shutdown
 	select {
-	case <-done:
-		// Task completed
+	case err = <-done:
+		// Task completed (err may be nil or an actual error)
 	case <-taskCtx.Done():
-		// Task timed out
-		err = fmt.Errorf("task timed out after %v", wp.config.WorkerTimeout)
+		// Task timed out or context cancelled
+		err = fmt.Errorf("task timed out after %v: %w", wp.config.WorkerTimeout, taskCtx.Err())
+	case <-w.ctx.Done():
+		// Worker pool is shutting down
+		err = fmt.Errorf("worker pool shutting down: %w", w.ctx.Err())
 	}
 	
 	endTime := time.Now()
@@ -347,7 +365,10 @@ func (wp *WorkerPool) SubmitTask(task *Task) error {
 		return fmt.Errorf("unknown task category: %v", task.Category)
 	}
 	
-	// Submit to the appropriate queue
+	// Submit to the appropriate queue with timeout
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+	
 	select {
 	case pool.taskQueue <- task:
 		atomic.AddInt64(&wp.tasksSubmitted, 1)
@@ -355,8 +376,19 @@ func (wp *WorkerPool) SubmitTask(task *Task) error {
 		return nil
 	case <-wp.ctx.Done():
 		return fmt.Errorf("worker pool is shutting down")
-	default:
-		return fmt.Errorf("queue full for %s file category", pool.name)
+	case <-timeout.C:
+		// Instead of immediate error, wait briefly and retry
+		wp.logger.Debug("Queue busy, retrying", zap.String("category", pool.name))
+		select {
+		case pool.taskQueue <- task:
+			atomic.AddInt64(&wp.tasksSubmitted, 1)
+			atomic.AddInt64(&pool.queueSize, 1)
+			return nil
+		case <-wp.ctx.Done():
+			return fmt.Errorf("worker pool is shutting down")
+		default:
+			return fmt.Errorf("queue full for %s file category after retry", pool.name)
+		}
 	}
 }
 
@@ -371,10 +403,8 @@ func (wp *WorkerPool) Shutdown() error {
 	
 	wp.logger.Info("Shutting down worker pool")
 	
-	// Close all task queues to signal workers to finish current work
-	close(wp.smallPool.taskQueue)
-	close(wp.mediumPool.taskQueue)
-	close(wp.largePool.taskQueue)
+	// First signal shutdown by setting atomic flag and canceling context
+	wp.cancel()
 	
 	// Wait for workers to finish with timeout
 	done := make(chan struct{})
@@ -386,14 +416,48 @@ func (wp *WorkerPool) Shutdown() error {
 	select {
 	case <-done:
 		wp.logger.Info("All workers stopped gracefully")
+		// Now safe to close channels since workers are finished
+		wp.closeChannelsSafely()
 	case <-time.After(wp.config.ShutdownTimeout):
 		wp.logger.Warn("Shutdown timeout reached, forcing shutdown")
-		wp.cancel() // Force cancel remaining workers
-		wp.wg.Wait()
+		// Close channels even if workers haven't finished
+		wp.closeChannelsSafely()
 	}
 	
 	wp.logger.Info("Worker pool shutdown complete")
 	return nil
+}
+
+// closeChannelsSafely closes all task queue channels safely
+func (wp *WorkerPool) closeChannelsSafely() {
+	// Use recover to handle potential double-close panics
+	defer func() {
+		if r := recover(); r != nil {
+			wp.logger.Warn("Recovered from panic while closing channels", zap.Any("panic", r))
+		}
+	}()
+	
+	// Close channels if not already closed
+	select {
+	case <-wp.smallPool.taskQueue:
+		// Channel already closed
+	default:
+		close(wp.smallPool.taskQueue)
+	}
+	
+	select {
+	case <-wp.mediumPool.taskQueue:
+		// Channel already closed
+	default:
+		close(wp.mediumPool.taskQueue)
+	}
+	
+	select {
+	case <-wp.largePool.taskQueue:
+		// Channel already closed
+	default:
+		close(wp.largePool.taskQueue)
+	}
 }
 
 // Statistics returns current worker pool statistics

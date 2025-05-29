@@ -20,6 +20,30 @@ This Go implementation provides **complete feature parity** with the Python vers
 
 6. **Unified CLI Framework**: Provides structured subcommands for all functionality with type-safe configuration and comprehensive error handling.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Key Improvements over Python Version](#key-improvements-over-python-version)
+- [Performance Comparison](#performance-comparison)
+- [Architecture](#architecture)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Complete Workflow Guide](#complete-workflow-guide)
+  - [Stage 1: File Analysis](#stage-1-file-analysis-understanding-your-dataset)
+  - [Stage 2: Pre-warming](#stage-2-pre-warming-cache-population)
+  - [Stage 3: Error Analysis](#stage-3-error-analysis-review-results)
+  - [Stage 4: Load Testing](#stage-4-load-testing-performance-validation)
+  - [Stage 5: Optimization & Validation](#stage-5-optimization--validation-optional)
+  - [Complete Workflow Example](#complete-workflow-example)
+  - [Workflow Best Practices](#workflow-best-practices)
+- [Migration from Python Version](#migration-from-python-version)
+- [Commands Reference](#commands-reference)
+- [Configuration](#configuration)
+- [Examples](#examples)
+- [Performance & Scaling](#performance--scaling)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+
 ## Key Improvements over Python Version
 
 - 🏃 **80% faster startup time** (compiled binary vs interpreter)
@@ -98,7 +122,7 @@ Each stage can run independently or as part of a complete workflow, with data fl
 
 ### Prerequisites
 
-- Go 1.21 or later
+- Go 1.22 or later
 - FFmpeg 4.0+ (for video processing)
 - k6 (for load testing)
 - rclone (optional, for rclone storage backend)
@@ -110,13 +134,13 @@ Each stage can run independently or as part of a complete workflow, with data fl
 cd media-toolkit-go
 
 # Build the binary
-go build ./cmd/toolkit
+go build -o bin/media-toolkit ./cmd/toolkit
 
-# The binary will be created as 'toolkit'
-./toolkit --help
+# The binary will be created as 'bin/media-toolkit'
+./bin/media-toolkit --help
 
 # Build with optimization (recommended for production)
-go build -ldflags="-s -w" -o media-toolkit ./cmd/toolkit
+go build -ldflags="-s -w" -o bin/media-toolkit ./cmd/toolkit
 ```
 
 ### Cross-Platform Builds
@@ -160,50 +184,52 @@ The Go version uses structured subcommands instead of a single entry point:
 python3 main.py [70+ different flags for different operations]
 
 # Go Version (organized subcommands)
-./media-toolkit prewarm [prewarm-specific flags]
-./media-toolkit optimize [optimization-specific flags]  
-./media-toolkit loadtest [load-test-specific flags]
-./media-toolkit validate [validation-specific flags]
-./media-toolkit analyze [analysis-specific flags]
+./bin/media-toolkit prewarm [prewarm-specific flags]
+./bin/media-toolkit optimize [optimization-specific flags]  
+./bin/media-toolkit loadtest [load-test-specific flags]
+./bin/media-toolkit validate [validation-specific flags]
+./bin/media-toolkit analyze [analysis-specific flags]
 ```
 
 ### Quick Start
 
 ```bash
 # Show all available commands
-./media-toolkit --help
+./bin/media-toolkit --help
 
 # Show version information
-./media-toolkit version
+./bin/media-toolkit version
 
 # Pre-warm image variants (equivalent to Python --media-type image)
-./media-toolkit prewarm \
+./bin/media-toolkit prewarm \
   --remote r2 \
   --bucket images \
   --base-url https://cdn.example.com/ \
   --media-type image \
   --image-variants thumbnail,small,medium,large,webp \
-  --workers 50
+  --workers 5
 
 # Pre-warm video derivatives (equivalent to Python --media-type video)
-./media-toolkit prewarm \
+./bin/media-toolkit prewarm \
   --remote r2 \
   --bucket videos \
   --base-url https://cdn.example.com/ \
   --media-type video \
   --derivatives desktop,tablet,mobile \
-  --workers 50
+  --workers 5
 
 # Auto mode - both images and videos (equivalent to Python --media-type auto)
-./media-toolkit prewarm \
+./bin/media-toolkit prewarm \
   --remote r2 \
   --bucket media \
   --base-url https://cdn.example.com/ \
   --media-type auto \
-  --workers 100
+  --workers 10
+
+# For production workflows, see the Complete Workflow Guide section below
 
 # Optimize video files (equivalent to Python --optimize)
-./media-toolkit optimize \
+./bin/media-toolkit optimize \
   --remote r2 \
   --bucket videos \
   --optimize-videos \
@@ -212,17 +238,17 @@ python3 main.py [70+ different flags for different operations]
   --target-resolution 1080p
 
 # Validate video integrity (equivalent to test-video-optimizer.py)
-./media-toolkit validate \
+./bin/media-toolkit validate \
   --validate-directory /path/to/videos \
   --validation-workers 10
 
 # Run load tests (equivalent to Python --load-test)
-./media-toolkit loadtest \
+./bin/media-toolkit loadtest \
   --base-url https://cdn.example.com/ \
   --results-file media_transform_results.json
 
 # Analyze file sizes (equivalent to Python --list-files)
-./media-toolkit analyze \
+./bin/media-toolkit analyze \
   --remote r2 \
   --bucket media \
   --list-files \
@@ -240,27 +266,324 @@ The Go version maintains flag compatibility while providing better structure:
 
 # Basic pre-warming
 python3 main.py --remote r2 --bucket videos --base-url https://cdn.example.com/
-./media-toolkit prewarm --remote r2 --bucket videos --base-url https://cdn.example.com/
+./bin/media-toolkit prewarm --remote r2 --bucket videos --base-url https://cdn.example.com/
 
 # Full workflow
 python3 main.py --full-workflow --remote r2 --bucket videos --base-url https://cdn.example.com/
 # Go equivalent: Run commands sequentially
-./media-toolkit prewarm --remote r2 --bucket videos --base-url https://cdn.example.com/
-./media-toolkit analyze --generate-error-report --results-file video_transform_results.json
-./media-toolkit loadtest --base-url https://cdn.example.com/ --results-file video_transform_results.json
+./bin/media-toolkit prewarm --remote r2 --bucket videos --base-url https://cdn.example.com/
+./bin/media-toolkit analyze --generate-error-report --results-file video_transform_results.json
+./bin/media-toolkit loadtest --base-url https://cdn.example.com/ --results-file video_transform_results.json
 
 # Video optimization  
 python3 main.py --optimize --input-videos /source --output-videos /output
-./media-toolkit optimize --remote r2 --bucket videos --optimize-videos
+./bin/media-toolkit optimize --remote r2 --bucket videos --optimize-videos
 
 # Load testing
 python3 main.py --load-test --base-url https://cdn.example.com/ --urls-per-vu 50
-./media-toolkit loadtest --base-url https://cdn.example.com/ --stage1-users 50
+./bin/media-toolkit loadtest --base-url https://cdn.example.com/ --stage1-users 50
 
 # File analysis
 python3 main.py --list-files --size-threshold 256
-./media-toolkit analyze --list-files --size-threshold 256
+./bin/media-toolkit analyze --list-files --size-threshold 256
 ```
+
+## Complete Workflow Guide
+
+The media toolkit implements a comprehensive 5-stage workflow for optimal media CDN performance. Each stage can run independently or as part of a complete pipeline.
+
+### Stage 1: File Analysis (Understanding Your Dataset)
+
+**Purpose:** Analyze your media files to understand size distribution, identify large files, and plan optimization strategies.
+
+```bash
+# Basic file analysis
+./bin/media-toolkit analyze \
+  --remote r2 \
+  --bucket prod-media \
+  --directory videos \
+  --list-files \
+  --size-threshold 100 \
+  --size-report-output file_analysis.md
+
+# Detailed analysis with JSON output
+./bin/media-toolkit analyze \
+  --remote r2 \
+  --bucket prod-media \
+  --directory videos \
+  --list-files \
+  --size-threshold 50 \
+  --size-report-output file_analysis.json \
+  --limit 1000
+```
+
+**Output:** Size distribution, large file identification, extension statistics, optimization recommendations.
+
+### Stage 2: Pre-warming (Cache Population)
+
+**Purpose:** Populate CDN cache by making HTTP requests to all derivatives/variants, improving end-user response times.
+
+```bash
+# Basic pre-warming (recommended starting point)
+./bin/media-toolkit prewarm \
+  --remote r2 \
+  --bucket prod-media \
+  --directory videos \
+  --base-url https://cdn.example.com/videos/ \
+  --derivatives desktop,tablet,mobile \
+  --workers 500 \
+  --timeout 240 \
+  --output video_transform_results.json
+
+# High-performance pre-warming (after testing)
+./bin/media-toolkit prewarm \
+  --remote r2 \
+  --bucket prod-media \
+  --directory videos \
+  --base-url https://cdn.example.com/videos/ \
+  --derivatives desktop,tablet,mobile \
+  --workers 1000 \
+  --timeout 300 \
+  --optimize-by-size \
+  --small-file-workers 300 \
+  --medium-file-workers 400 \
+  --large-file-workers 300 \
+  --output video_transform_results.json
+
+# Image pre-warming
+./bin/media-toolkit prewarm \
+  --remote r2 \
+  --bucket prod-media \
+  --directory images \
+  --base-url https://cdn.example.com/images/ \
+  --media-type image \
+  --image-variants thumbnail,small,medium,large,webp \
+  --workers 300 \
+  --timeout 180 \
+  --output image_transform_results.json
+
+# Auto-detection for mixed media
+./bin/media-toolkit prewarm \
+  --remote r2 \
+  --bucket prod-media \
+  --base-url https://cdn.example.com/ \
+  --media-type auto \
+  --workers 500 \
+  --timeout 240 \
+  --output media_transform_results.json
+```
+
+**Performance Tuning Guidelines:**
+- **Workers**: Start with 500, scale up to 1000+ based on server capacity and error rate
+- **Timeout**: Use 240s minimum, 300-600s for large files or high-latency networks
+- **Size-based optimization**: Enable for datasets with mixed file sizes to prevent resource contention
+- **Queue Management**: Reduce workers if seeing "queue full" errors frequently
+- **Error Rate Monitoring**: Target <5% error rate; >20% indicates overload
+
+### Stage 3: Error Analysis (Review Results)
+
+**Purpose:** Analyze pre-warming results to identify issues, failed requests, and optimization opportunities.
+
+```bash
+# Generate comprehensive error report (Markdown)
+./bin/media-toolkit analyze \
+  --generate-error-report \
+  --results-file video_transform_results.json \
+  --error-report-output error_analysis.md \
+  --format markdown
+
+# Generate machine-readable error report (JSON)
+./bin/media-toolkit analyze \
+  --generate-error-report \
+  --results-file video_transform_results.json \
+  --error-report-output error_analysis.json \
+  --format json
+```
+
+**Key Metrics to Review:**
+- **Error Rate**: Target <5% for production workloads
+- **Timeout Errors**: Increase timeout if >10% of errors
+- **Server Errors (500)**: Contact CDN provider if persistent
+- **Size Category Distribution**: Optimize worker allocation
+
+**Common Issues & Solutions:**
+- **High timeout rate**: Increase `--timeout` or reduce `--workers`
+- **Queue full errors**: Reduce worker count or increase timeout
+- **Memory issues**: Enable `--optimize-by-size` for better resource allocation
+
+### Stage 4: Load Testing (Performance Validation)
+
+**Purpose:** Validate cache effectiveness and measure performance improvements under realistic load.
+
+```bash
+# Basic load test
+./bin/media-toolkit loadtest \
+  --base-url https://cdn.example.com/ \
+  --results-file video_transform_results.json \
+  --output load_test_results.json \
+  --vus 10 \
+  --duration 60s
+
+# Comprehensive load test
+./bin/media-toolkit loadtest \
+  --base-url https://cdn.example.com/ \
+  --results-file video_transform_results.json \
+  --output load_test_results.json \
+  --stage1-users 50 \
+  --stage1-duration 120s \
+  --stage2-users 100 \
+  --stage2-duration 300s \
+  --stage3-users 200 \
+  --stage3-duration 180s
+```
+
+**Expected Results After Pre-warming:**
+- **Cache Hit Rate**: >90% for pre-warmed URLs
+- **TTFB (Time to First Byte)**: <500ms for cached content
+- **95th Percentile Response Time**: <2s for video derivatives
+- **Error Rate**: <1% under normal load
+
+### Stage 5: Optimization & Validation (Optional)
+
+**Purpose:** Optimize large video files and validate media integrity for storage efficiency.
+
+```bash
+# Video optimization for large files
+./bin/media-toolkit optimize \
+  --remote r2 \
+  --bucket prod-media \
+  --directory videos \
+  --optimize-videos \
+  --codec h264 \
+  --quality balanced \
+  --target-resolution 1080p \
+  --concurrent 10
+
+# Video integrity validation
+./bin/media-toolkit validate \
+  --remote r2 \
+  --bucket prod-media \
+  --directory videos \
+  --validation-workers 20 \
+  --output validation_results.json
+```
+
+### Complete Workflow Example
+
+Here's a complete production workflow for video pre-warming:
+
+```bash
+#!/bin/bash
+# Production Video Pre-warming Workflow
+
+set -e  # Exit on any error
+
+# Configuration
+REMOTE="ikea-mcdc"  # Your rclone remote name
+BUCKET="prod-ap-southeast-1-mcdc-media"
+DIRECTORY="videos"
+BASE_URL="https://cdn.erfi.dev/videos/"
+WORKERS=500  # Start conservative, scale up based on results
+TIMEOUT=240  # Minimum recommended timeout
+
+echo "🔍 Stage 1: Analyzing dataset..."
+./bin/media-toolkit analyze \
+  --remote $REMOTE \
+  --bucket $BUCKET \
+  --directory $DIRECTORY \
+  --list-files \
+  --size-threshold 100 \
+  --size-report-output file_analysis_$(date +%Y%m%d).md
+
+echo "🚀 Stage 2: Pre-warming cache..."
+./bin/media-toolkit prewarm \
+  --remote $REMOTE \
+  --bucket $BUCKET \
+  --directory $DIRECTORY \
+  --base-url $BASE_URL \
+  --derivatives desktop,tablet,mobile \
+  --workers $WORKERS \
+  --timeout $TIMEOUT \
+  --output video_transform_results_$(date +%Y%m%d).json
+
+echo "📊 Stage 3: Analyzing results..."
+./bin/media-toolkit analyze \
+  --generate-error-report \
+  --results-file video_transform_results_$(date +%Y%m%d).json \
+  --error-report-output error_analysis_$(date +%Y%m%d).md \
+  --format markdown
+
+echo "⚡ Stage 4: Load testing..."
+./bin/media-toolkit loadtest \
+  --base-url $BASE_URL \
+  --results-file video_transform_results_$(date +%Y%m%d).json \
+  --output load_test_results_$(date +%Y%m%d).json \
+  --vus 50 \
+  --duration 120s
+
+echo "✅ Workflow completed! Check reports for results."
+```
+
+### Workflow Best Practices
+
+#### Performance Optimization
+- **Start Conservative**: Begin with 500 workers, 240s timeout
+- **Scale Gradually**: Increase workers by 250-500 based on error rates
+- **Monitor Resources**: Watch server CPU/memory during pre-warming
+- **Size-based Allocation**: Use `--optimize-by-size` for mixed datasets
+
+#### Error Handling
+- **Acceptable Error Rate**: <5% for production, <10% for testing
+- **Timeout Tuning**: Increase timeout before reducing workers
+- **Server Errors**: Contact CDN provider if >1% server errors persist
+- **Network Issues**: Retry with reduced concurrency
+
+#### Production Deployment
+- **Schedule Off-Peak**: Run pre-warming during low-traffic periods
+- **Incremental Deployment**: Test with subset before full dataset
+- **Monitoring**: Track cache hit rates and response times
+- **Documentation**: Keep results for capacity planning
+
+#### Troubleshooting Guide
+
+| Issue | Symptoms | Solution |
+|-------|----------|----------|
+| High timeout rate | >20% timeout errors | Increase `--timeout` to 300-600s |
+| Queue full errors | "queue full for category" messages | Reduce `--workers` by 50% |
+| Memory exhaustion | Worker crashes, OOM errors | Enable `--optimize-by-size` |
+| Low cache hit rate | <80% cache hits in load test | Verify base URL and derivative paths |
+| High server errors | >5% HTTP 500 responses | Reduce workers, contact CDN provider |
+| Poor performance | High response times post-warming | Check network, CDN configuration |
+
+### Recent Improvements (v1.1.0)
+
+This version includes significant reliability and performance improvements:
+
+#### 🛡️ **Stability Enhancements**
+- **Fixed race conditions** in worker pool shutdown preventing crashes under high load
+- **Improved context cancellation** propagation for graceful interruption (Ctrl+C)
+- **Enhanced error handling** with panic recovery and proper resource cleanup
+- **Resolved memory leaks** in task processing and channel management
+
+#### 📊 **Error Analysis Improvements**
+- **Comprehensive error reporting** with detailed analysis by type, size, and derivative
+- **Performance metrics** including TTFB, response times, and size reduction statistics
+- **Troubleshooting recommendations** based on error patterns and load characteristics
+- **Size-based error correlation** to identify optimization opportunities
+
+#### ⚡ **Performance Optimizations**
+- **Dynamic queue sizing** based on worker count to prevent bottlenecks
+- **Improved worker allocation** with size-based optimization for mixed datasets
+- **Enhanced timeout handling** with configurable retry logic and exponential backoff
+- **Better resource management** with automatic cleanup and garbage collection
+
+#### 🔧 **Operational Features**
+- **Production-ready logging** with structured output and configurable levels
+- **Graceful shutdown** handling with proper signal processing (SIGINT/SIGTERM)
+- **Configuration validation** with clear error messages and default value handling
+- **Cross-platform compatibility** with optimized builds for Linux, macOS, and Windows
+
+These improvements make the toolkit suitable for production workloads with thousands of workers and large datasets while maintaining reliability and performance.
 
 ## Commands Reference
 
@@ -269,7 +592,7 @@ python3 main.py --list-files --size-threshold 256
 Pre-warm Cloudflare KV cache by making HTTP requests to all derivatives/variants.
 
 ```bash
-./media-toolkit prewarm [flags]
+./bin/media-toolkit prewarm [flags]
 ```
 
 **Required flags:**
@@ -281,44 +604,56 @@ Pre-warm Cloudflare KV cache by making HTTP requests to all derivatives/variants
 - `--media-type` - Type of media (auto, image, video) [default: auto]
 - `--derivatives` - Video derivatives to process [default: desktop,tablet,mobile]
 - `--image-variants` - Image variants to process [default: thumbnail,small,medium,large,webp]
-- `--workers` - Number of concurrent workers [default: 50]
+- `--workers` - Number of concurrent workers [default: 5]
 - `--timeout` - Request timeout in seconds [default: 120]
+- `--connection-close-delay` - Delay before closing connections in seconds [default: 15]
+- `--retry` - Number of retry attempts [default: 2]
 - `--optimize-by-size` - Enable size-based worker optimization
-- `--connection-close-delay` - Delay before closing connections [default: 15s]
+- `--small-file-workers` - Workers for small files (auto if 0) [default: 0]
+- `--medium-file-workers` - Workers for medium files (auto if 0) [default: 0]
+- `--large-file-workers` - Workers for large files (auto if 0) [default: 0]
+- `--small-file-threshold` - Threshold in MiB for small files [default: 50]
+- `--medium-file-threshold` - Threshold in MiB for medium files [default: 200]
+- `--size-threshold` - Size threshold in MiB for reporting [default: 256]
 - `--use-head-for-size` - Use HEAD requests for size verification (NOT for pre-warming)
 - `--directory` - Directory path within bucket
 - `--extension` - File extension to filter by
-- `--limit` - Limit number of objects to process
+- `--image-extensions` - Image file extensions [default: .jpg,.jpeg,.png,.webp,.gif,.bmp,.svg]
+- `--video-extensions` - Video file extensions [default: .mp4,.webm,.mov,.avi,.mkv,.m4v]
+- `--limit` - Limit number of objects to process (0 = no limit) [default: 0]
+- `--output` - Output JSON file path [default: media_transform_results.json]
+- `--performance-report` - Performance report output file [default: performance_report.md]
+- `--use-aws-cli` - Use AWS CLI instead of rclone [default: false]
 
 **Examples:**
 
 ```bash
 # Basic pre-warming with default settings
-./media-toolkit prewarm \
+./bin/media-toolkit prewarm \
   --remote r2 \
   --bucket videos \
   --base-url https://cdn.example.com/
 
 # High-performance pre-warming with size optimization
-./media-toolkit prewarm \
+./bin/media-toolkit prewarm \
   --remote r2 \
   --bucket videos \
   --base-url https://cdn.example.com/ \
-  --workers 2000 \
+  --workers 50 \
   --optimize-by-size \
-  --small-file-workers 1200 \
-  --medium-file-workers 600 \
-  --large-file-workers 200 \
+  --small-file-workers 30 \
+  --medium-file-workers 15 \
+  --large-file-workers 5 \
   --timeout 300
 
 # Image variants with custom transformations
-./media-toolkit prewarm \
+./bin/media-toolkit prewarm \
   --remote r2 \
   --bucket images \
   --base-url https://cdn.example.com/ \
   --media-type image \
   --image-variants thumbnail,small,medium,large,webp,avif,og_image,twitter_card \
-  --workers 100
+  --workers 10
 ```
 
 ### `optimize` - Video Optimization
@@ -326,7 +661,7 @@ Pre-warm Cloudflare KV cache by making HTTP requests to all derivatives/variants
 Optimize video files using FFmpeg with hardware acceleration support.
 
 ```bash
-./media-toolkit optimize [flags]
+./bin/media-toolkit optimize [flags]
 ```
 
 **Required flags:**
@@ -334,26 +669,34 @@ Optimize video files using FFmpeg with hardware acceleration support.
 - `--bucket` - S3 bucket name
 
 **Key options:**
+- `--directory` - Directory path within bucket
+- `--optimize-videos` - Enable video optimization [default: false]
+- `--optimize-in-place` - Replace files in-place instead of creating new files [default: false]
 - `--codec` - Video codec (h264, h265, vp9, vp8, av1) [default: h264]
 - `--quality` - Quality profile (maximum, high, balanced, efficient, minimum) [default: balanced]
-- `--target-resolution` - Target resolution (4k, 1080p, 720p, 480p, 360p)
+- `--target-resolution` - Target resolution (4k, 1080p, 720p, 480p, 360p) [default: 1080p]
+- `--fit` - Fit mode (contain, cover, pad, stretch) [default: contain]
+- `--audio-profile` - Audio profile (high, medium, low, minimum) [default: medium]
+- `--output-format` - Output format (mp4, webm, mkv) [default: mp4]
+- `--create-webm` - Create WebM versions alongside primary format [default: false]
 - `--hardware-acceleration` - Hardware acceleration (auto, nvidia, intel, amd, apple, none) [default: auto]
-- `--optimize-in-place` - Replace files in-place instead of creating new files
-- `--create-webm` - Create WebM versions alongside primary format
+- `--disable-hardware-acceleration` - Disable hardware acceleration [default: false]
+- `--browser-compatible` - Ensure maximum browser compatibility [default: true]
+- `--optimized-videos-dir` - Directory for optimized videos [default: optimized_videos]
 - `--size-threshold` - Size threshold in MiB for optimization [default: 256]
-- `--browser-compatible` - Ensure maximum browser compatibility
+- `--workers` - Number of concurrent workers [default: 5]
 
 **Examples:**
 
 ```bash
 # Standard optimization with default settings
-./media-toolkit optimize \
+./bin/media-toolkit optimize \
   --remote r2 \
   --bucket videos \
   --optimize-videos
 
 # High-quality optimization with HEVC
-./media-toolkit optimize \
+./bin/media-toolkit optimize \
   --remote r2 \
   --bucket videos \
   --optimize-videos \
@@ -363,7 +706,7 @@ Optimize video files using FFmpeg with hardware acceleration support.
   --hardware-acceleration nvidia
 
 # In-place optimization for storage savings
-./media-toolkit optimize \
+./bin/media-toolkit optimize \
   --remote r2 \
   --bucket videos \
   --optimize-in-place \
@@ -377,7 +720,7 @@ Optimize video files using FFmpeg with hardware acceleration support.
 Validate video files for corruption and integrity using FFprobe.
 
 ```bash
-./media-toolkit validate [flags]
+./bin/media-toolkit validate [flags]
 ```
 
 **Options (mutually exclusive):**
@@ -386,6 +729,7 @@ Validate video files for corruption and integrity using FFprobe.
 - `--remote` / `--bucket` - Remote storage to validate
 
 **Key options:**
+- `--directory` - Directory path within bucket
 - `--validation-workers` - Number of concurrent workers [default: 10]
 - `--validation-report` - Output file for validation report [default: validation_report.md]
 - `--validation-format` - Report format (text, markdown, json) [default: markdown]
@@ -395,19 +739,19 @@ Validate video files for corruption and integrity using FFprobe.
 
 ```bash
 # Validate local directory
-./media-toolkit validate \
+./bin/media-toolkit validate \
   --validate-directory /path/to/videos \
   --validation-workers 20 \
   --validation-format json
 
 # Validate from pre-warming results
-./media-toolkit validate \
+./bin/media-toolkit validate \
   --validate-results video_transform_results.json \
-  --validation-workers 50 \
+  --validation-workers 20 \
   --validation-report corruption_check.md
 
 # Validate remote storage
-./media-toolkit validate \
+./bin/media-toolkit validate \
   --remote r2 \
   --bucket videos \
   --validation-workers 30 \
@@ -419,39 +763,46 @@ Validate video files for corruption and integrity using FFprobe.
 Run k6 load tests against the media service with realistic traffic patterns.
 
 ```bash
-./media-toolkit loadtest [flags]
+./bin/media-toolkit loadtest [flags]
 ```
 
 **Required flags:**
 - `--base-url` - Base URL for load testing
 
 **Key options:**
-- `--results-file` - Pre-warming results file to use for testing
+- `--results-file` - Pre-warming results file to use for testing [default: media_transform_results.json]
 - `--k6-script` - Path to k6 test script [default: video-load-test-integrated-improved.js]
 - `--url-format` - URL format (imwidth, derivative) [default: imwidth]
-- `--use-head-requests` - Use HEAD requests for content length
+- `--debug-mode` - Enable debug mode [default: false]
+- `--use-head-requests` - Use HEAD requests for content length [default: true]
 - `--skip-large-files` - Skip large files in load test [default: true]
-- `--large-file-threshold-mib` - Threshold for skipping large files [default: 256]
-- `--use-error-report` - Use error report to exclude problematic files
-- `--error-report-file` - Path to error report file
+- `--large-file-threshold-mib` - Threshold for skipping large files in MiB [default: 256]
+- `--request-timeout` - Request timeout [default: 120s]
+- `--head-timeout` - HEAD request timeout [default: 30s]
+- `--global-timeout` - Global test timeout [default: 90s]
+- `--failure-rate-threshold` - Max acceptable failure rate [default: 0.05]
+- `--max-retries` - Max retry attempts [default: 2]
+- `--connection-close-delay` - Connection close delay in seconds [default: 15]
+- `--use-error-report` - Use error report to exclude problematic files [default: false]
+- `--error-report-file` - Path to error report file [default: error_report.json]
 
 **Stage configuration:**
-- `--stage1-users`, `--stage1-duration` - Stage 1 configuration [default: 5 users, 30s]
-- `--stage2-users`, `--stage2-duration` - Stage 2 configuration [default: 10 users, 1m]
-- `--stage3-users`, `--stage3-duration` - Stage 3 configuration [default: 15 users, 30s]
-- `--stage4-users`, `--stage4-duration` - Stage 4 configuration [default: 10 users, 1m]
+- `--stage1-users`, `--stage1-duration` - Stage 1 configuration [default: 10 users, 30s]
+- `--stage2-users`, `--stage2-duration` - Stage 2 configuration [default: 20 users, 1m]
+- `--stage3-users`, `--stage3-duration` - Stage 3 configuration [default: 30 users, 30s]
+- `--stage4-users`, `--stage4-duration` - Stage 4 configuration [default: 20 users, 1m]
 - `--stage5-users`, `--stage5-duration` - Stage 5 configuration [default: 0 users, 30s]
 
 **Examples:**
 
 ```bash
 # Basic load testing
-./media-toolkit loadtest \
+./bin/media-toolkit loadtest \
   --base-url https://cdn.example.com/ \
   --results-file video_transform_results.json
 
 # Advanced load testing with custom stages
-./media-toolkit loadtest \
+./bin/media-toolkit loadtest \
   --base-url https://cdn.example.com/ \
   --results-file video_transform_results.json \
   --url-format derivative \
@@ -465,7 +816,7 @@ Run k6 load tests against the media service with realistic traffic patterns.
   --skip-large-files
 
 # High-performance load testing
-./media-toolkit loadtest \
+./bin/media-toolkit loadtest \
   --base-url https://cdn.example.com/ \
   --results-file video_transform_results.json \
   --stage1-users 50 \
@@ -480,25 +831,36 @@ Run k6 load tests against the media service with realistic traffic patterns.
 Analyze file sizes and generate comprehensive reports with advanced statistics.
 
 ```bash
-./media-toolkit analyze [flags]
+./bin/media-toolkit analyze [flags]
 ```
 
 **Options:**
-- `--list-files` - List all files with sizes sorted by size
-- `--generate-error-report` - Generate error report from results file
-- `--results-file` - Results file to analyze
-- `--compare` - Compare with Cloudflare KV data
-- `--comparison-output` - Output file for comparison results
-- `--only-compare` - Only run comparison, skip other analysis
+- `--remote` - rclone remote name
+- `--bucket` - S3 bucket name  
+- `--directory` - Directory path within bucket
+- `--list-files` - List all files with sizes sorted by size [default: false]
 - `--size-threshold` - Size threshold in MiB for reporting [default: 256]
-- `--format` - Output format (json, markdown) [default: markdown]
+- `--size-report-output` - Size report output file [default: file_size_report.md]
 - `--extension` - File extension to filter by
+- `--image-extensions` - Image file extensions [default: .jpg,.jpeg,.png,.webp,.gif,.bmp,.svg]
+- `--video-extensions` - Video file extensions [default: .mp4,.webm,.mov,.avi,.mkv,.m4v]
+- `--limit` - Limit number of files to analyze (0 = no limit) [default: 0]
+- `--generate-error-report` - Generate error report from results [default: false]
+- `--results-file` - Results file to analyze [default: media_transform_results.json]
+- `--error-report-output` - Error report output file [default: error_report.json]
+- `--format` - Report format (json, markdown) [default: ""]
+- `--compare` - Path to Cloudflare KV JSON file for comparison
+- `--comparison-output` - Comparison results output file [default: comparison_results.json]
+- `--summary-output` - Comparison summary output file [default: comparison_summary.md]
+- `--summary-format` - Summary format (markdown, json) [default: markdown]
+- `--only-compare` - Only run comparison without processing [default: false]
+- `--use-aws-cli` - Use AWS CLI instead of rclone [default: false]
 
 **Examples:**
 
 ```bash
 # List files with size analysis
-./media-toolkit analyze \
+./bin/media-toolkit analyze \
   --remote r2 \
   --bucket media \
   --list-files \
@@ -506,13 +868,13 @@ Analyze file sizes and generate comprehensive reports with advanced statistics.
   --format json
 
 # Generate comprehensive error report
-./media-toolkit analyze \
+./bin/media-toolkit analyze \
   --generate-error-report \
   --results-file video_transform_results.json \
   --format markdown
 
 # Compare with KV data
-./media-toolkit analyze \
+./bin/media-toolkit analyze \
   --compare kv-data.json \
   --results-file video_transform_results.json \
   --comparison-output comparison_report.md
@@ -533,7 +895,7 @@ base_url: https://cdn.example.com/
 
 # Processing options
 media_type: auto
-workers: 50
+workers: 5
 timeout: 120
 connection_close_delay: 15s
 
@@ -602,7 +964,7 @@ All configuration options can be set via environment variables with the `MEDIA_T
 export MEDIA_TOOLKIT_REMOTE=r2
 export MEDIA_TOOLKIT_BUCKET=videos
 export MEDIA_TOOLKIT_BASE_URL=https://cdn.example.com/
-export MEDIA_TOOLKIT_WORKERS=50
+export MEDIA_TOOLKIT_WORKERS=5
 export MEDIA_TOOLKIT_MEDIA_TYPE=video
 export MEDIA_TOOLKIT_TIMEOUT=300
 export MEDIA_TOOLKIT_OPTIMIZE_BY_SIZE=true
@@ -616,19 +978,19 @@ export MEDIA_TOOLKIT_OPTIMIZE_BY_SIZE=true
 
 ```bash
 # Step 1: Pre-warm cache
-./media-toolkit prewarm \
+./bin/media-toolkit prewarm \
   --remote r2 \
   --bucket videos \
   --base-url https://cdn.example.com/ \
-  --workers 500
+  --workers 50
 
 # Step 2: Generate error report
-./media-toolkit analyze \
+./bin/media-toolkit analyze \
   --generate-error-report \
   --results-file video_transform_results.json
 
 # Step 3: Run load test excluding problematic files
-./media-toolkit loadtest \
+./bin/media-toolkit loadtest \
   --base-url https://cdn.example.com/ \
   --results-file video_transform_results.json \
   --use-error-report
@@ -638,27 +1000,27 @@ export MEDIA_TOOLKIT_OPTIMIZE_BY_SIZE=true
 
 ```bash
 # Pre-warming with advanced optimization
-./media-toolkit prewarm \
+./bin/media-toolkit prewarm \
   --remote r2 \
   --bucket videos \
   --base-url https://cdn.example.com/ \
   --derivatives desktop,tablet,mobile \
-  --workers 2000 \
+  --workers 50 \
   --optimize-by-size \
-  --small-file-workers 1200 \
-  --medium-file-workers 600 \
-  --large-file-workers 200 \
+  --small-file-workers 30 \
+  --medium-file-workers 15 \
+  --large-file-workers 5 \
   --timeout 300 \
   --connection-close-delay 15
 
 # Validation with parallel processing
-./media-toolkit validate \
+./bin/media-toolkit validate \
   --validate-results video_transform_results.json \
-  --validation-workers 50 \
+  --validation-workers 20 \
   --validation-format json
 
 # Load testing with realistic traffic patterns
-./media-toolkit loadtest \
+./bin/media-toolkit loadtest \
   --base-url https://cdn.example.com/ \
   --results-file video_transform_results.json \
   --stage1-users 20 \
@@ -678,37 +1040,37 @@ export MEDIA_TOOLKIT_OPTIMIZE_BY_SIZE=true
 #### Pre-warm Images with Common Variants
 
 ```bash
-./media-toolkit prewarm \
+./bin/media-toolkit prewarm \
   --remote r2 \
   --bucket images \
   --base-url https://cdn.example.com/ \
   --media-type image \
   --image-variants thumbnail,small,medium,large,webp,avif \
-  --workers 50
+  --workers 5
 ```
 
 #### Pre-warm Images with Akamai-Compatible Variants
 
 ```bash
-./media-toolkit prewarm \
+./bin/media-toolkit prewarm \
   --remote r2 \
   --bucket images \
   --base-url https://cdn.example.com/ \
   --media-type image \
   --image-variants akamai_resize_small,akamai_resize_medium,akamai_resize_large,akamai_quality \
-  --workers 100
+  --workers 10
 ```
 
 #### Pre-warm Images with Social Media Variants
 
 ```bash
-./media-toolkit prewarm \
+./bin/media-toolkit prewarm \
   --remote r2 \
   --bucket images \
   --base-url https://cdn.example.com/ \
   --media-type image \
   --image-variants og_image,twitter_card,instagram_square,instagram_portrait,facebook_cover \
-  --workers 75
+  --workers 8
 ```
 
 ### Video Optimization Examples
@@ -716,7 +1078,7 @@ export MEDIA_TOOLKIT_OPTIMIZE_BY_SIZE=true
 #### Standard Optimization
 
 ```bash
-./media-toolkit optimize \
+./bin/media-toolkit optimize \
   --remote r2 \
   --bucket videos \
   --optimize-videos \
@@ -729,7 +1091,7 @@ export MEDIA_TOOLKIT_OPTIMIZE_BY_SIZE=true
 #### In-Place Optimization for Storage Savings
 
 ```bash
-./media-toolkit optimize \
+./bin/media-toolkit optimize \
   --remote r2 \
   --bucket videos \
   --optimize-in-place \
@@ -742,7 +1104,7 @@ export MEDIA_TOOLKIT_OPTIMIZE_BY_SIZE=true
 #### Multi-Format Optimization
 
 ```bash
-./media-toolkit optimize \
+./bin/media-toolkit optimize \
   --remote r2 \
   --bucket videos \
   --optimize-videos \
@@ -758,7 +1120,7 @@ export MEDIA_TOOLKIT_OPTIMIZE_BY_SIZE=true
 #### Extreme Load Testing
 
 ```bash
-./media-toolkit loadtest \
+./bin/media-toolkit loadtest \
   --base-url https://cdn.example.com/ \
   --results-file video_transform_results.json \
   --stage1-users 50 \
@@ -779,7 +1141,7 @@ export MEDIA_TOOLKIT_OPTIMIZE_BY_SIZE=true
 #### Load Testing with Custom Script
 
 ```bash
-./media-toolkit loadtest \
+./bin/media-toolkit loadtest \
   --base-url https://cdn.example.com/ \
   --results-file video_transform_results.json \
   --k6-script custom-load-test.js \
@@ -800,7 +1162,7 @@ Maintains compatibility with existing Python toolkit:
 rclone config
 
 # Use with media-toolkit
-./media-toolkit prewarm --remote r2 --bucket videos --base-url https://cdn.example.com/
+./bin/media-toolkit prewarm --remote r2 --bucket videos --base-url https://cdn.example.com/
 ```
 
 ### AWS SDK
@@ -817,7 +1179,7 @@ export AWS_ACCESS_KEY_ID=your-key
 export AWS_SECRET_ACCESS_KEY=your-secret
 
 # Use with media-toolkit (auto-detected)
-./media-toolkit prewarm --remote aws --bucket videos --base-url https://cdn.example.com/
+./bin/media-toolkit prewarm --remote aws --bucket videos --base-url https://cdn.example.com/
 ```
 
 ### Local Filesystem
@@ -825,7 +1187,7 @@ export AWS_SECRET_ACCESS_KEY=your-secret
 For local testing and development:
 
 ```bash
-./media-toolkit prewarm --remote local --bucket /path/to/media --base-url https://cdn.example.com/
+./bin/media-toolkit prewarm --remote local --bucket /path/to/media --base-url https://cdn.example.com/
 ```
 
 ## Performance and Optimization
@@ -840,7 +1202,7 @@ The toolkit uses intelligent worker allocation based on file sizes:
 
 ```bash
 # Enable size-based optimization
-./media-toolkit prewarm \
+./bin/media-toolkit prewarm \
   --optimize-by-size \
   --small-file-workers 30 \
   --medium-file-workers 15 \
@@ -853,13 +1215,13 @@ Video optimization supports automatic hardware acceleration detection:
 
 ```bash
 # Auto-detect best available acceleration
-./media-toolkit optimize --hardware-acceleration auto
+./bin/media-toolkit optimize --hardware-acceleration auto
 
 # Use specific acceleration
-./media-toolkit optimize --hardware-acceleration nvidia  # NVENC
-./media-toolkit optimize --hardware-acceleration intel   # QuickSync
-./media-toolkit optimize --hardware-acceleration amd     # AMF
-./media-toolkit optimize --hardware-acceleration apple   # VideoToolbox
+./bin/media-toolkit optimize --hardware-acceleration nvidia  # NVENC
+./bin/media-toolkit optimize --hardware-acceleration intel   # QuickSync
+./bin/media-toolkit optimize --hardware-acceleration amd     # AMF
+./bin/media-toolkit optimize --hardware-acceleration apple   # VideoToolbox
 ```
 
 ### Memory Efficiency Optimizations
@@ -940,6 +1302,371 @@ The toolkit includes 60+ predefined image variants optimized for different use c
 - `smart_banner`: 1200x300 with smart crop
 - `smart_portrait`: 400x600 with smart crop
 - `smart_landscape`: 800x600 with smart crop
+
+## Complete Example Scenarios
+
+### Scenario 1: First-Time Setup and Testing
+
+For first-time users setting up the toolkit:
+
+```bash
+# Step 1: Build the binary
+cd media-toolkit-go
+go build -o bin/media-toolkit ./cmd/toolkit
+
+# Step 2: Test with a small subset (limit files for testing)
+./bin/media-toolkit prewarm \
+  --remote r2 \
+  --bucket videos \
+  --base-url https://cdn.example.com/ \
+  --media-type video \
+  --derivatives desktop,tablet,mobile \
+  --workers 5 \
+  --limit 10 \
+  --timeout 60
+
+# Step 3: Generate error report from test results
+./bin/media-toolkit analyze \
+  --generate-error-report \
+  --results-file media_transform_results.json \
+  --format markdown
+
+# Step 4: Run a light load test
+./bin/media-toolkit loadtest \
+  --base-url https://cdn.example.com/ \
+  --results-file media_transform_results.json \
+  --stage1-users 2 \
+  --stage1-duration 30s \
+  --stage2-users 5 \
+  --stage2-duration 1m \
+  --use-error-report \
+  --skip-large-files
+```
+
+### Scenario 2: Production Image Pre-warming
+
+For pre-warming image assets in production:
+
+```bash
+# Pre-warm all common image variants
+./bin/media-toolkit prewarm \
+  --remote r2 \
+  --bucket images \
+  --base-url https://cdn.example.com/ \
+  --media-type image \
+  --image-variants thumbnail,small,medium,large,xlarge,webp,avif \
+  --workers 20 \
+  --timeout 180 \
+  --connection-close-delay 10 \
+  --retry 3 \
+  --output image_transform_results.json \
+  --performance-report image_performance.md
+
+# Pre-warm social media optimized variants
+./bin/media-toolkit prewarm \
+  --remote r2 \
+  --bucket images \
+  --base-url https://cdn.example.com/ \
+  --media-type image \
+  --image-variants og_image,twitter_card,instagram_square,facebook_cover,linkedin_post \
+  --workers 15 \
+  --output social_media_results.json
+
+# Pre-warm Akamai-compatible variants
+./bin/media-toolkit prewarm \
+  --remote r2 \
+  --bucket images \
+  --base-url https://cdn.example.com/ \
+  --media-type image \
+  --image-variants akamai_resize_small,akamai_resize_medium,akamai_resize_large,akamai_quality,akamai_format \
+  --workers 12 \
+  --output akamai_results.json
+```
+
+### Scenario 3: Video Processing Pipeline
+
+Complete video processing with optimization and validation:
+
+```bash
+# Step 1: Pre-warm video derivatives
+./bin/media-toolkit prewarm \
+  --remote r2 \
+  --bucket videos \
+  --base-url https://cdn.example.com/ \
+  --media-type video \
+  --derivatives desktop,tablet,mobile \
+  --workers 25 \
+  --optimize-by-size \
+  --small-file-workers 15 \
+  --medium-file-workers 7 \
+  --large-file-workers 3 \
+  --timeout 300 \
+  --output video_prewarm_results.json
+
+# Step 2: Validate video integrity
+./bin/media-toolkit validate \
+  --remote r2 \
+  --bucket videos \
+  --validation-workers 10 \
+  --validation-format json \
+  --validation-report video_validation.json
+
+# Step 3: Optimize large videos
+./bin/media-toolkit optimize \
+  --remote r2 \
+  --bucket videos \
+  --optimize-videos \
+  --codec h264 \
+  --quality balanced \
+  --target-resolution 1080p \
+  --hardware-acceleration auto \
+  --browser-compatible \
+  --size-threshold 100 \
+  --workers 3
+
+# Step 4: Generate comprehensive analytics
+./bin/media-toolkit analyze \
+  --generate-error-report \
+  --results-file video_prewarm_results.json \
+  --format json \
+  --error-report-output video_errors.json
+
+# Step 5: Load test the pre-warmed videos
+./bin/media-toolkit loadtest \
+  --base-url https://cdn.example.com/ \
+  --results-file video_prewarm_results.json \
+  --url-format derivative \
+  --stage1-users 5 \
+  --stage1-duration 1m \
+  --stage2-users 10 \
+  --stage2-duration 3m \
+  --stage3-users 15 \
+  --stage3-duration 2m \
+  --use-error-report \
+  --error-report-file video_errors.json \
+  --skip-large-files
+```
+
+### Scenario 4: Multi-Format Media Processing
+
+Processing both images and videos in auto mode:
+
+```bash
+# Process all media types automatically
+./bin/media-toolkit prewarm \
+  --remote r2 \
+  --bucket media \
+  --base-url https://cdn.example.com/ \
+  --media-type auto \
+  --derivatives desktop,tablet,mobile \
+  --image-variants thumbnail,medium,large,webp \
+  --workers 30 \
+  --optimize-by-size \
+  --timeout 240 \
+  --connection-close-delay 15 \
+  --output mixed_media_results.json
+
+# Analyze file sizes and distribution
+./bin/media-toolkit analyze \
+  --remote r2 \
+  --bucket media \
+  --list-files \
+  --size-threshold 50 \
+  --size-report-output media_size_analysis.md \
+  --format markdown
+
+# Compare with existing KV data
+./bin/media-toolkit analyze \
+  --compare existing_kv_data.json \
+  --results-file mixed_media_results.json \
+  --comparison-output kv_comparison.json \
+  --summary-output kv_summary.md \
+  --summary-format markdown
+```
+
+### Scenario 5: Development and Debugging
+
+For development and troubleshooting:
+
+```bash
+# Verbose debugging with small dataset
+./bin/media-toolkit --verbose prewarm \
+  --remote r2 \
+  --bucket test-videos \
+  --base-url https://dev-cdn.example.com/ \
+  --media-type video \
+  --derivatives desktop \
+  --workers 2 \
+  --limit 5 \
+  --timeout 60 \
+  --retry 1 \
+  --output debug_results.json
+
+# Validate specific videos
+./bin/media-toolkit validate \
+  --validate-directory /path/to/test/videos \
+  --video-pattern "*.{mp4,webm}" \
+  --validation-workers 3 \
+  --validation-format text \
+  --validation-report debug_validation.txt
+
+# Debug load testing
+./bin/media-toolkit loadtest \
+  --base-url https://dev-cdn.example.com/ \
+  --results-file debug_results.json \
+  --debug-mode \
+  --stage1-users 1 \
+  --stage1-duration 30s \
+  --stage2-users 2 \
+  --stage2-duration 1m \
+  --request-timeout 30s \
+  --head-timeout 10s
+```
+
+### Scenario 6: High-Volume Production Environment
+
+For large-scale production deployments:
+
+```bash
+# High-throughput pre-warming with size optimization
+./bin/media-toolkit prewarm \
+  --remote r2 \
+  --bucket production-videos \
+  --base-url https://cdn.example.com/ \
+  --media-type video \
+  --derivatives desktop,tablet,mobile \
+  --workers 50 \
+  --optimize-by-size \
+  --small-file-workers 30 \
+  --medium-file-workers 15 \
+  --large-file-workers 5 \
+  --small-file-threshold 25 \
+  --medium-file-threshold 100 \
+  --timeout 600 \
+  --connection-close-delay 20 \
+  --retry 3 \
+  --output production_results.json \
+  --performance-report production_performance.md
+
+# Production validation with high concurrency
+./bin/media-toolkit validate \
+  --validate-results production_results.json \
+  --validation-workers 20 \
+  --validation-format json \
+  --validation-report production_validation.json
+
+# Comprehensive error analysis
+./bin/media-toolkit analyze \
+  --generate-error-report \
+  --results-file production_results.json \
+  --format json \
+  --error-report-output production_errors.json
+
+# Production load testing with realistic stages
+./bin/media-toolkit loadtest \
+  --base-url https://cdn.example.com/ \
+  --results-file production_results.json \
+  --url-format derivative \
+  --stage1-users 20 \
+  --stage1-duration 2m \
+  --stage2-users 40 \
+  --stage2-duration 5m \
+  --stage3-users 60 \
+  --stage3-duration 10m \
+  --stage4-users 40 \
+  --stage4-duration 5m \
+  --stage5-users 20 \
+  --stage5-duration 2m \
+  --use-error-report \
+  --error-report-file production_errors.json \
+  --skip-large-files \
+  --large-file-threshold-mib 200 \
+  --request-timeout 180s \
+  --max-retries 3
+```
+
+### Scenario 7: AWS CLI Integration
+
+Using AWS CLI instead of rclone for better performance:
+
+```bash
+# Configure AWS CLI first
+aws configure
+export AWS_REGION=us-east-1
+
+# Pre-warm using AWS CLI backend
+./bin/media-toolkit prewarm \
+  --remote aws \
+  --bucket my-media-bucket \
+  --base-url https://cdn.example.com/ \
+  --media-type auto \
+  --workers 25 \
+  --use-aws-cli \
+  --output aws_results.json
+
+# Analyze using AWS CLI
+./bin/media-toolkit analyze \
+  --remote aws \
+  --bucket my-media-bucket \
+  --list-files \
+  --use-aws-cli \
+  --size-threshold 100 \
+  --format json
+```
+
+### Scenario 8: Video Optimization Workflows
+
+Different video optimization strategies:
+
+```bash
+# Maximum quality preservation
+./bin/media-toolkit optimize \
+  --remote r2 \
+  --bucket videos \
+  --optimize-videos \
+  --codec h265 \
+  --quality maximum \
+  --target-resolution 4k \
+  --hardware-acceleration nvidia \
+  --create-webm \
+  --browser-compatible false \
+  --workers 2
+
+# Balanced optimization for web
+./bin/media-toolkit optimize \
+  --remote r2 \
+  --bucket videos \
+  --optimize-videos \
+  --codec h264 \
+  --quality balanced \
+  --target-resolution 1080p \
+  --hardware-acceleration auto \
+  --browser-compatible \
+  --workers 5
+
+# Aggressive size reduction
+./bin/media-toolkit optimize \
+  --remote r2 \
+  --bucket videos \
+  --optimize-in-place \
+  --codec h264 \
+  --quality efficient \
+  --target-resolution 720p \
+  --size-threshold 50 \
+  --workers 3
+
+# Modern codec optimization
+./bin/media-toolkit optimize \
+  --remote r2 \
+  --bucket videos \
+  --optimize-videos \
+  --codec av1 \
+  --quality high \
+  --target-resolution 1080p \
+  --hardware-acceleration auto \
+  --create-webm \
+  --workers 2
+```
 
 ## Best Practices
 
@@ -1058,7 +1785,7 @@ This project follows the same license as the original Python version.
 For issues and questions:
 
 1. Check existing issues in the repository
-2. Review documentation and help pages (`./media-toolkit [command] --help`)
+2. Review documentation and help pages (`./bin/media-toolkit [command] --help`)
 3. Create a new issue with detailed information
 
 ---

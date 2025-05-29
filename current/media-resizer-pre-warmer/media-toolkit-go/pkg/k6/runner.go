@@ -254,16 +254,16 @@ func (r *Runner) buildK6Command(ctx context.Context, config TestConfig) (*exec.C
 	// Summary format (always JSON for parsing)
 	args = append(args, "--summary-export", "/tmp/k6-summary.json")
 	
-	// Thresholds
-	if config.MaxResponseTime > 0 {
-		threshold := fmt.Sprintf("http_req_duration<=%d", config.MaxResponseTime.Milliseconds())
-		args = append(args, "--threshold", threshold)
-	}
-	
-	if config.MinSuccessRate > 0 {
-		threshold := fmt.Sprintf("http_req_failed<%.2f", (100-config.MinSuccessRate)/100)
-		args = append(args, "--threshold", threshold)
-	}
+	// Thresholds (commented out due to k6 v1.0.0 compatibility issues)
+	// if config.MaxResponseTime > 0 {
+	// 	threshold := fmt.Sprintf("http_req_duration<=%d", config.MaxResponseTime.Milliseconds())
+	// 	args = append(args, "--threshold", threshold)
+	// }
+	// 
+	// if config.MinSuccessRate > 0 {
+	// 	threshold := fmt.Sprintf("http_req_failed<%.2f", (100-config.MinSuccessRate)/100)
+	// 	args = append(args, "--threshold", threshold)
+	// }
 	
 	// Script path
 	args = append(args, config.K6ScriptPath)

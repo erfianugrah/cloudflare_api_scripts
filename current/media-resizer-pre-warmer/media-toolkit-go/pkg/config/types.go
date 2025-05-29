@@ -27,6 +27,26 @@ func (m MediaType) String() string {
 	}
 }
 
+// UnmarshalText implements the encoding.TextUnmarshaler interface
+func (m *MediaType) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "auto":
+		*m = MediaTypeAuto
+	case "image":
+		*m = MediaTypeImage
+	case "video":
+		*m = MediaTypeVideo
+	default:
+		*m = MediaTypeAuto
+	}
+	return nil
+}
+
+// MarshalText implements the encoding.TextMarshaler interface
+func (m MediaType) MarshalText() ([]byte, error) {
+	return []byte(m.String()), nil
+}
+
 // SizeCategory represents file size categories for worker allocation
 type SizeCategory int
 
@@ -136,7 +156,8 @@ type Config struct {
 	BaseURL   string `mapstructure:"base-url"`
 
 	// Processing options
-	MediaType             MediaType `mapstructure:"media-type"`
+	MediaType             MediaType `mapstructure:"-"`
+	MediaTypeString       string    `mapstructure:"media-type"`
 	Derivatives           []string  `mapstructure:"derivatives"`
 	ImageVariants         []string  `mapstructure:"image-variants"`
 	UseDerivatives        bool      `mapstructure:"use-derivatives"`

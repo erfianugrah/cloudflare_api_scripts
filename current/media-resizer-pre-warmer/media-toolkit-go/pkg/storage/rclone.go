@@ -62,14 +62,21 @@ func (r *RcloneStorage) ListObjects(ctx context.Context, req ListRequest) ([]Obj
 		cmd.Args = append(cmd.Args, "--config", r.config.RcloneConfig)
 	}
 
-	r.logger.Debug("Running rclone command", 
+	r.logger.Info("Running rclone command", 
 		zap.String("command", strings.Join(cmd.Args, " ")),
 		zap.String("remote_path", remotePath))
 
 	output, err := cmd.Output()
 	if err != nil {
+		r.logger.Error("Rclone command failed", 
+			zap.String("command", strings.Join(cmd.Args, " ")),
+			zap.Error(err))
 		return nil, NewStorageError("list_objects", remotePath, StorageBackendRclone, err)
 	}
+
+	r.logger.Info("Rclone command completed", 
+		zap.String("command", strings.Join(cmd.Args, " ")),
+		zap.Int("output_size", len(output)))
 
 	var objects []Object
 	lines := strings.Split(string(output), "\n")

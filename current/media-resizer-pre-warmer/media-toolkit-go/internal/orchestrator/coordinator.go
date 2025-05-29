@@ -324,8 +324,15 @@ func (c *Coordinator) executePrewarmWorkflow(workflowConfig WorkflowConfig, resu
 	
 	// Get list of objects from storage
 	listReq := storage.ListRequest{
-		Bucket: c.appConfig.Bucket,
+		Bucket:    c.appConfig.Bucket,
+		Directory: c.appConfig.Directory,
+		GetSizes:  true,
 	}
+	
+	c.logger.Info("Starting file discovery", 
+		zap.String("bucket", listReq.Bucket),
+		zap.String("directory", listReq.Directory),
+		zap.Bool("get_sizes", listReq.GetSizes))
 	
 	objects, err := c.storage.ListObjects(c.ctx, listReq)
 	if err != nil {
@@ -372,9 +379,9 @@ func (c *Coordinator) executePrewarmWorkflow(workflowConfig WorkflowConfig, resu
 			Payload:    metadata,
 			ResultChan: make(chan workers.TaskResult, 1),
 			ProcessFunc: func(ctx context.Context, payload interface{}) error {
-				defer wg.Done()
-				
+				// Don't use defer in the closure - call wg.Done() directly
 				fileInfo := payload.(*FileInfo)
+				
 				// Create file metadata using the helper function
 				configMetadata := config.NewFileMetadata(fileInfo.Path, fileInfo.Size, 50, 300)
 				processResult, err := c.mediaProcessor.ProcessMedia(ctx, configMetadata, processConfig)
@@ -382,9 +389,18 @@ func (c *Coordinator) executePrewarmWorkflow(workflowConfig WorkflowConfig, resu
 				if err != nil {
 					c.statsCollector.RecordError(err.Error())
 					if workflowConfig.ContinueOnError {
-						errorsChan <- err
+						// Use non-blocking send to avoid deadlock
+						select {
+						case errorsChan <- err:
+						case <-ctx.Done():
+							// Context cancelled, stop processing
+						default:
+							// Channel full, skip this error
+						}
+						wg.Done() // Call directly instead of defer
 						return nil // Don't fail the task, just record the error
 					}
+					wg.Done() // Call directly instead of defer
 					return err
 				}
 				
@@ -395,7 +411,16 @@ func (c *Coordinator) executePrewarmWorkflow(workflowConfig WorkflowConfig, resu
 					processResult.Success,
 				)
 				
-				resultsChan <- processResult
+				// Use non-blocking send to avoid deadlock
+				select {
+				case resultsChan <- processResult:
+				case <-ctx.Done():
+					// Context cancelled, stop processing
+				default:
+					// Channel full, skip this result
+				}
+				
+				wg.Done() // Call directly instead of defer
 				return nil
 			},
 		}
@@ -410,8 +435,22 @@ func (c *Coordinator) executePrewarmWorkflow(workflowConfig WorkflowConfig, resu
 		}
 	}
 	
-	// Wait for all tasks to complete
-	wg.Wait()
+	// Wait for all tasks to complete or context cancellation
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		wg.Wait()
+	}()
+	
+	select {
+	case <-done:
+		c.logger.Info("All pre-warm tasks completed")
+	case <-c.ctx.Done():
+		c.logger.Info("Pre-warm workflow interrupted by context cancellation")
+		// Let remaining tasks finish naturally
+		wg.Wait()
+	}
+	
 	close(resultsChan)
 	close(errorsChan)
 	
