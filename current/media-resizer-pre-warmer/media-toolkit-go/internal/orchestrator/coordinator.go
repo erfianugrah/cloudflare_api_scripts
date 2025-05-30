@@ -329,10 +329,31 @@ func (c *Coordinator) executePrewarmWorkflow(workflowConfig WorkflowConfig, resu
 		GetSizes:  true,
 	}
 	
+	// Set extensions based on media type
+	switch workflowConfig.PrewarmConfig.MediaType {
+	case config.MediaTypeImage:
+		listReq.Extensions = c.appConfig.ImageExtensions
+		c.logger.Info("Filtering for image files", zap.Strings("extensions", listReq.Extensions))
+	case config.MediaTypeVideo:
+		listReq.Extensions = c.appConfig.VideoExtensions
+		c.logger.Info("Filtering for video files", zap.Strings("extensions", listReq.Extensions))
+	case config.MediaTypeAuto:
+		// For auto mode, include both image and video extensions
+		listReq.Extensions = append(c.appConfig.ImageExtensions, c.appConfig.VideoExtensions...)
+		c.logger.Info("Filtering for all media files", zap.Strings("extensions", listReq.Extensions))
+	}
+	
+	// Apply single extension filter if specified
+	if c.appConfig.Extension != "" {
+		listReq.Extensions = []string{c.appConfig.Extension}
+		c.logger.Info("Overriding with single extension filter", zap.String("extension", c.appConfig.Extension))
+	}
+	
 	c.logger.Info("Starting file discovery", 
 		zap.String("bucket", listReq.Bucket),
 		zap.String("directory", listReq.Directory),
-		zap.Bool("get_sizes", listReq.GetSizes))
+		zap.Bool("get_sizes", listReq.GetSizes),
+		zap.Strings("extensions", listReq.Extensions))
 	
 	objects, err := c.storage.ListObjects(c.ctx, listReq)
 	if err != nil {

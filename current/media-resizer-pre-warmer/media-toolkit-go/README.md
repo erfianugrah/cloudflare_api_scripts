@@ -46,8 +46,8 @@ This Go implementation provides **complete feature parity** with the Python vers
 
 ## Key Improvements over Python Version
 
-- 🏃 **80% faster startup time** (compiled binary vs interpreter)
-- 📉 **60% lower memory footprint** 
+- 🏃 **Faster startup time** (compiled binary vs interpreter)
+- 📉 **Lower memory footprint** through efficient memory management
 - 🧵 **Superior concurrency** with goroutines vs Python threading
 - 📦 **Single binary distribution** (15MB vs 500MB+ Python environment)
 - 🔧 **Type safety** with compile-time validation
@@ -59,11 +59,11 @@ This Go implementation provides **complete feature parity** with the Python vers
 
 | Metric | Python | Go | Improvement |
 |--------|--------|----|-----------| 
-| Startup Time | 3.2s | 0.6s | **80% faster** |
-| Memory Usage | 150MB | 60MB | **60% lower** |
-| Binary Size | 500MB+ | 15MB | **97% smaller** |
-| HTTP Concurrency | Limited by GIL | Native goroutines | **Unlimited scaling** |
-| Worker Efficiency | Threading overhead | Lightweight goroutines | **10x better** |
+| Startup Time | Interpreter overhead | Near-instant | **Significantly faster** |
+| Memory Usage | Higher baseline | Efficient GC | **Lower footprint** |
+| Binary Size | 500MB+ environment | 15MB binary | **97% smaller** |
+| HTTP Concurrency | Limited by GIL | Native goroutines | **True parallelism** |
+| Worker Efficiency | Threading overhead | Lightweight goroutines | **Much more efficient** |
 
 ## Architecture
 
@@ -421,8 +421,8 @@ The media toolkit implements a comprehensive 5-stage workflow for optimal media 
   --base-url https://cdn.example.com/ \
   --results-file video_transform_results.json \
   --output load_test_results.json \
-  --vus 10 \
-  --duration 60s
+  --stage1-users 10 \
+  --stage1-duration 60s
 
 # Comprehensive load test
 ./bin/media-toolkit loadtest \
@@ -457,7 +457,7 @@ The media toolkit implements a comprehensive 5-stage workflow for optimal media 
   --codec h264 \
   --quality balanced \
   --target-resolution 1080p \
-  --concurrent 10
+  --workers 10
 
 # Video integrity validation
 ./bin/media-toolkit validate \
@@ -582,6 +582,7 @@ This version includes significant reliability and performance improvements:
 - **Graceful shutdown** handling with proper signal processing (SIGINT/SIGTERM)
 - **Configuration validation** with clear error messages and default value handling
 - **Cross-platform compatibility** with optimized builds for Linux, macOS, and Windows
+- **Filetype filtering** for precise media type selection during pre-warming
 
 These improvements make the toolkit suitable for production workloads with thousands of workers and large datasets while maintaining reliability and performance.
 
@@ -601,7 +602,10 @@ Pre-warm Cloudflare KV cache by making HTTP requests to all derivatives/variants
 - `--base-url` - Base URL for HTTP requests
 
 **Key options:**
-- `--media-type` - Type of media (auto, image, video) [default: auto]
+- `--media-type` - Type of media (auto, image, video) [default: auto]  
+  - `image`: Only processes image files (.jpg, .png, .webp, etc.)
+  - `video`: Only processes video files (.mp4, .webm, .mov, etc.)
+  - `auto`: Processes both image and video files
 - `--derivatives` - Video derivatives to process [default: desktop,tablet,mobile]
 - `--image-variants` - Image variants to process [default: thumbnail,small,medium,large,webp]
 - `--workers` - Number of concurrent workers [default: 5]
@@ -617,7 +621,7 @@ Pre-warm Cloudflare KV cache by making HTTP requests to all derivatives/variants
 - `--size-threshold` - Size threshold in MiB for reporting [default: 256]
 - `--use-head-for-size` - Use HEAD requests for size verification (NOT for pre-warming)
 - `--directory` - Directory path within bucket
-- `--extension` - File extension to filter by
+- `--extension` - Single file extension to filter by (overrides media type filtering)
 - `--image-extensions` - Image file extensions [default: .jpg,.jpeg,.png,.webp,.gif,.bmp,.svg]
 - `--video-extensions` - Video file extensions [default: .mp4,.webm,.mov,.avi,.mkv,.m4v]
 - `--limit` - Limit number of objects to process (0 = no limit) [default: 0]
@@ -654,6 +658,14 @@ Pre-warm Cloudflare KV cache by making HTTP requests to all derivatives/variants
   --media-type image \
   --image-variants thumbnail,small,medium,large,webp,avif,og_image,twitter_card \
   --workers 10
+
+# Pre-warm only specific file types
+./bin/media-toolkit prewarm \
+  --remote r2 \
+  --bucket media \
+  --base-url https://cdn.example.com/ \
+  --extension .mp4 \
+  --workers 15
 ```
 
 ### `optimize` - Video Optimization

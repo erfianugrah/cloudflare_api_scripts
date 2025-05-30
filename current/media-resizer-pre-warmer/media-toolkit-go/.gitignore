@@ -61,3 +61,5 @@ ffmpeg_*
 
 # k6 output files
 k6_results_*
+.claude
+*CLAUDE*
