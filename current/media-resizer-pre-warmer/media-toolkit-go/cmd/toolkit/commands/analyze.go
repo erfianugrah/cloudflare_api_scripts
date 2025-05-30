@@ -183,6 +183,7 @@ type AnalysisConfig struct {
 type FileAnalysis struct {
 	TotalFiles     int                    `json:"total_files"`
 	TotalSize      int64                  `json:"total_size"`
+	AllFiles       []storage.FileInfo     `json:"all_files,omitempty"`
 	LargeFiles     []storage.FileInfo     `json:"large_files"`
 	SizeDistribution map[string]int       `json:"size_distribution"`
 	ExtensionStats map[string]*ExtStats   `json:"extension_stats"`
@@ -355,6 +356,11 @@ func analyzeFiles(files []storage.FileInfo, cfg *AnalysisConfig, logger *zap.Log
 		ExtensionStats:   make(map[string]*ExtStats),
 		GeneratedAt:      time.Now(),
 	}
+	
+	// Include all files if list-files is enabled
+	if cfg.ListFiles {
+		analysis.AllFiles = files
+	}
 
 	thresholdBytes := int64(cfg.SizeThreshold) * 1024 * 1024 // Convert MiB to bytes
 
@@ -493,6 +499,17 @@ func generateMarkdownReport(analysis *FileAnalysis) string {
 				utils.FormatBytes(stats.AvgSize),
 				utils.FormatBytes(stats.MinSize),
 				utils.FormatBytes(stats.MaxSize)))
+		}
+		sb.WriteString("\n")
+	}
+
+	// All files (if list-files was enabled)
+	if len(analysis.AllFiles) > 0 {
+		sb.WriteString("## All Files\n\n")
+		sb.WriteString("| File | Size |\n")
+		sb.WriteString("|------|------|\n")
+		for _, file := range analysis.AllFiles {
+			sb.WriteString(fmt.Sprintf("| %s | %s |\n", file.Path, utils.FormatBytes(file.Size)))
 		}
 		sb.WriteString("\n")
 	}
