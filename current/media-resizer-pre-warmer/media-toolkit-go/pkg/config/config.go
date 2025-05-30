@@ -45,8 +45,7 @@ func SetDefaults() {
 	viper.SetDefault("retry", DefaultRetry)
 
 	// File extensions
-	viper.SetDefault("image-extensions", []string{".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg"})
-	viper.SetDefault("video-extensions", []string{".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"})
+	viper.SetDefault("extensions", []string{})
 
 	// Output options
 	viper.SetDefault("output", DefaultOutputFile)
@@ -340,4 +339,26 @@ func ValidateConfig(config *Config) error {
 	}
 
 	return nil
+}
+
+// GetExtensionsForMediaType returns the appropriate file extensions based on media type
+func GetExtensionsForMediaType(mediaType string, customExtensions []string) []string {
+	// If custom extensions are provided, use them
+	if len(customExtensions) > 0 {
+		return customExtensions
+	}
+	
+	// Otherwise, use media type presets
+	switch strings.ToLower(mediaType) {
+	case "image":
+		return []string{".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg"}
+	case "video":
+		return []string{".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"}
+	case "all", "auto":
+		// Return empty to indicate no filtering
+		return []string{}
+	default:
+		// Default to no filtering
+		return []string{}
+	}
 }

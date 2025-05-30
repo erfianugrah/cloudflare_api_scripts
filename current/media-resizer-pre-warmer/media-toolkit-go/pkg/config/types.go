@@ -173,9 +173,7 @@ type Config struct {
 	// Output and reporting options
 	Output              string    `mapstructure:"output"`
 	Limit               int       `mapstructure:"limit"`
-	Extension           string    `mapstructure:"extension"`
-	ImageExtensions     []string  `mapstructure:"image-extensions"`
-	VideoExtensions     []string  `mapstructure:"video-extensions"`
+	Extensions          []string  `mapstructure:"extensions"`
 	Verbose             bool      `mapstructure:"verbose"`
 
 	// Comparison options

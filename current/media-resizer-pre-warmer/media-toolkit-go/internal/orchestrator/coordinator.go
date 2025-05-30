@@ -329,24 +329,15 @@ func (c *Coordinator) executePrewarmWorkflow(workflowConfig WorkflowConfig, resu
 		GetSizes:  true,
 	}
 	
-	// Set extensions based on media type
-	switch workflowConfig.PrewarmConfig.MediaType {
-	case config.MediaTypeImage:
-		listReq.Extensions = c.appConfig.ImageExtensions
-		c.logger.Info("Filtering for image files", zap.Strings("extensions", listReq.Extensions))
-	case config.MediaTypeVideo:
-		listReq.Extensions = c.appConfig.VideoExtensions
-		c.logger.Info("Filtering for video files", zap.Strings("extensions", listReq.Extensions))
-	case config.MediaTypeAuto:
-		// For auto mode, include both image and video extensions
-		listReq.Extensions = append(c.appConfig.ImageExtensions, c.appConfig.VideoExtensions...)
-		c.logger.Info("Filtering for all media files", zap.Strings("extensions", listReq.Extensions))
-	}
+	// Get extensions based on media type and custom extensions
+	listReq.Extensions = config.GetExtensionsForMediaType(c.appConfig.MediaTypeString, c.appConfig.Extensions)
 	
-	// Apply single extension filter if specified
-	if c.appConfig.Extension != "" {
-		listReq.Extensions = []string{c.appConfig.Extension}
-		c.logger.Info("Overriding with single extension filter", zap.String("extension", c.appConfig.Extension))
+	if len(listReq.Extensions) > 0 {
+		c.logger.Info("Filtering files by extensions", 
+			zap.String("media_type", c.appConfig.MediaTypeString),
+			zap.Strings("extensions", listReq.Extensions))
+	} else {
+		c.logger.Info("No extension filtering applied - processing all files")
 	}
 	
 	c.logger.Info("Starting file discovery", 

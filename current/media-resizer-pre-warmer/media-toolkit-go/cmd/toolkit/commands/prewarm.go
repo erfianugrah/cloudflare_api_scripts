@@ -54,9 +54,7 @@ func addPrewarmFlags(cmd *cobra.Command) {
 	cmd.Flags().Int("connection-close-delay", 15, "Delay before closing connections")
 	cmd.Flags().Int("retry", 2, "Number of retry attempts")
 	cmd.Flags().Bool("use-head-for-size", false, "Use HEAD requests to verify content sizes")
-	cmd.Flags().String("extension", "", "File extension to filter by")
-	cmd.Flags().StringSlice("image-extensions", []string{".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg"}, "Image file extensions")
-	cmd.Flags().StringSlice("video-extensions", []string{".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"}, "Video file extensions")
+	cmd.Flags().StringSlice("extensions", []string{}, "File extensions to filter by (e.g., .mp4,.jpg,.png)")
 	cmd.Flags().Int("limit", 0, "Limit number of objects to process (0 = no limit)")
 	
 	// Output options

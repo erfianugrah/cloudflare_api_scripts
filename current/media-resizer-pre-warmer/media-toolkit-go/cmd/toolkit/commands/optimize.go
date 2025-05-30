@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"media-toolkit-go/pkg/config"
 	"media-toolkit-go/pkg/ffmpeg"
 	"media-toolkit-go/pkg/reporting"
 	"media-toolkit-go/pkg/storage"
@@ -52,6 +53,8 @@ func addOptimizeFlags(cmd *cobra.Command) {
 	cmd.Flags().String("optimized-videos-dir", "optimized_videos", "Directory for optimized videos")
 	cmd.Flags().Int("size-threshold", 256, "Size threshold in MiB for optimization")
 	cmd.Flags().Int("workers", 5, "Number of concurrent workers")
+	cmd.Flags().StringSlice("extensions", []string{}, "File extensions to filter by (e.g., .mp4,.mkv)")
+	cmd.Flags().String("media-type", "video", "Media type preset: 'video' or 'all'")
 	
 	// Mark required flags
 	cmd.MarkFlagRequired("remote")
@@ -130,21 +133,33 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 	
 	// Filter for video files
 	var videoFiles []storage.Object
-	videoExtensions := []string{".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"}
+	
+	// Get extensions to filter by
+	extensions := viper.GetStringSlice("extensions")
+	mediaType := viper.GetString("media-type")
+	
+	// Use config helper to get appropriate extensions
+	videoExtensions := config.GetExtensionsForMediaType(mediaType, extensions)
+	
 	sizeThreshold := int64(viper.GetInt("size-threshold") * 1024 * 1024) // Convert MiB to bytes
 	
 	for _, obj := range objects {
-		// Check if it's a video file
-		isVideo := false
-		for _, ext := range videoExtensions {
-			if strings.HasSuffix(strings.ToLower(obj.Path), ext) {
-				isVideo = true
-				break
+		// Check if it's a video file or if no filter is applied
+		includeFile := len(videoExtensions) == 0 // Include all if no extensions specified
+		
+		if !includeFile {
+			// Check if file matches any extension
+			fileExt := strings.ToLower(filepath.Ext(obj.Path))
+			for _, ext := range videoExtensions {
+				if fileExt == strings.ToLower(ext) {
+					includeFile = true
+					break
+				}
 			}
 		}
 		
 		// Only include files above size threshold
-		if isVideo && obj.Size > sizeThreshold {
+		if includeFile && obj.Size > sizeThreshold {
 			videoFiles = append(videoFiles, obj)
 		}
 	}

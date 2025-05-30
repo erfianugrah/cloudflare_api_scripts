@@ -47,6 +47,8 @@ func addValidateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("validation-report", "validation_report.md", "Output file for validation report")
 	cmd.Flags().String("validation-format", "markdown", "Format for validation report (text, markdown, json)")
 	cmd.Flags().String("video-pattern", "*.mp4", "File pattern to match for validation")
+	cmd.Flags().StringSlice("extensions", []string{}, "File extensions to filter by (e.g., .mp4,.mkv)")
+	cmd.Flags().String("media-type", "", "Media type preset: 'video' or 'all'")
 	
 	// Bind flags to viper
 	viper.BindPFlags(cmd.Flags())
@@ -87,6 +89,8 @@ type ValidationConfig struct {
 	ValidationReport  string
 	ValidationFormat  string
 	VideoPattern      string
+	Extensions        []string
+	MediaType         string
 }
 
 // ValidationResult represents the result of validating a single video
@@ -170,6 +174,8 @@ func buildValidationConfig() (*ValidationConfig, error) {
 		ValidationReport:  viper.GetString("validation-report"),
 		ValidationFormat:  viper.GetString("validation-format"),
 		VideoPattern:     viper.GetString("video-pattern"),
+		Extensions:       viper.GetStringSlice("extensions"),
+		MediaType:        viper.GetString("media-type"),
 	}, nil
 }
 

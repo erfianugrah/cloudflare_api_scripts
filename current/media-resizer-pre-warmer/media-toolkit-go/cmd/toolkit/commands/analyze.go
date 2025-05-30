@@ -41,9 +41,8 @@ func addAnalyzeFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("list-files", false, "List all files with their sizes")
 	cmd.Flags().Int("size-threshold", 256, "Size threshold in MiB for reporting")
 	cmd.Flags().String("size-report-output", "file_size_report.md", "Size report output file")
-	cmd.Flags().String("extension", "", "File extension to filter by")
-	cmd.Flags().StringSlice("image-extensions", []string{".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg"}, "Image extensions")
-	cmd.Flags().StringSlice("video-extensions", []string{".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"}, "Video extensions")
+	cmd.Flags().StringSlice("extensions", []string{}, "File extensions to filter by (e.g., .mp4,.jpg,.png)")
+	cmd.Flags().String("media-type", "", "Media type preset: 'image', 'video', or 'all'")
 	cmd.Flags().Int("limit", 0, "Limit number of files to analyze")
 	
 	// Error report generation
@@ -163,9 +162,8 @@ type AnalysisConfig struct {
 	ListFiles          bool
 	SizeThreshold      int
 	SizeReportOutput   string
-	Extension          string
-	ImageExtensions    []string
-	VideoExtensions    []string
+	Extensions         []string
+	MediaType          string
 	Limit              int
 	
 	// Error report options
@@ -210,9 +208,8 @@ func buildAnalysisConfig() (*AnalysisConfig, error) {
 		ListFiles:           viper.GetBool("list-files"),
 		SizeThreshold:       viper.GetInt("size-threshold"),
 		SizeReportOutput:    viper.GetString("size-report-output"),
-		Extension:           viper.GetString("extension"),
-		ImageExtensions:     viper.GetStringSlice("image-extensions"),
-		VideoExtensions:     viper.GetStringSlice("video-extensions"),
+		Extensions:          viper.GetStringSlice("extensions"),
+		MediaType:           viper.GetString("media-type"),
 		Limit:               viper.GetInt("limit"),
 		GenerateErrorReport: viper.GetBool("generate-error-report"),
 		ResultsFile:         viper.GetString("results-file"),
@@ -258,6 +255,14 @@ func validateAnalysisConfig(cfg *AnalysisConfig) error {
 		return err
 	}
 
+	// Validate media type if specified
+	if cfg.MediaType != "" {
+		validMediaTypes := []string{"image", "video", "all"}
+		if err := utils.ValidateOneOf(cfg.MediaType, validMediaTypes, "media-type"); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -294,12 +299,37 @@ func listFilesForAnalysis(ctx context.Context, storageClient storage.Storage, cf
 		return nil, fmt.Errorf("failed to list files: %w", err)
 	}
 
-	// Filter by extension if specified
-	if cfg.Extension != "" {
+	// Determine extensions to filter by
+	var filterExtensions []string
+	
+	// Handle media type presets
+	if cfg.MediaType != "" {
+		switch strings.ToLower(cfg.MediaType) {
+		case "image":
+			filterExtensions = []string{".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg"}
+		case "video":
+			filterExtensions = []string{".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"}
+		case "all":
+			// No filtering by extension
+			filterExtensions = nil
+		default:
+			return nil, fmt.Errorf("invalid media type: %s (use 'image', 'video', or 'all')", cfg.MediaType)
+		}
+	} else if len(cfg.Extensions) > 0 {
+		// Use explicitly provided extensions
+		filterExtensions = cfg.Extensions
+	}
+	
+	// Apply extension filter if needed
+	if len(filterExtensions) > 0 {
 		filtered := make([]storage.FileInfo, 0, len(objects))
 		for _, obj := range objects {
-			if strings.HasSuffix(strings.ToLower(obj.Path), strings.ToLower(cfg.Extension)) {
-				filtered = append(filtered, obj)
+			objExt := strings.ToLower(filepath.Ext(obj.Path))
+			for _, ext := range filterExtensions {
+				if objExt == strings.ToLower(ext) {
+					filtered = append(filtered, obj)
+					break
+				}
 			}
 		}
 		objects = filtered
