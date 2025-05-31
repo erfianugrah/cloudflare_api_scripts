@@ -309,6 +309,9 @@ func (g *Generator) generateMarkdown(data ReportData, config ReportConfig, repor
 	t, err := template.New("markdown").Funcs(template.FuncMap{
 		"contains":      contains,
 		"humanizeBytes": humanizeBytes,
+		"int64": func(f float64) int64 {
+			return int64(f)
+		},
 	}).Parse(tmpl)
 	if err != nil {
 		return fmt.Errorf("failed to parse markdown template: %w", err)

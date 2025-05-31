@@ -56,6 +56,7 @@ func addPrewarmFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("use-head-for-size", false, "Use HEAD requests to verify content sizes")
 	cmd.Flags().StringSlice("extensions", []string{}, "File extensions to filter by (e.g., .mp4,.jpg,.png)")
 	cmd.Flags().Int("limit", 0, "Limit number of objects to process (0 = no limit)")
+	cmd.Flags().String("url-format", "imwidth", "URL format for derivatives (imwidth, derivative, query)")
 	
 	// Output options
 	cmd.Flags().String("output", "media_transform_results.json", "Output JSON file path")
