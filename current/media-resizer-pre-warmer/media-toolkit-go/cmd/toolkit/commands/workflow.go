@@ -391,6 +391,13 @@ func buildEnhancedConfig() *EnhancedWorkflowConfig {
 		case "auto", "all":
 			cfg.Extensions = []string{".mp4", ".mov", ".webm", ".jpg", ".jpeg", ".png", ".webp"}
 		}
+	} else {
+		// Ensure extensions have dots
+		for i, ext := range cfg.Extensions {
+			if !strings.HasPrefix(ext, ".") {
+				cfg.Extensions[i] = "." + ext
+			}
+		}
 	}
 
 	// Set load test stage defaults
