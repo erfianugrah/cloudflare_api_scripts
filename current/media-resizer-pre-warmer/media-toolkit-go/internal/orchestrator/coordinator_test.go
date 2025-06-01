@@ -91,9 +91,7 @@ func TestPrewarmWorkflowFiltering(t *testing.T) {
 			cfg := &config.Config{
 				Bucket:          "test-bucket",
 				Directory:       "test-dir",
-				Extension:       tt.singleExtension,
-				ImageExtensions: []string{".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg"},
-				VideoExtensions: []string{".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"},
+				Extensions:      []string{tt.singleExtension},
 			}
 			
 			// Create workflow config (removed since it's not used)

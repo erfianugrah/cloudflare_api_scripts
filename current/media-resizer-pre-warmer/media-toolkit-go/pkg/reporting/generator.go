@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"media-toolkit-go/pkg/ffmpeg"
-	"media-toolkit-go/pkg/k6"
+	"media-toolkit-go/pkg/loadtest"
 	"media-toolkit-go/pkg/stats"
 	"media-toolkit-go/internal/workers"
 	"go.uber.org/zap"
@@ -54,7 +54,7 @@ type ReportData struct {
 	OptimizationResults []ffmpeg.OptimizationResult `json:"optimization_results,omitempty"`
 	
 	// Load test results
-	LoadTestResults []k6.TestResult `json:"load_test_results,omitempty"`
+	LoadTestResults []loadtest.Result `json:"load_test_results,omitempty"`
 	
 	// Error analysis
 	ErrorAnalysis   *ErrorAnalysis   `json:"error_analysis,omitempty"`

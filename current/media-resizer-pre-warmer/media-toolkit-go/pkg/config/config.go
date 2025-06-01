@@ -30,7 +30,7 @@ const (
 	DefaultSummaryOutput         = "comparison_summary.md"
 	DefaultValidationReport      = "validation_report.md"
 	DefaultOptimizedVideosDir    = "optimized_videos"
-	DefaultK6Script              = "video-load-test-integrated-improved.js"
+	DefaultURLFormat             = "imwidth"
 )
 
 // SetDefaults sets default values for the configuration
@@ -79,7 +79,7 @@ func SetDefaults() {
 	viper.SetDefault("validation.video-pattern", "*.mp4")
 
 	// Load test defaults
-	viper.SetDefault("load-test.k6-script", DefaultK6Script)
+	viper.SetDefault("load-test.url-format", DefaultURLFormat)
 	viper.SetDefault("load-test.url-format", "imwidth")
 	viper.SetDefault("load-test.use-head-requests", true)
 	viper.SetDefault("load-test.skip-large-files", true)
@@ -304,10 +304,12 @@ func ValidateConfig(config *Config) error {
 		}
 	}
 
-	// Validate k6 script path if load testing is enabled
+	// Validate load test configuration if enabled
 	if config.LoadTest.RunLoadTest {
-		if _, err := os.Stat(config.LoadTest.K6Script); os.IsNotExist(err) {
-			errors = append(errors, fmt.Sprintf("k6 script does not exist: %s", config.LoadTest.K6Script))
+		// Validate URL format
+		validFormats := []string{"imwidth", "derivative", "query"}
+		if !contains(validFormats, config.LoadTest.URLFormat) {
+			errors = append(errors, fmt.Sprintf("invalid URL format: %s (must be one of: %s)", config.LoadTest.URLFormat, strings.Join(validFormats, ", ")))
 		}
 	}
 

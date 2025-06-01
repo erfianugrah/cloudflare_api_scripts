@@ -256,9 +256,9 @@ func validateAnalysisConfig(cfg *AnalysisConfig) error {
 		return err
 	}
 
-	// Validate media type if specified
-	if cfg.MediaType != "" {
-		validMediaTypes := []string{"image", "video", "all"}
+	// Validate media type if specified (only when listing files)
+	if cfg.MediaType != "" && (cfg.ListFiles || (!cfg.GenerateErrorReport && cfg.CompareFile == "")) {
+		validMediaTypes := []string{"image", "video", "all", "auto"}
 		if err := utils.ValidateOneOf(cfg.MediaType, validMediaTypes, "media-type"); err != nil {
 			return err
 		}
@@ -310,11 +310,11 @@ func listFilesForAnalysis(ctx context.Context, storageClient storage.Storage, cf
 			filterExtensions = []string{".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg"}
 		case "video":
 			filterExtensions = []string{".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"}
-		case "all":
+		case "all", "auto":
 			// No filtering by extension
 			filterExtensions = nil
 		default:
-			return nil, fmt.Errorf("invalid media type: %s (use 'image', 'video', or 'all')", cfg.MediaType)
+			return nil, fmt.Errorf("invalid media type: %s (use 'image', 'video', 'all', or 'auto')", cfg.MediaType)
 		}
 	} else if len(cfg.Extensions) > 0 {
 		// Use explicitly provided extensions

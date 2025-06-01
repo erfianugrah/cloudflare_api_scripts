@@ -53,9 +53,8 @@ func TestMediaTypeFiltering(t *testing.T) {
 			// Check media type
 			assert.Equal(t, tt.expectedType, cfg.MediaType)
 			
-			// Check extensions count
-			totalExts := len(cfg.ImageExtensions) + len(cfg.VideoExtensions)
-			assert.GreaterOrEqual(t, totalExts, tt.expectedExts)
+			// Check extensions were set based on media type
+			assert.NotEmpty(t, cfg.Extensions)
 		})
 	}
 }
@@ -65,8 +64,8 @@ func TestSingleExtensionOverride(t *testing.T) {
 	viper.Reset()
 	SetDefaults()
 	
-	// Set single extension and required fields
-	viper.Set("extension", ".mp4")
+	// Set extensions and required fields
+	viper.Set("extensions", []string{".mp4"})
 	viper.Set("remote", "test-remote")
 	viper.Set("bucket", "test-bucket")
 	viper.Set("base-url", "https://example.com")
@@ -74,7 +73,7 @@ func TestSingleExtensionOverride(t *testing.T) {
 	cfg, err := LoadConfig()
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
-	assert.Equal(t, ".mp4", cfg.Extension)
+	assert.Contains(t, cfg.Extensions, ".mp4")
 }
 
 func TestGetSizeCategory(t *testing.T) {

@@ -1,11 +1,12 @@
 package commands
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
-	"media-toolkit-go/pkg/k6"
+	"media-toolkit-go/pkg/loadtest"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -15,10 +16,29 @@ import (
 func NewLoadTestCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "loadtest",
-		Short: "Run k6 load tests against the media service",
-		Long: `Run k6 load tests against the media service using pre-warming results
-to generate realistic load patterns. Supports various test configurations
-and failure analysis.`,
+		Short: "Run load tests against the media service",
+		Long: `Run comprehensive load tests against the media service using native Go implementation.
+		
+This command reads the pre-warming results and performs staged load testing with configurable
+user counts and durations. It provides detailed metrics including latency percentiles,
+success rates, and per-URL performance data.`,
+		Example: `  # Basic load test
+  media-toolkit loadtest --base-url https://cdn.example.com/ --results-file results.json
+
+  # Custom stages
+  media-toolkit loadtest \
+    --base-url https://cdn.example.com/ \
+    --results-file results.json \
+    --stage1-users 50 --stage1-duration 2m \
+    --stage2-users 100 --stage2-duration 5m \
+    --stage3-users 50 --stage3-duration 2m
+
+  # With error exclusion
+  media-toolkit loadtest \
+    --base-url https://cdn.example.com/ \
+    --results-file results.json \
+    --use-error-report \
+    --error-report-file error_report.md`,
 		RunE: runLoadTest,
 	}
 
@@ -29,43 +49,55 @@ and failure analysis.`,
 func addLoadTestFlags(cmd *cobra.Command) {
 	// Required flags
 	cmd.Flags().String("base-url", "", "Base URL for load testing (required)")
-	cmd.Flags().String("results-file", "media_transform_results.json", "Pre-warming results file")
 	
-	// Load test configuration
-	cmd.Flags().String("k6-script", "video-load-test-integrated-improved.js", "Path to k6 test script")
-	cmd.Flags().String("url-format", "imwidth", "URL format (imwidth, derivative)")
-	cmd.Flags().Bool("debug-mode", false, "Enable debug mode")
-	cmd.Flags().Bool("use-head-requests", true, "Use HEAD requests")
-	cmd.Flags().Bool("skip-large-files", true, "Skip large files in test")
-	cmd.Flags().Int("large-file-threshold-mib", 256, "Threshold for large files in MiB")
-	cmd.Flags().String("request-timeout", "120s", "Request timeout")
-	cmd.Flags().String("head-timeout", "30s", "HEAD request timeout")
-	cmd.Flags().String("global-timeout", "90s", "Global test timeout")
-	cmd.Flags().String("failure-rate-threshold", "0.05", "Max acceptable failure rate")
+	// Input/Output
+	cmd.Flags().String("results-file", "media_transform_results.json", "Pre-warming results file")
+	cmd.Flags().String("output-file", "", "Output file for load test results (default: stdout)")
+	
+	// URL configuration
+	cmd.Flags().String("url-format", "imwidth", "URL format (imwidth, derivative, query)")
+	cmd.Flags().Bool("use-head-requests", false, "Use HEAD requests to check content size")
+	cmd.Flags().Bool("skip-large-files", true, "Skip large files in load test")
+	cmd.Flags().Int("large-file-threshold-mb", 256, "Threshold for large files in MB")
+	
+	// Request configuration
+	cmd.Flags().Duration("request-timeout", 120*time.Second, "Request timeout")
+	cmd.Flags().Duration("head-timeout", 30*time.Second, "HEAD request timeout")
+	cmd.Flags().Duration("connection-close-delay", 15*time.Second, "Connection close delay")
 	cmd.Flags().Int("max-retries", 2, "Max retry attempts")
-	cmd.Flags().Int("connection-close-delay", 15, "Connection close delay")
+	cmd.Flags().Duration("retry-delay", time.Second, "Delay between retries")
 	
 	// Error report integration
 	cmd.Flags().Bool("use-error-report", false, "Use error report to exclude problematic files")
 	cmd.Flags().String("error-report-file", "error_report.json", "Error report file path")
 	
 	// Stage configuration
-	cmd.Flags().Int("stage1-users", 10, "Stage 1 users")
-	cmd.Flags().String("stage1-duration", "30s", "Stage 1 duration")
-	cmd.Flags().Int("stage2-users", 20, "Stage 2 users")
-	cmd.Flags().String("stage2-duration", "1m", "Stage 2 duration")
-	cmd.Flags().Int("stage3-users", 30, "Stage 3 users")
-	cmd.Flags().String("stage3-duration", "30s", "Stage 3 duration")
-	cmd.Flags().Int("stage4-users", 20, "Stage 4 users")
-	cmd.Flags().String("stage4-duration", "1m", "Stage 4 duration")
-	cmd.Flags().Int("stage5-users", 0, "Stage 5 users")
-	cmd.Flags().String("stage5-duration", "30s", "Stage 5 duration")
+	cmd.Flags().Int("stage1-users", 10, "Stage 1 concurrent users")
+	cmd.Flags().Duration("stage1-duration", 30*time.Second, "Stage 1 duration")
+	cmd.Flags().Duration("stage1-rampup", 0, "Stage 1 ramp-up time")
+	
+	cmd.Flags().Int("stage2-users", 20, "Stage 2 concurrent users")
+	cmd.Flags().Duration("stage2-duration", 60*time.Second, "Stage 2 duration")
+	cmd.Flags().Duration("stage2-rampup", 0, "Stage 2 ramp-up time")
+	
+	cmd.Flags().Int("stage3-users", 30, "Stage 3 concurrent users")
+	cmd.Flags().Duration("stage3-duration", 30*time.Second, "Stage 3 duration")
+	cmd.Flags().Duration("stage3-rampup", 0, "Stage 3 ramp-up time")
+	
+	cmd.Flags().Int("stage4-users", 20, "Stage 4 concurrent users")
+	cmd.Flags().Duration("stage4-duration", 60*time.Second, "Stage 4 duration")
+	cmd.Flags().Duration("stage4-rampup", 0, "Stage 4 ramp-up time")
+	
+	cmd.Flags().Int("stage5-users", 0, "Stage 5 concurrent users (0 to disable)")
+	cmd.Flags().Duration("stage5-duration", 30*time.Second, "Stage 5 duration")
+	cmd.Flags().Duration("stage5-rampup", 0, "Stage 5 ramp-up time")
+	
+	// Performance thresholds
+	cmd.Flags().Float64("success-rate-threshold", 95.0, "Minimum acceptable success rate (%)")
+	cmd.Flags().Duration("latency-threshold-p95", 5*time.Second, "Maximum acceptable P95 latency")
 	
 	// Mark required flags
 	cmd.MarkFlagRequired("base-url")
-	
-	// Bind flags to viper
-	viper.BindPFlags(cmd.Flags())
 }
 
 func runLoadTest(cmd *cobra.Command, args []string) error {
@@ -73,106 +105,225 @@ func runLoadTest(cmd *cobra.Command, args []string) error {
 	
 	// Get logger from context
 	logger, ok := ctx.Value("logger").(*zap.Logger)
-	if !ok {
+	if !ok || logger == nil {
 		return fmt.Errorf("logger not found in context")
 	}
 
-	logger.Info("Starting k6 load test process")
+	logger.Info("Starting load test")
 
-	// Execute load testing workflow
-	return executeLoadTest(ctx, logger)
+	// Bind flags to viper
+	viper.BindPFlags(cmd.Flags())
+
+	// Build configuration
+	config := buildLoadTestConfig()
+	
+	// Validate configuration
+	if err := validateLoadTestConfig(config); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	// Create load test runner
+	runner := loadtest.NewRunner(config, logger)
+	defer runner.Close()
+
+	// Load URLs from results file
+	if err := runner.LoadURLs(); err != nil {
+		return fmt.Errorf("failed to load URLs: %w", err)
+	}
+
+	// Run load test
+	logger.Info("Executing load test",
+		zap.Int("stages", len(config.Stages)),
+		zap.String("base_url", config.BaseURL))
+
+	result, err := runner.Run(ctx)
+	if err != nil {
+		return fmt.Errorf("load test failed: %w", err)
+	}
+
+	// Display results
+	if err := displayResults(result, config, logger); err != nil {
+		return fmt.Errorf("failed to display results: %w", err)
+	}
+
+	// Save results if output file specified
+	if outputFile := viper.GetString("output-file"); outputFile != "" {
+		if err := saveResults(result, outputFile); err != nil {
+			return fmt.Errorf("failed to save results: %w", err)
+		}
+		logger.Info("Results saved", zap.String("file", outputFile))
+	}
+
+	// Check thresholds
+	successThreshold := viper.GetFloat64("success-rate-threshold")
+	latencyThreshold := viper.GetDuration("latency-threshold-p95")
+	
+	if result.SuccessRate < successThreshold {
+		logger.Warn("Success rate below threshold",
+			zap.Float64("actual", result.SuccessRate),
+			zap.Float64("threshold", successThreshold))
+	}
+	
+	if result.P95Latency > latencyThreshold {
+		logger.Warn("P95 latency above threshold",
+			zap.Duration("actual", result.P95Latency),
+			zap.Duration("threshold", latencyThreshold))
+	}
+
+	logger.Info("Load test completed successfully")
+	return nil
 }
 
-// executeLoadTest runs the actual load testing logic
-func executeLoadTest(ctx context.Context, logger *zap.Logger) error {
-	// Get configuration values from viper
-	baseURL := viper.GetString("base-url")
-	k6Script := viper.GetString("k6-script")
-	stage1Users := viper.GetInt("stage1-users")
-	stage1Duration := viper.GetString("stage1-duration")
-	maxRetries := viper.GetInt("max-retries")
-	failureRateThreshold := viper.GetString("failure-rate-threshold")
+func buildLoadTestConfig() loadtest.Config {
+	stages := []loadtest.StageConfig{}
 	
-	if baseURL == "" {
-		return fmt.Errorf("base-url is required for load testing")
+	// Build stages based on configuration
+	for i := 1; i <= 5; i++ {
+		users := viper.GetInt(fmt.Sprintf("stage%d-users", i))
+		if users == 0 {
+			continue // Skip stages with 0 users
+		}
+		
+		stage := loadtest.StageConfig{
+			Name:     fmt.Sprintf("Stage %d", i),
+			Users:    users,
+			Duration: viper.GetDuration(fmt.Sprintf("stage%d-duration", i)),
+			RampUp:   viper.GetDuration(fmt.Sprintf("stage%d-rampup", i)),
+		}
+		
+		stages = append(stages, stage)
+	}
+
+	return loadtest.Config{
+		BaseURL:               viper.GetString("base-url"),
+		ResultsFile:           viper.GetString("results-file"),
+		URLFormat:             viper.GetString("url-format"),
+		UseHeadRequests:       viper.GetBool("use-head-requests"),
+		SkipLargeFiles:        viper.GetBool("skip-large-files"),
+		LargeFileThresholdMiB: viper.GetInt("large-file-threshold-mb"),
+		RequestTimeout:        viper.GetDuration("request-timeout"),
+		HeadTimeout:           viper.GetDuration("head-timeout"),
+		ConnectionCloseDelay:  viper.GetDuration("connection-close-delay"),
+		MaxRetries:            viper.GetInt("max-retries"),
+		RetryDelay:            viper.GetDuration("retry-delay"),
+		UseErrorReport:        viper.GetBool("use-error-report"),
+		ErrorReportFile:       viper.GetString("error-report-file"),
+		Stages:                stages,
+	}
+}
+
+func validateLoadTestConfig(config loadtest.Config) error {
+	if config.BaseURL == "" {
+		return fmt.Errorf("base-url is required")
 	}
 	
-	// Create k6 runner
-	runner := k6.NewRunner(logger)
-	
-	// Parse duration
-	duration, err := time.ParseDuration(stage1Duration)
-	if err != nil {
-		duration = 30 * time.Second // Default
+	if len(config.Stages) == 0 {
+		return fmt.Errorf("at least one stage must be configured")
 	}
 	
-	// Configure k6 test
-	testConfig := k6.TestConfig{
-		VirtualUsers:    stage1Users,
-		Duration:        duration,
-		BaseURL:         baseURL,
-		URLsPerVU:       50,
-		MaxResponseTime: 5 * time.Second,
-		MinSuccessRate:  95.0,
-		OutputFormat:    "json",
-		K6ScriptPath:    k6Script,
-		K6Binary:        "k6",
-		Environment:     make(map[string]string),
-	}
-	
-	// Add environment variables
-	testConfig.Environment["BASE_URL"] = baseURL
-	testConfig.Environment["MAX_RETRIES"] = fmt.Sprintf("%d", maxRetries)
-	testConfig.Environment["FAILURE_RATE_THRESHOLD"] = failureRateThreshold
-	testConfig.Environment["REQUEST_TIMEOUT"] = viper.GetString("request-timeout")
-	testConfig.Environment["HEAD_TIMEOUT"] = viper.GetString("head-timeout")
-	testConfig.Environment["GLOBAL_TIMEOUT"] = viper.GetString("global-timeout")
-	testConfig.Environment["CONNECTION_CLOSE_DELAY"] = fmt.Sprintf("%d", viper.GetInt("connection-close-delay"))
-	testConfig.Environment["USE_HEAD_REQUESTS"] = fmt.Sprintf("%t", viper.GetBool("use-head-requests"))
-	testConfig.Environment["SKIP_LARGE_FILES"] = fmt.Sprintf("%t", viper.GetBool("skip-large-files"))
-	testConfig.Environment["LARGE_FILE_THRESHOLD_MIB"] = fmt.Sprintf("%d", viper.GetInt("large-file-threshold-mib"))
-	testConfig.Environment["URL_FORMAT"] = viper.GetString("url-format")
-	testConfig.Environment["DEBUG_MODE"] = fmt.Sprintf("%t", viper.GetBool("debug-mode"))
-	
-	// If error report integration is enabled
-	if viper.GetBool("use-error-report") {
-		testConfig.Environment["ERROR_REPORT_FILE"] = viper.GetString("error-report-file")
-	}
-	
-	// Generate test script if it doesn't exist
-	if k6Script == "video-load-test-integrated-improved.js" {
-		if err := runner.GenerateTestScript(k6Script, testConfig); err != nil {
-			logger.Warn("Failed to generate k6 test script", zap.Error(err))
+	for i, stage := range config.Stages {
+		if stage.Users <= 0 {
+			return fmt.Errorf("stage %d: users must be positive", i+1)
+		}
+		if stage.Duration <= 0 {
+			return fmt.Errorf("stage %d: duration must be positive", i+1)
 		}
 	}
 	
-	// Run the load test
-	logger.Info("Executing k6 load test",
-		zap.String("base_url", baseURL),
-		zap.Int("virtual_users", testConfig.VirtualUsers),
-		zap.Duration("duration", testConfig.Duration),
-		zap.String("script", k6Script))
+	return nil
+}
+
+func displayResults(result *loadtest.Result, config loadtest.Config, logger *zap.Logger) error {
+	fmt.Println("\n🎯 Load Test Results")
+	fmt.Println("═══════════════════════════════════════════════════════════════")
 	
-	result, err := runner.RunTest(ctx, testConfig)
+	// Overall summary
+	fmt.Printf("\n📊 Overall Summary:\n")
+	fmt.Printf("   • Total Duration: %s\n", result.Duration.Round(time.Second))
+	fmt.Printf("   • Total Requests: %d\n", result.TotalRequests)
+	fmt.Printf("   • Successful: %d (%.1f%%)\n", result.SuccessfulRequests, result.SuccessRate)
+	fmt.Printf("   • Failed: %d\n", result.FailedRequests)
+	fmt.Printf("   • Requests/sec: %.1f\n", result.RequestsPerSecond)
+	fmt.Printf("   • Data Transferred: %.2f MB\n", float64(result.BytesReceived)/(1024*1024))
+	
+	// Latency metrics
+	fmt.Printf("\n⏱️  Latency Metrics:\n")
+	fmt.Printf("   • Average: %s\n", result.AverageLatency.Round(time.Millisecond))
+	fmt.Printf("   • Median: %s\n", result.MedianLatency.Round(time.Millisecond))
+	fmt.Printf("   • P95: %s\n", result.P95Latency.Round(time.Millisecond))
+	fmt.Printf("   • P99: %s\n", result.P99Latency.Round(time.Millisecond))
+	
+	// Stage results
+	if len(result.StageResults) > 0 {
+		fmt.Printf("\n📈 Stage Results:\n")
+		for _, stage := range result.StageResults {
+			fmt.Printf("   %s (%d users, %s):\n", stage.Name, stage.Users, stage.Duration.Round(time.Second))
+			fmt.Printf("      • Requests: %d (%.1f/sec)\n", stage.Requests, stage.RequestsPerSecond)
+			fmt.Printf("      • Success Rate: %.1f%%\n", stage.SuccessRate)
+		}
+	}
+	
+	// Status code distribution
+	if len(result.StatusCodes) > 0 {
+		fmt.Printf("\n📊 Status Code Distribution:\n")
+		for code, count := range result.StatusCodes {
+			percentage := float64(count) / float64(result.TotalRequests) * 100
+			fmt.Printf("   • %d: %d (%.1f%%)\n", code, count, percentage)
+		}
+	}
+	
+	// Top errors
+	if len(result.Errors) > 0 {
+		fmt.Printf("\n❌ Top Errors:\n")
+		errorCount := 0
+		for err, count := range result.Errors {
+			if errorCount >= 5 {
+				break
+			}
+			fmt.Printf("   • %s: %d occurrences\n", err, count)
+			errorCount++
+		}
+	}
+	
+	// Problematic URLs
+	problemURLs := []string{}
+	for url, urlResult := range result.URLResults {
+		if urlResult.SuccessRate < 90.0 && urlResult.Requests > 10 {
+			problemURLs = append(problemURLs, url)
+		}
+	}
+	
+	if len(problemURLs) > 0 {
+		fmt.Printf("\n⚠️  Problematic URLs (success rate < 90%%):\n")
+		for i, url := range problemURLs {
+			if i >= 10 {
+				fmt.Printf("   • ... and %d more\n", len(problemURLs)-10)
+				break
+			}
+			urlResult := result.URLResults[url]
+			fmt.Printf("   • %s\n", url)
+			fmt.Printf("     Success Rate: %.1f%%, Avg Latency: %s\n", 
+				urlResult.SuccessRate, urlResult.AverageLatency.Round(time.Millisecond))
+			if urlResult.LastError != "" {
+				fmt.Printf("     Last Error: %s\n", urlResult.LastError)
+			}
+		}
+	}
+	
+	fmt.Println("\n═══════════════════════════════════════════════════════════════")
+	
+	return nil
+}
+
+func saveResults(result *loadtest.Result, outputFile string) error {
+	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
-		logger.Error("Load test failed", zap.Error(err))
-		return fmt.Errorf("k6 load test failed: %w", err)
+		return fmt.Errorf("failed to marshal results: %w", err)
 	}
 	
-	// Log results
-	logger.Info("k6 load test completed",
-		zap.Bool("success", result.Success),
-		zap.Duration("duration", result.Duration),
-		zap.Int64("total_requests", result.Metrics.HTTPRequestsTotal),
-		zap.Float64("success_rate", result.Metrics.SuccessRate),
-		zap.Duration("avg_response_time", result.Metrics.HTTPReqDurationAvg),
-		zap.Duration("p95_response_time", result.Metrics.HTTPReqDurationP95))
-	
-	if !result.Success {
-		logger.Error("Load test failed thresholds", zap.String("error", result.Error))
-		return fmt.Errorf("load test failed: %s", result.Error)
+	if err := os.WriteFile(outputFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write results file: %w", err)
 	}
 	
-	logger.Info("k6 load test process completed successfully")
 	return nil
 }

@@ -117,6 +117,9 @@ run-loadtest: build
 run-analyze: build
 	./$(BINARY_DIR)/$(BINARY_NAME) analyze --help
 
+run-workflow: build
+	./$(BINARY_DIR)/$(BINARY_NAME) workflow --help
+
 # Show version
 version: build
 	./$(BINARY_DIR)/$(BINARY_NAME) version

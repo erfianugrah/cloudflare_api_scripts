@@ -12,7 +12,7 @@ import (
 
 	"media-toolkit-go/pkg/config"
 	"media-toolkit-go/pkg/ffmpeg"
-	"media-toolkit-go/pkg/k6"
+	"media-toolkit-go/pkg/loadtest"
 	"media-toolkit-go/pkg/media"
 	"media-toolkit-go/pkg/reporting"
 	"media-toolkit-go/pkg/stats"
@@ -67,7 +67,7 @@ type WorkflowConfig struct {
 	OptimizationConfig  *OptimizationStageConfig  `json:"optimization_config,omitempty"`
 	ValidationConfig    *ValidationStageConfig    `json:"validation_config,omitempty"`
 	AnalysisConfig      *AnalysisStageConfig      `json:"analysis_config,omitempty"`
-	LoadTestConfig      *k6.TestConfig            `json:"load_test_config,omitempty"`
+	LoadTestConfig      *loadtest.Config          `json:"load_test_config,omitempty"`
 	ReportConfig        *reporting.ReportConfig   `json:"report_config,omitempty"`
 	StorageConfig       *storage.StorageConfig    `json:"storage_config,omitempty"`
 	
@@ -146,7 +146,7 @@ type WorkflowResult struct {
 	// Stage results
 	PrewarmResults      []media.ProcessResult         `json:"prewarm_results,omitempty"`
 	OptimizationResults []ffmpeg.OptimizationResult   `json:"optimization_results,omitempty"`
-	LoadTestResults     []k6.TestResult               `json:"load_test_results,omitempty"`
+	LoadTestResults     []loadtest.Result             `json:"load_test_results,omitempty"`
 	ValidationResults   []ValidationResult            `json:"validation_results,omitempty"`
 	
 	// Counters
@@ -189,7 +189,6 @@ type Coordinator struct {
 	// Optional components
 	videoOptimizer *ffmpeg.VideoOptimizer
 	metadataExtractor *ffmpeg.MetadataExtractor
-	k6Runner       *k6.Runner
 	reportGenerator *reporting.Generator
 	
 	// Configuration
@@ -227,7 +226,6 @@ func NewCoordinator(
 		// Initialize optional components
 		videoOptimizer:    ffmpeg.NewVideoOptimizer(logger),
 		metadataExtractor: ffmpeg.NewMetadataExtractor(logger),
-		k6Runner:          k6.NewRunner(logger),
 		reportGenerator:   reporting.NewGenerator(logger),
 	}
 }
@@ -605,7 +603,16 @@ func (c *Coordinator) executeLoadTestWorkflow(workflowConfig WorkflowConfig, res
 		return fmt.Errorf("load test configuration is required")
 	}
 	
-	testResult, err := c.k6Runner.RunTest(c.ctx, *workflowConfig.LoadTestConfig)
+	// Create a new runner with the provided config
+	runner := loadtest.NewRunner(*workflowConfig.LoadTestConfig, c.logger)
+	defer runner.Close()
+	
+	// Load URLs from results file
+	if err := runner.LoadURLs(); err != nil {
+		return fmt.Errorf("failed to load URLs: %w", err)
+	}
+	
+	testResult, err := runner.Run(c.ctx)
 	if err != nil {
 		return fmt.Errorf("load test failed: %w", err)
 	}

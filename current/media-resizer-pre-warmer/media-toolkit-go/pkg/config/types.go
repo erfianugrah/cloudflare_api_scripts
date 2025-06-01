@@ -113,10 +113,9 @@ type ValidationConfig struct {
 	VideoPattern      string `mapstructure:"video-pattern"`
 }
 
-// LoadTestConfig defines k6 load testing settings
+// LoadTestConfig defines load testing settings
 type LoadTestConfig struct {
 	RunLoadTest                  bool   `mapstructure:"run-load-test"`
-	K6Script                     string `mapstructure:"k6-script"`
 	URLFormat                    string `mapstructure:"url-format"`
 	DebugMode                    bool   `mapstructure:"debug-mode"`
 	UseHeadRequests              bool   `mapstructure:"use-head-requests"`

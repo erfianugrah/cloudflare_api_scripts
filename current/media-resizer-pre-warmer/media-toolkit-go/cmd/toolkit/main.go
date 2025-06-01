@@ -41,7 +41,7 @@ func main() {
 - Analyzing file sizes in remote storage  
 - Optimizing video files using FFmpeg
 - Testing image resizer variants and transformations
-- Load testing with k6`,
+- Native load testing with detailed performance metrics`,
 		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Initialize logging before running any command
@@ -69,6 +69,7 @@ func main() {
 	rootCmd.AddCommand(commands.NewValidateCommand())
 	rootCmd.AddCommand(commands.NewLoadTestCommand())
 	rootCmd.AddCommand(commands.NewAnalyzeCommand())
+	rootCmd.AddCommand(commands.NewEnhancedWorkflowCommand())
 	rootCmd.AddCommand(commands.NewVersionCommand(version, commit, date))
 
 	// Set context

@@ -59,7 +59,7 @@ temp/
 # FFmpeg temp files
 ffmpeg_*
 
-# k6 output files
-k6_results_*
+# Load test output files
+load_test_results_*
 .claude
 *CLAUDE*
