@@ -63,3 +63,4 @@ ffmpeg_*
 load_test_results_*
 .claude
 *CLAUDE*
+workflow-results
