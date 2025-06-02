@@ -75,6 +75,10 @@ type EnhancedWorkflowConfig struct {
 	Stage2Duration       string
 	Stage3Users          int
 	Stage3Duration       string
+	Stage4Users          int
+	Stage4Duration       string
+	Stage5Users          int
+	Stage5Duration       string
 	UseErrorReport       bool
 	SkipLargeFiles       bool
 	LargeFileThresholdMB int
@@ -224,6 +228,10 @@ func addEnhancedWorkflowFlags(cmd *cobra.Command) {
 	cmd.Flags().String("stage2-duration", "", "Stage 2 duration")
 	cmd.Flags().Int("stage3-users", 0, "Stage 3 users")
 	cmd.Flags().String("stage3-duration", "", "Stage 3 duration")
+	cmd.Flags().Int("stage4-users", 0, "Stage 4 users")
+	cmd.Flags().String("stage4-duration", "", "Stage 4 duration")
+	cmd.Flags().Int("stage5-users", 0, "Stage 5 users (0 to disable)")
+	cmd.Flags().String("stage5-duration", "", "Stage 5 duration")
 	cmd.Flags().Bool("skip-large-files", true, "Skip large files in load test")
 	cmd.Flags().Int("large-file-threshold-mb", 256, "Threshold for large files in MB")
 	cmd.Flags().String("request-timeout", "120s", "Request timeout for load test")
@@ -365,6 +373,10 @@ func buildEnhancedConfig() *EnhancedWorkflowConfig {
 		Stage2Duration:       viper.GetString("stage2-duration"),
 		Stage3Users:          viper.GetInt("stage3-users"),
 		Stage3Duration:       viper.GetString("stage3-duration"),
+		Stage4Users:          viper.GetInt("stage4-users"),
+		Stage4Duration:       viper.GetString("stage4-duration"),
+		Stage5Users:          viper.GetInt("stage5-users"),
+		Stage5Duration:       viper.GetString("stage5-duration"),
 		UseErrorReport:       true,
 		SkipLargeFiles:       viper.GetBool("skip-large-files"),
 		LargeFileThresholdMB: viper.GetInt("large-file-threshold-mb"),
@@ -430,6 +442,16 @@ func buildEnhancedConfig() *EnhancedWorkflowConfig {
 	}
 	if cfg.Stage3Duration == "" {
 		cfg.Stage3Duration = "1m"
+	}
+	if cfg.Stage4Users == 0 {
+		cfg.Stage4Users = cfg.LoadTestUsers * 2 / 3
+	}
+	if cfg.Stage4Duration == "" {
+		cfg.Stage4Duration = "1m"
+	}
+	// Stage 5 is optional, so we only set duration if users > 0
+	if cfg.Stage5Users > 0 && cfg.Stage5Duration == "" {
+		cfg.Stage5Duration = "30s"
 	}
 
 	return cfg
@@ -858,7 +880,16 @@ func buildLoadTestArgs(cfg *EnhancedWorkflowConfig) []string {
 		"--stage2-duration", cfg.Stage2Duration,
 		"--stage3-users", fmt.Sprintf("%d", cfg.Stage3Users),
 		"--stage3-duration", cfg.Stage3Duration,
+		"--stage4-users", fmt.Sprintf("%d", cfg.Stage4Users),
+		"--stage4-duration", cfg.Stage4Duration,
 		"--request-timeout", cfg.RequestTimeout,
+	}
+	
+	// Only add stage5 parameters if they have values
+	if cfg.Stage5Duration != "" {
+		args = append(args, 
+			"--stage5-users", fmt.Sprintf("%d", cfg.Stage5Users),
+			"--stage5-duration", cfg.Stage5Duration)
 	}
 
 	if cfg.UseErrorReport {
