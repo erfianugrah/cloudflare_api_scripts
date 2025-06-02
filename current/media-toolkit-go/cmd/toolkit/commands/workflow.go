@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	
+	"media-toolkit-go/pkg/storage"
 )
 
 // WorkflowStage represents a stage in the workflow
@@ -39,6 +41,9 @@ type EnhancedWorkflowConfig struct {
 	Extensions    []string
 	Derivatives   []string
 	ImageVariants []string
+
+	// File list cache
+	FileListCache *storage.FileListCache
 
 	// Pre-warm configuration
 	Workers                int
@@ -265,6 +270,13 @@ func runEnhancedWorkflow(cmd *cobra.Command, args []string) error {
 
 	// Build comprehensive configuration
 	cfg := buildEnhancedConfig()
+
+	// Initialize file list cache with 15 minute TTL
+	cfg.FileListCache = storage.NewFileListCache(
+		filepath.Join(cfg.OutputDir, "workflow-results"),
+		15*time.Minute,
+		logger,
+	)
 
 	// Validate configuration
 	if err := validateEnhancedConfig(cfg); err != nil {
@@ -679,7 +691,10 @@ func executeEnhancedWorkflow(ctx context.Context, cfg *EnhancedWorkflowConfig, s
 // Stage execution functions
 func executeEnhancedAnalysisStage(ctx context.Context, cfg *EnhancedWorkflowConfig, logger *zap.Logger) error {
 	cmd := NewAnalyzeCommand()
-	cmd.SetContext(ctx)
+	
+	// Create a new context with the file list cache
+	ctxWithCache := context.WithValue(ctx, "fileListCache", cfg.FileListCache)
+	cmd.SetContext(ctxWithCache)
 
 	args := buildAnalysisArgs(cfg)
 	if err := cmd.ParseFlags(args); err != nil {
@@ -691,7 +706,10 @@ func executeEnhancedAnalysisStage(ctx context.Context, cfg *EnhancedWorkflowConf
 
 func executeEnhancedPrewarmStage(ctx context.Context, cfg *EnhancedWorkflowConfig, logger *zap.Logger) error {
 	cmd := NewPrewarmCommand()
-	cmd.SetContext(ctx)
+	
+	// Create a new context with the file list cache
+	ctxWithCache := context.WithValue(ctx, "fileListCache", cfg.FileListCache)
+	cmd.SetContext(ctxWithCache)
 
 	args := buildPrewarmArgs(cfg)
 	if err := cmd.ParseFlags(args); err != nil {

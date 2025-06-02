@@ -94,6 +94,11 @@ func executeAnalysisWorkflow(ctx context.Context, logger *zap.Logger) error {
 		return fmt.Errorf("failed to build configuration: %w", err)
 	}
 
+	// Get file list cache from context if available
+	if cache, ok := ctx.Value("fileListCache").(*storage.FileListCache); ok && cache != nil {
+		cfg.FileListCache = cache
+	}
+
 	// Validate configuration
 	if err := validateAnalysisConfig(cfg); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
@@ -177,6 +182,9 @@ type AnalysisConfig struct {
 	ComparisonOutput   string
 	SummaryOutput      string
 	SummaryFormat      string
+	
+	// File list cache
+	FileListCache      *storage.FileListCache
 }
 
 // FileAnalysis represents analysis results for files
@@ -291,6 +299,15 @@ func listFilesForAnalysis(ctx context.Context, storageClient storage.Storage, cf
 		zap.String("bucket", cfg.Bucket),
 		zap.String("directory", cfg.Directory))
 
+	// Check cache first if available
+	if cfg.FileListCache != nil {
+		cached, found := cfg.FileListCache.Get(cfg.Remote, cfg.Bucket, cfg.Directory, cfg.Extensions)
+		if found {
+			logger.Info("Using cached file listing", zap.Int("file_count", len(cached.Files)))
+			return cached.Files, nil
+		}
+	}
+
 	objects, err := storageClient.ListObjects(ctx, storage.ListRequest{
 		Bucket:    cfg.Bucket,
 		Directory: cfg.Directory,
@@ -298,6 +315,13 @@ func listFilesForAnalysis(ctx context.Context, storageClient storage.Storage, cf
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list files: %w", err)
+	}
+
+	// Cache the results if cache is available
+	if cfg.FileListCache != nil {
+		if err := cfg.FileListCache.Set(cfg.Remote, cfg.Bucket, cfg.Directory, nil, objects); err != nil {
+			logger.Warn("Failed to cache file listing", zap.Error(err))
+		}
 	}
 
 	// Determine extensions to filter by

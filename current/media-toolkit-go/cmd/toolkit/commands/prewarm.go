@@ -145,6 +145,11 @@ func validatePrewarmFlags(cfg *config.Config) error {
 
 // executePrewarmingWorkflow runs the actual pre-warming logic
 func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *zap.Logger) error {
+	// Get file list cache from context if available
+	var fileListCache *storage.FileListCache
+	if cache, ok := ctx.Value("fileListCache").(*storage.FileListCache); ok && cache != nil {
+		fileListCache = cache
+	}
 	// 1. Create storage client
 	var storageClient storage.Storage
 	var err error
@@ -246,6 +251,11 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 		logger,
 	)
 	defer coordinator.Shutdown()
+	
+	// Set file list cache if available
+	if fileListCache != nil {
+		coordinator.SetFileListCache(fileListCache)
+	}
 	
 	// 7. Configure and execute workflow
 	workflowConfig := orchestrator.WorkflowConfig{

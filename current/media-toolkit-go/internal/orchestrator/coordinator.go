@@ -200,6 +200,9 @@ type Coordinator struct {
 	cancel        context.CancelFunc
 	running       bool
 	runningMutex  sync.RWMutex
+	
+	// File list cache
+	fileListCache *storage.FileListCache
 }
 
 // NewCoordinator creates a new workflow coordinator
@@ -213,7 +216,7 @@ func NewCoordinator(
 ) *Coordinator {
 	ctx, cancel := context.WithCancel(context.Background())
 	
-	return &Coordinator{
+	coordinator := &Coordinator{
 		storage:        storage,
 		mediaProcessor: mediaProcessor,
 		workerPool:     workerPool,
@@ -228,6 +231,13 @@ func NewCoordinator(
 		metadataExtractor: ffmpeg.NewMetadataExtractor(logger),
 		reportGenerator:   reporting.NewGenerator(logger),
 	}
+	
+	return coordinator
+}
+
+// SetFileListCache sets the file list cache for the coordinator
+func (c *Coordinator) SetFileListCache(cache *storage.FileListCache) {
+	c.fileListCache = cache
 }
 
 // ExecuteWorkflow executes the specified workflow
@@ -344,9 +354,31 @@ func (c *Coordinator) executePrewarmWorkflow(workflowConfig WorkflowConfig, resu
 		zap.Bool("get_sizes", listReq.GetSizes),
 		zap.Strings("extensions", listReq.Extensions))
 	
-	objects, err := c.storage.ListObjects(c.ctx, listReq)
-	if err != nil {
-		return fmt.Errorf("failed to list objects: %w", err)
+	var objects []storage.FileInfo
+	
+	// Check cache first if available
+	if c.fileListCache != nil {
+		cached, found := c.fileListCache.Get(c.appConfig.Remote, listReq.Bucket, listReq.Directory, listReq.Extensions)
+		if found {
+			c.logger.Info("Using cached file listing", zap.Int("file_count", len(cached.Files)))
+			objects = cached.Files
+		}
+	}
+	
+	// If not in cache, fetch from storage
+	if objects == nil {
+		var err error
+		objects, err = c.storage.ListObjects(c.ctx, listReq)
+		if err != nil {
+			return fmt.Errorf("failed to list objects: %w", err)
+		}
+		
+		// Cache the results if cache is available
+		if c.fileListCache != nil {
+			if err := c.fileListCache.Set(c.appConfig.Remote, listReq.Bucket, listReq.Directory, listReq.Extensions, objects); err != nil {
+				c.logger.Warn("Failed to cache file listing", zap.Error(err))
+			}
+		}
 	}
 	
 	c.logger.Info("Retrieved objects for processing", zap.Int("count", len(objects)))
