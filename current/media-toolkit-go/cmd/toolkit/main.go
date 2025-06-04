@@ -10,6 +10,7 @@ import (
 	"media-toolkit-go/cmd/toolkit/commands"
 	"media-toolkit-go/pkg/config"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -51,6 +52,10 @@ func main() {
 				return fmt.Errorf("failed to setup logging: %w", err)
 			}
 			
+			// Bind dry-run flag to viper
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			viper.Set("dry-run", dryRun)
+			
 			// Store logger in context
 			ctx = context.WithValue(ctx, "logger", logger)
 			cmd.SetContext(ctx)
@@ -62,6 +67,7 @@ func main() {
 	// Add global flags
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose logging")
 	rootCmd.PersistentFlags().String("config", "", "Path to config file")
+	rootCmd.PersistentFlags().Bool("dry-run", false, "Run in dry-run mode (no actual changes will be made)")
 
 	// Add commands
 	rootCmd.AddCommand(commands.NewPrewarmCommand())

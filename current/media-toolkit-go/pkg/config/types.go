@@ -143,6 +143,9 @@ type LoadTestConfig struct {
 
 // Config represents the complete application configuration
 type Config struct {
+	// Global options
+	DryRun bool `mapstructure:"dry-run"`
+	
 	// Workflow options
 	ForcePrewarm                bool `mapstructure:"force-prewarm"`
 	UseErrorReportForLoadTest   bool `mapstructure:"use-error-report-for-load-test"`

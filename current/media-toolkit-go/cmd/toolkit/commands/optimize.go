@@ -85,6 +85,7 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 	remote := viper.GetString("remote")
 	bucket := viper.GetString("bucket")
 	directory := viper.GetString("directory")
+	dryRun := viper.GetBool("dry-run")
 	
 	if remote == "" || bucket == "" {
 		return fmt.Errorf("remote and bucket are required for optimization")
@@ -174,12 +175,18 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 		return nil
 	}
 	
+	if dryRun {
+		logger.Info("Running in dry-run mode - no files will be modified")
+	}
+	
 	// Create working directory
 	workDir := "./temp_optimization"
-	if err := os.MkdirAll(workDir, 0755); err != nil {
-		return fmt.Errorf("failed to create working directory: %w", err)
+	if !dryRun {
+		if err := os.MkdirAll(workDir, 0755); err != nil {
+			return fmt.Errorf("failed to create working directory: %w", err)
+		}
+		defer os.RemoveAll(workDir)
 	}
-	defer os.RemoveAll(workDir)
 	
 	// Process files
 	var results []ffmpeg.OptimizationResult
@@ -195,9 +202,16 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 		// Download file for processing
 		localPath := fmt.Sprintf("%s/%s", workDir, strings.ReplaceAll(videoFile.Path, "/", "_"))
 		remotePath := fmt.Sprintf("%s/%s", bucket, videoFile.Path)
-		if err := storageClient.DownloadObject(ctx, remotePath, localPath); err != nil {
-			logger.Error("Failed to download file", zap.String("file", videoFile.Path), zap.Error(err))
-			continue
+		
+		if dryRun {
+			logger.Info("[DRY-RUN] Would download file",
+				zap.String("remote", remotePath),
+				zap.String("local", localPath))
+		} else {
+			if err := storageClient.DownloadObject(ctx, remotePath, localPath); err != nil {
+				logger.Error("Failed to download file", zap.String("file", videoFile.Path), zap.Error(err))
+				continue
+			}
 		}
 		
 		// Create output path
@@ -209,17 +223,38 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 		}
 		
 		// Optimize the video
-		result, err := optimizer.OptimizeVideo(ctx, localPath, outputPath, optimizationConfig)
-		if err != nil {
-			logger.Error("Failed to optimize video", zap.String("file", videoFile.Path), zap.Error(err))
+		var result *ffmpeg.OptimizationResult
+		if dryRun {
+			logger.Info("[DRY-RUN] Would optimize video",
+				zap.String("input", localPath),
+				zap.String("output", outputPath),
+				zap.String("codec", viper.GetString("codec")),
+				zap.String("format", viper.GetString("output-format")))
+			
+			// Create simulated result for dry-run
 			result = &ffmpeg.OptimizationResult{
-				InputFile:    localPath,
-				OutputFile:   outputPath,
-				Success:      false,
-				Error:        err.Error(),
-				OriginalSize: videoFile.Size,
-				StartTime:    time.Now(),
-				EndTime:      time.Now(),
+				InputFile:        localPath,
+				OutputFile:       outputPath,
+				Success:          true,
+				OriginalSize:     videoFile.Size,
+				OptimizedSize:    int64(float64(videoFile.Size) * 0.7), // Estimate 30% reduction
+				SizeReductionPct: 30.0,
+				StartTime:        time.Now(),
+				EndTime:          time.Now(),
+			}
+		} else {
+			result, err = optimizer.OptimizeVideo(ctx, localPath, outputPath, optimizationConfig)
+			if err != nil {
+				logger.Error("Failed to optimize video", zap.String("file", videoFile.Path), zap.Error(err))
+				result = &ffmpeg.OptimizationResult{
+					InputFile:    localPath,
+					OutputFile:   outputPath,
+					Success:      false,
+					Error:        err.Error(),
+					OriginalSize: videoFile.Size,
+					StartTime:    time.Now(),
+					EndTime:      time.Now(),
+				}
 			}
 		}
 		
@@ -235,28 +270,41 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 			}
 			
 			remoteUploadPath := fmt.Sprintf("%s/%s", bucket, uploadPath)
-			if err := storageClient.UploadObject(ctx, outputPath, remoteUploadPath); err != nil {
-				logger.Error("Failed to upload optimized file", 
+			if dryRun {
+				logger.Info("[DRY-RUN] Would upload optimized file",
 					zap.String("local", outputPath),
 					zap.String("remote", remoteUploadPath),
-					zap.Error(err))
+					zap.Int64("estimated_size_mb", result.OptimizedSize/(1024*1024)))
 			} else {
-				logger.Info("Uploaded optimized file",
-					zap.String("remote", uploadPath),
-					zap.Int64("original_size_mb", result.OriginalSize/(1024*1024)),
-					zap.Int64("optimized_size_mb", result.OptimizedSize/(1024*1024)),
-					zap.Float64("reduction_pct", result.SizeReductionPct))
+				if err := storageClient.UploadObject(ctx, outputPath, remoteUploadPath); err != nil {
+					logger.Error("Failed to upload optimized file", 
+						zap.String("local", outputPath),
+						zap.String("remote", remoteUploadPath),
+						zap.Error(err))
+				} else {
+					logger.Info("Uploaded optimized file",
+						zap.String("remote", uploadPath),
+						zap.Int64("original_size_mb", result.OriginalSize/(1024*1024)),
+						zap.Int64("optimized_size_mb", result.OptimizedSize/(1024*1024)),
+						zap.Float64("reduction_pct", result.SizeReductionPct))
+				}
 			}
 		}
 		
 		// Clean up local files
-		os.Remove(localPath)
-		os.Remove(outputPath)
+		if !dryRun {
+			os.Remove(localPath)
+			os.Remove(outputPath)
+		}
 	}
 	
 	// Generate optimization report
-	if err := generateOptimizationReport(results, logger); err != nil {
-		logger.Warn("Failed to generate optimization report", zap.Error(err))
+	if dryRun {
+		logger.Info("[DRY-RUN] Would generate optimization report with", zap.Int("results", len(results)))
+	} else {
+		if err := generateOptimizationReport(results, logger); err != nil {
+			logger.Warn("Failed to generate optimization report", zap.Error(err))
+		}
 	}
 	
 	// Log summary

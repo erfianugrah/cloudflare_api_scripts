@@ -57,6 +57,7 @@ type RequestOption func(*requestConfig)
 type requestConfig struct {
 	headers map[string]string
 	timeout time.Duration
+	dryRun  bool
 }
 
 // WithHeader adds a header to the request
@@ -73,6 +74,13 @@ func WithHeader(key, value string) RequestOption {
 func WithTimeout(timeout time.Duration) RequestOption {
 	return func(cfg *requestConfig) {
 		cfg.timeout = timeout
+	}
+}
+
+// WithDryRun enables dry-run mode for the request
+func WithDryRun(dryRun bool) RequestOption {
+	return func(cfg *requestConfig) {
+		cfg.dryRun = dryRun
 	}
 }
 
@@ -149,6 +157,27 @@ func (c *HTTPClient) doRequest(ctx context.Context, method, url string, opts ...
 	response := &Response{
 		Method: method,
 		URL:    url,
+	}
+
+	// Check for dry-run mode
+	if reqConfig.dryRun {
+		c.logger.Info("[DRY-RUN] Would make HTTP request",
+			zap.String("method", method),
+			zap.String("url", url))
+		
+		// Return a mock successful response
+		return &Response{
+			StatusCode:    200,
+			Status:        "200 OK (dry-run)",
+			Headers:       make(http.Header),
+			Body:          []byte("dry-run mode - no actual request made"),
+			ContentLength: 0,
+			TTFB:          0,
+			TotalTime:     0,
+			Method:        method,
+			URL:           url,
+			Retries:       0,
+		}, nil
 	}
 
 	var lastErr error

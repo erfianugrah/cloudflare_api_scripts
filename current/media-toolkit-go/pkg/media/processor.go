@@ -39,6 +39,7 @@ type ProcessConfig struct {
 	URLFormat       string
 	Timeout         time.Duration
 	UseHeadRequest  bool
+	DryRun          bool
 }
 
 // ProcessResult represents the result of processing media
@@ -92,7 +93,7 @@ func (p *Processor) ProcessMedia(ctx context.Context, metadata *config.FileMetad
 
 // processImage processes an image file
 func (p *Processor) processImage(ctx context.Context, metadata *config.FileMetadata, cfg ProcessConfig) (*ProcessResult, error) {
-	imageResult, err := p.imageProcessor.ProcessImage(ctx, metadata, cfg.BaseURL, cfg.ImageVariants, cfg.Timeout, cfg.UseHeadRequest)
+	imageResult, err := p.imageProcessor.ProcessImage(ctx, metadata, cfg.BaseURL, cfg.ImageVariants, cfg.Timeout, cfg.UseHeadRequest, cfg.DryRun)
 	if err != nil {
 		return nil, err
 	}
@@ -116,10 +117,10 @@ func (p *Processor) processVideo(ctx context.Context, metadata *config.FileMetad
 
 	if len(cfg.VideoDerivatives) == 0 {
 		// Process without derivatives
-		videoResult, err = p.videoProcessor.ProcessVideoWithoutDerivatives(ctx, metadata, cfg.BaseURL, cfg.Timeout, cfg.UseHeadRequest)
+		videoResult, err = p.videoProcessor.ProcessVideoWithoutDerivatives(ctx, metadata, cfg.BaseURL, cfg.Timeout, cfg.UseHeadRequest, cfg.DryRun)
 	} else {
 		// Process with derivatives
-		videoResult, err = p.videoProcessor.ProcessVideo(ctx, metadata, cfg.BaseURL, cfg.VideoDerivatives, cfg.URLFormat, cfg.Timeout, cfg.UseHeadRequest)
+		videoResult, err = p.videoProcessor.ProcessVideo(ctx, metadata, cfg.BaseURL, cfg.VideoDerivatives, cfg.URLFormat, cfg.Timeout, cfg.UseHeadRequest, cfg.DryRun)
 	}
 
 	if err != nil {

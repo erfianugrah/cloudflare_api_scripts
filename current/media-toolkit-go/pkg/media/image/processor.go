@@ -58,7 +58,7 @@ type ProcessResult struct {
 }
 
 // ProcessImage processes a single image with all specified variants
-func (p *Processor) ProcessImage(ctx context.Context, metadata *config.FileMetadata, baseURL string, variants []string, timeout time.Duration, useHeadRequest bool) (*ProcessResult, error) {
+func (p *Processor) ProcessImage(ctx context.Context, metadata *config.FileMetadata, baseURL string, variants []string, timeout time.Duration, useHeadRequest bool, dryRun bool) (*ProcessResult, error) {
 	metadata.StartProcessing()
 	defer metadata.CompleteProcessing()
 
@@ -85,7 +85,7 @@ func (p *Processor) ProcessImage(ctx context.Context, metadata *config.FileMetad
 	for variantName, variant := range variantMap {
 		metadata.StartDerivativeProcessing(variantName)
 		
-		requestResult, err := p.processVariant(ctx, metadata, variant, baseURL, timeout, useHeadRequest)
+		requestResult, err := p.processVariant(ctx, metadata, variant, baseURL, timeout, useHeadRequest, dryRun)
 		if err != nil {
 			p.logger.Warn("Failed to process variant", 
 				zap.String("variant", variantName), 
@@ -128,7 +128,7 @@ func (p *Processor) ProcessImage(ctx context.Context, metadata *config.FileMetad
 }
 
 // processVariant processes a single image variant
-func (p *Processor) processVariant(ctx context.Context, metadata *config.FileMetadata, variant *Variant, baseURL string, timeout time.Duration, useHeadRequest bool) (*RequestResult, error) {
+func (p *Processor) processVariant(ctx context.Context, metadata *config.FileMetadata, variant *Variant, baseURL string, timeout time.Duration, useHeadRequest bool, dryRun bool) (*RequestResult, error) {
 	// Generate URL for this variant
 	url, err := variant.GenerateURL(baseURL, metadata.Path)
 	if err != nil {
@@ -148,6 +148,9 @@ func (p *Processor) processVariant(ctx context.Context, metadata *config.FileMet
 	var opts []httpclient.RequestOption
 	if timeout > 0 {
 		opts = append(opts, httpclient.WithTimeout(timeout))
+	}
+	if dryRun {
+		opts = append(opts, httpclient.WithDryRun(true))
 	}
 
 	// Try HEAD request first if enabled

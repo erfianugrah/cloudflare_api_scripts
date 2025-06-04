@@ -75,6 +75,7 @@ type WorkflowConfig struct {
 	ContinueOnError     bool              `json:"continue_on_error"`
 	MaxRetries          int               `json:"max_retries"`
 	RetryDelay          time.Duration     `json:"retry_delay"`
+	DryRun              bool              `json:"dry_run"`
 }
 
 // PrewarmStageConfig configures the pre-warming stage
@@ -402,6 +403,7 @@ func (c *Coordinator) executePrewarmWorkflow(workflowConfig WorkflowConfig, resu
 		URLFormat:       workflowConfig.PrewarmConfig.URLFormat,
 		Timeout:         workflowConfig.PrewarmConfig.Timeout,
 		UseHeadRequest:  workflowConfig.PrewarmConfig.UseHeadRequest,
+		DryRun:          workflowConfig.DryRun,
 	}
 	
 	// Process files in batches

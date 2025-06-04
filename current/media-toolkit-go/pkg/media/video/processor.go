@@ -59,7 +59,7 @@ type ProcessResult struct {
 }
 
 // ProcessVideo processes a single video with all specified derivatives
-func (p *Processor) ProcessVideo(ctx context.Context, metadata *config.FileMetadata, baseURL string, derivatives []string, urlFormat string, timeout time.Duration, useHeadRequest bool) (*ProcessResult, error) {
+func (p *Processor) ProcessVideo(ctx context.Context, metadata *config.FileMetadata, baseURL string, derivatives []string, urlFormat string, timeout time.Duration, useHeadRequest bool, dryRun bool) (*ProcessResult, error) {
 	metadata.StartProcessing()
 	defer metadata.CompleteProcessing()
 
@@ -87,7 +87,7 @@ func (p *Processor) ProcessVideo(ctx context.Context, metadata *config.FileMetad
 	for derivativeName, derivative := range derivativeMap {
 		metadata.StartDerivativeProcessing(derivativeName)
 		
-		requestResult, err := p.processDerivative(ctx, metadata, derivative, baseURL, urlFormat, timeout, useHeadRequest)
+		requestResult, err := p.processDerivative(ctx, metadata, derivative, baseURL, urlFormat, timeout, useHeadRequest, dryRun)
 		if err != nil {
 			p.logger.Warn("Failed to process derivative", 
 				zap.String("derivative", derivativeName), 
@@ -130,7 +130,7 @@ func (p *Processor) ProcessVideo(ctx context.Context, metadata *config.FileMetad
 }
 
 // ProcessVideoWithoutDerivatives processes a video without derivatives (simple URL request)
-func (p *Processor) ProcessVideoWithoutDerivatives(ctx context.Context, metadata *config.FileMetadata, baseURL string, timeout time.Duration, useHeadRequest bool) (*ProcessResult, error) {
+func (p *Processor) ProcessVideoWithoutDerivatives(ctx context.Context, metadata *config.FileMetadata, baseURL string, timeout time.Duration, useHeadRequest bool, dryRun bool) (*ProcessResult, error) {
 	metadata.StartProcessing()
 	defer metadata.CompleteProcessing()
 
@@ -153,7 +153,7 @@ func (p *Processor) ProcessVideoWithoutDerivatives(ctx context.Context, metadata
 		Height: 720,
 	}
 
-	requestResult, err := p.processDerivative(ctx, metadata, defaultDerivative, baseURL, "simple", timeout, useHeadRequest)
+	requestResult, err := p.processDerivative(ctx, metadata, defaultDerivative, baseURL, "simple", timeout, useHeadRequest, dryRun)
 	if err != nil {
 		p.logger.Warn("Failed to process video", 
 			zap.String("path", metadata.Path),
@@ -184,7 +184,7 @@ func (p *Processor) ProcessVideoWithoutDerivatives(ctx context.Context, metadata
 }
 
 // processDerivative processes a single video derivative
-func (p *Processor) processDerivative(ctx context.Context, metadata *config.FileMetadata, derivative *Derivative, baseURL string, urlFormat string, timeout time.Duration, useHeadRequest bool) (*RequestResult, error) {
+func (p *Processor) processDerivative(ctx context.Context, metadata *config.FileMetadata, derivative *Derivative, baseURL string, urlFormat string, timeout time.Duration, useHeadRequest bool, dryRun bool) (*RequestResult, error) {
 	var url string
 	var err error
 	
@@ -213,6 +213,9 @@ func (p *Processor) processDerivative(ctx context.Context, metadata *config.File
 	var opts []httpclient.RequestOption
 	if timeout > 0 {
 		opts = append(opts, httpclient.WithTimeout(timeout))
+	}
+	if dryRun {
+		opts = append(opts, httpclient.WithDryRun(true))
 	}
 
 	// Try HEAD request first if enabled

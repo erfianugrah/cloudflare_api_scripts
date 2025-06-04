@@ -145,6 +145,10 @@ func validatePrewarmFlags(cfg *config.Config) error {
 
 // executePrewarmingWorkflow runs the actual pre-warming logic
 func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *zap.Logger) error {
+	dryRun := viper.GetBool("dry-run")
+	if dryRun {
+		logger.Info("Running in dry-run mode - no HTTP requests will be made")
+	}
 	// Get file list cache from context if available
 	var fileListCache *storage.FileListCache
 	if cache, ok := ctx.Value("fileListCache").(*storage.FileListCache); ok && cache != nil {
@@ -265,6 +269,7 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 		ContinueOnError:     true,
 		MaxRetries:          cfg.Retry,
 		RetryDelay:          5 * time.Second,
+		DryRun:              dryRun,
 		PrewarmConfig: &orchestrator.PrewarmStageConfig{
 			MediaType:        cfg.MediaType,
 			ImageVariants:    cfg.ImageVariants,
@@ -298,8 +303,12 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 	
 	// 10. Save JSON results if specified
 	if cfg.Output != "" {
-		if err := saveResultsToJSON(result, cfg.Output, logger); err != nil {
-			logger.Warn("Failed to save results to JSON", zap.Error(err))
+		if dryRun {
+			logger.Info("[DRY-RUN] Would save results to JSON", zap.String("path", cfg.Output))
+		} else {
+			if err := saveResultsToJSON(result, cfg.Output, logger); err != nil {
+				logger.Warn("Failed to save results to JSON", zap.Error(err))
+			}
 		}
 	}
 	
