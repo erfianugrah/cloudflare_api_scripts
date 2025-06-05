@@ -167,6 +167,7 @@ type Config struct {
 	Timeout              int       `mapstructure:"timeout"`
 	ConnectionCloseDelay int       `mapstructure:"connection-close-delay"`
 	Retry                int       `mapstructure:"retry"`
+	QueueMultiplier      float64   `mapstructure:"queue-multiplier"`
 	UseHeadForSize       bool      `mapstructure:"use-head-for-size"`
 	GenerateErrorReport  bool      `mapstructure:"generate-error-report"`
 	ErrorReportOutput    string    `mapstructure:"error-report-output"`

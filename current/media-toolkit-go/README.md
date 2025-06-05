@@ -52,6 +52,7 @@ This Go implementation provides significant enhancements over traditional soluti
 - 🏗️ **Modular Architecture**: Clean interfaces with dependency injection
 - ⚡ **Native Performance**: Direct system calls without interpreter overhead
 - 🛡️ **Production Ready**: Structured logging, graceful shutdown, comprehensive error handling
+- 📊 **Advanced Queue Management**: Batch processing, dynamic sizing, and exponential backoff prevent queue overflow issues
 
 ## Architecture
 
@@ -89,7 +90,12 @@ media-toolkit-go/
 
 - **Storage Layer**: Unified interface supporting rclone (40+ providers), AWS SDK, and local filesystem
 - **HTTP Client**: Production-ready with connection pooling, retries, and configurable delays
-- **Worker Pool**: Size-based allocation for small (≤50MB), medium (50-300MB), and large (>300MB) files
+- **Worker Pool**: Advanced queue management with:
+  - Size-based allocation for small (≤50MB), medium (50-300MB), and large (>300MB) files
+  - Dynamic queue sizing with configurable multiplier
+  - Batch processing to prevent queue overflow
+  - Exponential backoff with jitter for retries
+  - Real-time queue monitoring and diagnostics
 - **Statistics**: Memory-efficient streaming algorithms with O(1) memory usage
 - **Orchestrator**: Pipeline management with stage coordination and error recovery
 - **Load Testing**: Native Go implementation replacing external dependencies
@@ -237,6 +243,7 @@ The workflow includes:
 - `--large-file-workers`: Workers for large files (0=auto)
 - `--small-file-threshold`: Threshold in MiB for small files [default: 50]
 - `--medium-file-threshold`: Threshold in MiB for medium files [default: 200]
+- `--queue-multiplier`: Queue size multiplier (queue_size = workers * multiplier) [default: 3.0]
 - `--use-head-for-size`: Use HEAD requests for size verification
 - `--url-format`: URL format (imwidth, derivative, query) [default: "imwidth"]
 - `--limit`: Limit number of files to process (0=no limit)
@@ -419,6 +426,7 @@ media-toolkit prewarm [flags]
 - `--large-file-workers`: Workers for large files (0 = auto)
 - `--small-file-threshold`: Threshold in MiB for small files [default: 50]
 - `--medium-file-threshold`: Threshold in MiB for medium files [default: 200]
+- `--queue-multiplier`: Queue size multiplier (queue_size = workers * multiplier) [default: 3.0]
 
 **Examples:**
 
@@ -456,6 +464,16 @@ media-toolkit prewarm \
   --base-url https://cdn.example.com/ \
   --extensions .mp4,.mov \
   --workers 100
+
+# High-volume pre-warming (10,000+ files)
+media-toolkit prewarm \
+  --remote r2 \
+  --bucket large-media \
+  --base-url https://cdn.example.com/ \
+  --workers 3000 \
+  --queue-multiplier 10.0 \
+  --optimize-by-size \
+  --timeout 300
 ```
 
 ### `analyze` - File Analysis
@@ -1060,12 +1078,18 @@ The toolkit uses intelligent worker allocation based on file sizes:
    - Scale: +250-500 based on error rate
    - Max: 5000 workers (with adequate resources)
 
-2. **Timeout Configuration**:
+2. **Queue Management**:
+   - Default queue size: workers × 3
+   - Increase for large file sets: `--queue-multiplier 10.0`
+   - Batch processing prevents queue overflow
+   - Monitor queue status in error logs
+
+3. **Timeout Configuration**:
    - Small files: 120s
    - Medium files: 240s
    - Large files: 300-600s
 
-3. **Connection Management**:
+4. **Connection Management**:
    - `--connection-close-delay 15`: Reuse connections
    - `--retry 2`: Handle transient failures
    - Monitor connection pool metrics
@@ -1283,9 +1307,11 @@ media-toolkit prewarm \
    - Check server capacity
 
 2. **Queue Full Errors**
-   - Reduce total workers
-   - Adjust size-based allocation
-   - Increase timeout values
+   - Increase `--queue-multiplier` (e.g., `--queue-multiplier 10.0`)
+   - Reduce total workers to decrease submission rate
+   - Adjust size-based allocation to balance queues
+   - Monitor queue distribution in logs
+   - The toolkit now uses batch processing to prevent overflow
 
 3. **Memory Issues**
    - Enable size-based optimization

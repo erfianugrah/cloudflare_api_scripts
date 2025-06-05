@@ -421,23 +421,54 @@ func (c *Coordinator) executePrewarmWorkflow(workflowConfig WorkflowConfig, resu
 		DryRun:           workflowConfig.DryRun,
 	}
 
-	// Process files in batches
+	// Process files in batches to prevent queue overflow
 	resultsChan := make(chan *media.ProcessResult, len(fileMetadata))
 	errorsChan := make(chan error, len(fileMetadata))
 
-	var wg sync.WaitGroup
-	for i := range fileMetadata {
-		wg.Add(1)
-		metadata := &fileMetadata[i]
+	// Calculate batch size based on worker pool capacity
+	// Use 80% of total queue capacity to leave headroom
+	totalWorkers := c.workerPool.GetTotalWorkers()
+	batchSize := int(float64(totalWorkers) * 2.5) // 2.5x workers as batch size
+	if batchSize < 100 {
+		batchSize = 100 // Minimum batch size
+	}
+	
+	c.logger.Info("Processing files in batches",
+		zap.Int("total_files", len(fileMetadata)),
+		zap.Int("batch_size", batchSize),
+		zap.Int("total_batches", (len(fileMetadata)+batchSize-1)/batchSize))
 
-		// Create task for worker pool
-		task := &workers.Task{
-			ID:         fmt.Sprintf("prewarm-%s", metadata.Path),
-			SizeBytes:  metadata.Size,
-			Category:   workers.GetSizeCategory(metadata.Size),
-			Payload:    metadata,
-			ResultChan: make(chan workers.TaskResult, 1),
-			ProcessFunc: func(ctx context.Context, payload interface{}) error {
+	var wg sync.WaitGroup
+	
+	// Process files in batches
+	for batchStart := 0; batchStart < len(fileMetadata); batchStart += batchSize {
+		batchEnd := batchStart + batchSize
+		if batchEnd > len(fileMetadata) {
+			batchEnd = len(fileMetadata)
+		}
+		
+		currentBatch := fileMetadata[batchStart:batchEnd]
+		batchNum := (batchStart / batchSize) + 1
+		totalBatches := (len(fileMetadata) + batchSize - 1) / batchSize
+		
+		c.logger.Info("Processing batch",
+			zap.Int("batch_number", batchNum),
+			zap.Int("batch_size", len(currentBatch)),
+			zap.String("progress", fmt.Sprintf("%d/%d", batchNum, totalBatches)))
+		
+		// Submit tasks for current batch
+		for i := range currentBatch {
+			wg.Add(1)
+			metadata := &currentBatch[i]
+
+			// Create task for worker pool
+			task := &workers.Task{
+				ID:         fmt.Sprintf("prewarm-%s", metadata.Path),
+				SizeBytes:  metadata.Size,
+				Category:   workers.GetSizeCategory(metadata.Size),
+				Payload:    metadata,
+				ResultChan: make(chan workers.TaskResult, 1),
+				ProcessFunc: func(ctx context.Context, payload interface{}) error {
 				// Don't use defer in the closure - call wg.Done() directly
 				fileInfo := payload.(*FileInfo)
 
@@ -481,34 +512,50 @@ func (c *Coordinator) executePrewarmWorkflow(workflowConfig WorkflowConfig, resu
 
 				wg.Done() // Call directly instead of defer
 				return nil
-			},
-		}
+				},
+			}
 
-		// Submit task to worker pool
-		if err := c.workerPool.SubmitTask(task); err != nil {
-			wg.Done()
-			c.logger.Error("Failed to submit task", zap.Error(err))
-			if !workflowConfig.ContinueOnError {
-				return fmt.Errorf("failed to submit task: %w", err)
+			// Submit task to worker pool
+			if err := c.workerPool.SubmitTask(task); err != nil {
+				wg.Done()
+				c.logger.Error("Failed to submit task", zap.Error(err))
+				if !workflowConfig.ContinueOnError {
+					return fmt.Errorf("failed to submit task: %w", err)
+				}
 			}
 		}
+		
+		// Wait for current batch to complete before starting next batch
+		batchDone := make(chan struct{})
+		go func() {
+			defer close(batchDone)
+			wg.Wait()
+		}()
+		
+		select {
+		case <-batchDone:
+			c.logger.Info("Batch completed",
+				zap.Int("batch_number", batchNum),
+				zap.String("progress", fmt.Sprintf("%d/%d", batchNum, totalBatches)))
+			
+			// Add a small delay between batches to allow queue to drain
+			if batchEnd < len(fileMetadata) {
+				time.Sleep(500 * time.Millisecond)
+			}
+		case <-c.ctx.Done():
+			c.logger.Info("Pre-warm workflow interrupted by context cancellation")
+			// Let remaining tasks in current batch finish
+			wg.Wait()
+			break
+		}
+		
+		// Check if we should stop processing more batches
+		if c.ctx.Err() != nil {
+			break
+		}
 	}
 
-	// Wait for all tasks to complete or context cancellation
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		wg.Wait()
-	}()
-
-	select {
-	case <-done:
-		c.logger.Info("All pre-warm tasks completed")
-	case <-c.ctx.Done():
-		c.logger.Info("Pre-warm workflow interrupted by context cancellation")
-		// Let remaining tasks finish naturally
-		wg.Wait()
-	}
+	c.logger.Info("All pre-warm batches submitted")
 
 	close(resultsChan)
 	close(errorsChan)

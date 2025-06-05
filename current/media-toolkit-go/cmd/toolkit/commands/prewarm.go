@@ -74,6 +74,7 @@ func addPrewarmFlags(cmd *cobra.Command) {
 	cmd.Flags().Int("medium-file-workers", 0, "Workers for medium files (0 = auto)")
 	cmd.Flags().Int("large-file-workers", 0, "Workers for large files (0 = auto)")
 	cmd.Flags().Bool("optimize-by-size", false, "Enable size-based worker optimization")
+	cmd.Flags().Float64("queue-multiplier", 3.0, "Queue size multiplier (queue_size = workers * multiplier)")
 
 	// Storage options
 	cmd.Flags().Bool("use-aws-cli", false, "Use AWS CLI instead of rclone")
@@ -211,7 +212,14 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 	if totalWorkers == 0 {
 		totalWorkers = cfg.Workers
 	}
-	queueSize := totalWorkers * 3 // 3x worker count for buffering
+	
+	// Use queue multiplier from config, default to 3.0
+	queueMultiplier := cfg.QueueMultiplier
+	if queueMultiplier <= 0 {
+		queueMultiplier = 3.0
+	}
+	
+	queueSize := int(float64(totalWorkers) * queueMultiplier)
 	if queueSize < 1000 {
 		queueSize = 1000
 	}

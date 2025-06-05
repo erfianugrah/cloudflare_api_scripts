@@ -43,6 +43,7 @@ func SetDefaults() {
 	viper.SetDefault("timeout", DefaultTimeout)
 	viper.SetDefault("connection-close-delay", DefaultConnectionCloseDelay)
 	viper.SetDefault("retry", DefaultRetry)
+	viper.SetDefault("queue-multiplier", 3.0)
 
 	// File extensions
 	viper.SetDefault("extensions", []string{})

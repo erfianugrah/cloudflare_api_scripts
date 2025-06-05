@@ -3,6 +3,7 @@ package workers
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -150,10 +151,27 @@ func NewWorkerPool(config WorkerPoolConfig, logger *zap.Logger) *WorkerPool {
 		cancel: cancel,
 	}
 
-	// Create category pools
-	wp.smallPool = newCategoryPool("small", config.SmallFileWorkers, config.QueueSize/3, logger)
-	wp.mediumPool = newCategoryPool("medium", config.MediumFileWorkers, config.QueueSize/3, logger)
-	wp.largePool = newCategoryPool("large", config.LargeFileWorkers, config.QueueSize/3, logger)
+	// Create category pools with dynamic queue sizing
+	// Calculate queue sizes based on total queue size and expected distribution
+	smallQueueSize := config.QueueSize * 3 / 10  // 30% of total
+	mediumQueueSize := config.QueueSize * 4 / 10 // 40% of total
+	largeQueueSize := config.QueueSize * 3 / 10  // 30% of total
+	
+	// Ensure minimum queue size per category
+	minQueueSize := config.SmallFileWorkers + config.MediumFileWorkers + config.LargeFileWorkers
+	if smallQueueSize < minQueueSize {
+		smallQueueSize = minQueueSize
+	}
+	if mediumQueueSize < minQueueSize {
+		mediumQueueSize = minQueueSize
+	}
+	if largeQueueSize < minQueueSize {
+		largeQueueSize = minQueueSize
+	}
+	
+	wp.smallPool = newCategoryPool("small", config.SmallFileWorkers, smallQueueSize, logger)
+	wp.mediumPool = newCategoryPool("medium", config.MediumFileWorkers, mediumQueueSize, logger)
+	wp.largePool = newCategoryPool("large", config.LargeFileWorkers, largeQueueSize, logger)
 
 	return wp
 }
@@ -365,20 +383,12 @@ func (wp *WorkerPool) SubmitTask(task *Task) error {
 		return fmt.Errorf("unknown task category: %v", task.Category)
 	}
 
-	// Submit to the appropriate queue with timeout
-	timeout := time.NewTimer(5 * time.Second)
-	defer timeout.Stop()
-
-	select {
-	case pool.taskQueue <- task:
-		atomic.AddInt64(&wp.tasksSubmitted, 1)
-		atomic.AddInt64(&pool.queueSize, 1)
-		return nil
-	case <-wp.ctx.Done():
-		return fmt.Errorf("worker pool is shutting down")
-	case <-timeout.C:
-		// Instead of immediate error, wait briefly and retry
-		wp.logger.Debug("Queue busy, retrying", zap.String("category", pool.name))
+	// Submit to the appropriate queue with exponential backoff
+	baseDuration := 100 * time.Millisecond
+	maxRetries := 5
+	maxBackoff := 30 * time.Second
+	
+	for attempt := 0; attempt <= maxRetries; attempt++ {
 		select {
 		case pool.taskQueue <- task:
 			atomic.AddInt64(&wp.tasksSubmitted, 1)
@@ -387,9 +397,53 @@ func (wp *WorkerPool) SubmitTask(task *Task) error {
 		case <-wp.ctx.Done():
 			return fmt.Errorf("worker pool is shutting down")
 		default:
-			return fmt.Errorf("queue full for %s file category after retry", pool.name)
+			if attempt == maxRetries {
+				// Log queue status before failing
+				queueLen := len(pool.taskQueue)
+				queueCap := cap(pool.taskQueue)
+				active := atomic.LoadInt64(&pool.activeWorkers)
+				idle := atomic.LoadInt64(&pool.idleWorkers)
+				
+				wp.logger.Error("Queue full after all retries",
+					zap.String("category", pool.name),
+					zap.Int("queue_length", queueLen),
+					zap.Int("queue_capacity", queueCap),
+					zap.Int64("active_workers", active),
+					zap.Int64("idle_workers", idle),
+					zap.Int("attempts", attempt+1))
+				
+				return fmt.Errorf("queue full for %s file category after %d retries", pool.name, maxRetries)
+			}
+			
+			// Calculate backoff duration with jitter
+			backoffDuration := baseDuration * time.Duration(1<<uint(attempt))
+			if backoffDuration > maxBackoff {
+				backoffDuration = maxBackoff
+			}
+			
+			// Add jitter to prevent thundering herd
+			jitter := time.Duration(rand.Float64() * float64(backoffDuration) * 0.3)
+			backoffDuration += jitter
+			
+			if attempt > 0 {
+				wp.logger.Debug("Queue busy, backing off",
+					zap.String("category", pool.name),
+					zap.Int("attempt", attempt+1),
+					zap.Duration("backoff", backoffDuration))
+			}
+			
+			timer := time.NewTimer(backoffDuration)
+			select {
+			case <-timer.C:
+				// Continue to next attempt
+			case <-wp.ctx.Done():
+				timer.Stop()
+				return fmt.Errorf("worker pool is shutting down")
+			}
 		}
 	}
+	
+	return fmt.Errorf("unexpected error in SubmitTask")
 }
 
 // Shutdown gracefully shuts down the worker pool
@@ -458,6 +512,11 @@ func (wp *WorkerPool) closeChannelsSafely() {
 	default:
 		close(wp.largePool.taskQueue)
 	}
+}
+
+// GetTotalWorkers returns the total number of workers across all categories
+func (wp *WorkerPool) GetTotalWorkers() int {
+	return wp.config.SmallFileWorkers + wp.config.MediumFileWorkers + wp.config.LargeFileWorkers
 }
 
 // Statistics returns current worker pool statistics
