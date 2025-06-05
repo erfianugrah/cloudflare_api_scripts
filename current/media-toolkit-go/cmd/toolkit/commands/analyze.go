@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,38 +37,42 @@ func addAnalyzeFlags(cmd *cobra.Command) {
 	cmd.Flags().String("remote", "", "rclone remote name")
 	cmd.Flags().String("bucket", "", "S3 bucket name")
 	cmd.Flags().String("directory", "", "Directory path within bucket")
-	
+
 	// Analysis options
 	cmd.Flags().Bool("list-files", false, "List all files with their sizes")
 	cmd.Flags().Int("size-threshold", 256, "Size threshold in MiB for reporting")
 	cmd.Flags().String("size-report-output", "file_size_report.md", "Size report output file")
-	cmd.Flags().StringSlice("extensions", []string{}, "File extensions to filter by (e.g., .mp4,.jpg,.png)")
-	cmd.Flags().String("media-type", "", "Media type preset: 'image', 'video', or 'all'")
+	// Add common filtering flags
+	utils.AddFilteringFlags(cmd)
+
+	// Add analyze-specific flags
 	cmd.Flags().Int("limit", 0, "Limit number of files to analyze")
-	
+	cmd.Flags().String("base-url", "", "Base URL to prepend to file paths in output")
+	cmd.Flags().Bool("url-encode", true, "URL encode file paths (spaces become %20)")
+
 	// Error report generation
 	cmd.Flags().Bool("generate-error-report", false, "Generate error report from results")
 	cmd.Flags().String("results-file", "media_transform_results.json", "Results file to analyze")
 	cmd.Flags().String("error-report-output", "error_report.json", "Error report output file")
-	cmd.Flags().String("format", "", "Report format (json, markdown)")
-	
+	cmd.Flags().String("format", "", "Report format (json, markdown, text)")
+
 	// Comparison options
 	cmd.Flags().String("compare", "", "Path to Cloudflare KV JSON file for comparison")
 	cmd.Flags().String("comparison-output", "comparison_results.json", "Comparison results output")
 	cmd.Flags().String("summary-output", "comparison_summary.md", "Comparison summary output")
 	cmd.Flags().String("summary-format", "markdown", "Summary format (markdown, json)")
 	cmd.Flags().Bool("only-compare", false, "Only run comparison without processing")
-	
+
 	// Storage options
 	cmd.Flags().Bool("use-aws-cli", false, "Use AWS CLI instead of rclone")
-	
+
 	// Bind flags to viper
 	viper.BindPFlags(cmd.Flags())
 }
 
 func runAnalyze(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
-	
+
 	// Get logger from context
 	logger, ok := ctx.Value("logger").(*zap.Logger)
 	if !ok || logger == nil {
@@ -158,44 +163,47 @@ func executeAnalysisWorkflow(ctx context.Context, logger *zap.Logger) error {
 // AnalysisConfig holds configuration for analysis operations
 type AnalysisConfig struct {
 	// Storage configuration
-	Remote             string
-	Bucket             string
-	Directory          string
-	UseAWSCLI          bool
-	
+	Remote    string
+	Bucket    string
+	Directory string
+	UseAWSCLI bool
+
 	// Analysis options
-	ListFiles          bool
-	SizeThreshold      int
-	SizeReportOutput   string
-	Extensions         []string
-	MediaType          string
-	Limit              int
-	
+	ListFiles        bool
+	SizeThreshold    int
+	SizeReportOutput string
+	Limit            int
+	BaseURL          string
+	URLEncode        bool
+
+	// Filtering options
+	utils.FilterConfig
+
 	// Error report options
 	GenerateErrorReport bool
-	ResultsFile        string
-	ErrorReportOutput  string
-	Format             string
-	
+	ResultsFile         string
+	ErrorReportOutput   string
+	Format              string
+
 	// Comparison options
-	CompareFile        string
-	ComparisonOutput   string
-	SummaryOutput      string
-	SummaryFormat      string
-	
+	CompareFile      string
+	ComparisonOutput string
+	SummaryOutput    string
+	SummaryFormat    string
+
 	// File list cache
-	FileListCache      *storage.FileListCache
+	FileListCache *storage.FileListCache
 }
 
 // FileAnalysis represents analysis results for files
 type FileAnalysis struct {
-	TotalFiles     int                    `json:"total_files"`
-	TotalSize      int64                  `json:"total_size"`
-	AllFiles       []storage.FileInfo     `json:"all_files,omitempty"`
-	LargeFiles     []storage.FileInfo     `json:"large_files"`
+	TotalFiles       int                  `json:"total_files"`
+	TotalSize        int64                `json:"total_size"`
+	AllFiles         []storage.FileInfo   `json:"all_files,omitempty"`
+	LargeFiles       []storage.FileInfo   `json:"large_files"`
 	SizeDistribution map[string]int       `json:"size_distribution"`
-	ExtensionStats map[string]*ExtStats   `json:"extension_stats"`
-	GeneratedAt    time.Time              `json:"generated_at"`
+	ExtensionStats   map[string]*ExtStats `json:"extension_stats"`
+	GeneratedAt      time.Time            `json:"generated_at"`
 }
 
 // ExtStats represents statistics for a file extension
@@ -210,16 +218,25 @@ type ExtStats struct {
 // buildAnalysisConfig creates analysis configuration from viper settings
 func buildAnalysisConfig() (*AnalysisConfig, error) {
 	return &AnalysisConfig{
-		Remote:              viper.GetString("remote"),
-		Bucket:              viper.GetString("bucket"),
-		Directory:           viper.GetString("directory"),
-		UseAWSCLI:           viper.GetBool("use-aws-cli"),
-		ListFiles:           viper.GetBool("list-files"),
-		SizeThreshold:       viper.GetInt("size-threshold"),
-		SizeReportOutput:    viper.GetString("size-report-output"),
-		Extensions:          viper.GetStringSlice("extensions"),
-		MediaType:           viper.GetString("media-type"),
-		Limit:               viper.GetInt("limit"),
+		Remote:           viper.GetString("remote"),
+		Bucket:           viper.GetString("bucket"),
+		Directory:        viper.GetString("directory"),
+		UseAWSCLI:        viper.GetBool("use-aws-cli"),
+		ListFiles:        viper.GetBool("list-files"),
+		SizeThreshold:    viper.GetInt("size-threshold"),
+		SizeReportOutput: viper.GetString("size-report-output"),
+		Limit:            viper.GetInt("limit"),
+		BaseURL:          viper.GetString("base-url"),
+		URLEncode:        viper.GetBool("url-encode"),
+		FilterConfig: utils.FilterConfig{
+			Extensions:         viper.GetStringSlice("extensions"),
+			MediaType:          viper.GetString("media-type"),
+			ExcludeExtensions:  viper.GetStringSlice("exclude-extensions"),
+			ExcludePatterns:    viper.GetStringSlice("exclude-patterns"),
+			ExcludeDirectories: viper.GetStringSlice("exclude-directories"),
+			ExcludeMinSize:     viper.GetInt("exclude-min-size"),
+			ExcludeMaxSize:     viper.GetInt("exclude-max-size"),
+		},
 		GenerateErrorReport: viper.GetBool("generate-error-report"),
 		ResultsFile:         viper.GetString("results-file"),
 		ErrorReportOutput:   viper.GetString("error-report-output"),
@@ -235,7 +252,7 @@ func buildAnalysisConfig() (*AnalysisConfig, error) {
 func validateAnalysisConfig(cfg *AnalysisConfig) error {
 	// Check if we need storage access
 	needsStorage := cfg.ListFiles || (!cfg.GenerateErrorReport && cfg.CompareFile == "")
-	
+
 	if needsStorage {
 		if err := utils.ValidateNonEmpty(cfg.Remote, "remote"); err != nil {
 			return err
@@ -252,7 +269,7 @@ func validateAnalysisConfig(cfg *AnalysisConfig) error {
 
 	// Validate format if specified
 	if cfg.Format != "" {
-		validFormats := []string{"json", "markdown"}
+		validFormats := []string{"json", "markdown", "text"}
 		if err := utils.ValidateOneOf(cfg.Format, validFormats, "format"); err != nil {
 			return err
 		}
@@ -324,41 +341,8 @@ func listFilesForAnalysis(ctx context.Context, storageClient storage.Storage, cf
 		}
 	}
 
-	// Determine extensions to filter by
-	var filterExtensions []string
-	
-	// Handle media type presets
-	if cfg.MediaType != "" {
-		switch strings.ToLower(cfg.MediaType) {
-		case "image":
-			filterExtensions = []string{".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg"}
-		case "video":
-			filterExtensions = []string{".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"}
-		case "all", "auto":
-			// No filtering by extension
-			filterExtensions = nil
-		default:
-			return nil, fmt.Errorf("invalid media type: %s (use 'image', 'video', 'all', or 'auto')", cfg.MediaType)
-		}
-	} else if len(cfg.Extensions) > 0 {
-		// Use explicitly provided extensions
-		filterExtensions = cfg.Extensions
-	}
-	
-	// Apply extension filter if needed
-	if len(filterExtensions) > 0 {
-		filtered := make([]storage.FileInfo, 0, len(objects))
-		for _, obj := range objects {
-			objExt := strings.ToLower(filepath.Ext(obj.Path))
-			for _, ext := range filterExtensions {
-				if objExt == strings.ToLower(ext) {
-					filtered = append(filtered, obj)
-					break
-				}
-			}
-		}
-		objects = filtered
-	}
+	// Apply filters using shared utility
+	objects = utils.ApplyFileFilters(objects, &cfg.FilterConfig)
 
 	// Apply limit if specified
 	if cfg.Limit > 0 && len(objects) > cfg.Limit {
@@ -380,7 +364,7 @@ func analyzeFiles(files []storage.FileInfo, cfg *AnalysisConfig, logger *zap.Log
 		ExtensionStats:   make(map[string]*ExtStats),
 		GeneratedAt:      time.Now(),
 	}
-	
+
 	// Include all files if list-files is enabled
 	if cfg.ListFiles {
 		analysis.AllFiles = files
@@ -472,15 +456,30 @@ func generateSizeReport(analysis *FileAnalysis, cfg *AnalysisConfig, logger *zap
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
+	// Determine format based on file extension or explicit format
+	format := cfg.Format
+	if format == "" {
+		if strings.HasSuffix(cfg.SizeReportOutput, ".json") {
+			format = "json"
+		} else if strings.HasSuffix(cfg.SizeReportOutput, ".txt") {
+			format = "text"
+		} else {
+			format = "markdown"
+		}
+	}
+
 	// Generate report content
 	var content string
-	if strings.HasSuffix(cfg.SizeReportOutput, ".json") {
+	switch format {
+	case "json":
 		data, err := json.MarshalIndent(analysis, "", "  ")
 		if err != nil {
 			return fmt.Errorf("failed to marshal analysis to JSON: %w", err)
 		}
 		content = string(data)
-	} else {
+	case "text":
+		content = generateTextReport(analysis, cfg)
+	default: // markdown
 		content = generateMarkdownReport(analysis)
 	}
 
@@ -551,6 +550,62 @@ func generateMarkdownReport(analysis *FileAnalysis) string {
 	return sb.String()
 }
 
+// generateTextReport generates a simple text format report
+func generateTextReport(analysis *FileAnalysis, cfg *AnalysisConfig) string {
+	var sb strings.Builder
+
+	// If list-files is enabled, output all files
+	if cfg.ListFiles && len(analysis.AllFiles) > 0 {
+		for _, file := range analysis.AllFiles {
+			path := file.Path
+
+			// URL encode if requested and base URL is provided
+			if cfg.URLEncode && cfg.BaseURL != "" {
+				// URL encode the file path to handle spaces and special characters
+				path = url.QueryEscape(path)
+				// Replace %2F back to / for path separators
+				path = strings.ReplaceAll(path, "%2F", "/")
+			}
+
+			if cfg.BaseURL != "" {
+				// Ensure base URL ends with / if needed
+				baseURL := cfg.BaseURL
+				if !strings.HasSuffix(baseURL, "/") && !strings.HasPrefix(path, "/") {
+					baseURL += "/"
+				}
+				sb.WriteString(fmt.Sprintf("%s%s\n", baseURL, path))
+			} else {
+				sb.WriteString(fmt.Sprintf("%s\n", path))
+			}
+		}
+	} else {
+		// If list-files is not enabled, just output large files
+		for _, file := range analysis.LargeFiles {
+			path := file.Path
+
+			// URL encode if requested and base URL is provided
+			if cfg.URLEncode && cfg.BaseURL != "" {
+				// URL encode the file path to handle spaces and special characters
+				path = url.QueryEscape(path)
+				// Replace %2F back to / for path separators
+				path = strings.ReplaceAll(path, "%2F", "/")
+			}
+
+			if cfg.BaseURL != "" {
+				baseURL := cfg.BaseURL
+				if !strings.HasSuffix(baseURL, "/") && !strings.HasPrefix(path, "/") {
+					baseURL += "/"
+				}
+				sb.WriteString(fmt.Sprintf("%s%s\n", baseURL, path))
+			} else {
+				sb.WriteString(fmt.Sprintf("%s\n", path))
+			}
+		}
+	}
+
+	return sb.String()
+}
+
 // runComparisonOnly runs comparison workflow only
 func runComparisonOnly(ctx context.Context, cfg *AnalysisConfig, logger *zap.Logger) error {
 	if cfg.CompareFile == "" {
@@ -570,7 +625,7 @@ func generateErrorReport(ctx context.Context, cfg *AnalysisConfig, logger *zap.L
 		return fmt.Errorf("results file not found: %s", cfg.ResultsFile)
 	}
 
-	logger.Info("Generating error report", 
+	logger.Info("Generating error report",
 		zap.String("results_file", cfg.ResultsFile),
 		zap.String("output", cfg.ErrorReportOutput))
 
@@ -617,7 +672,7 @@ func generateErrorReport(ctx context.Context, cfg *AnalysisConfig, logger *zap.L
 		return fmt.Errorf("failed to write error report: %w", err)
 	}
 
-	logger.Info("Error report generated successfully", 
+	logger.Info("Error report generated successfully",
 		zap.String("file", cfg.ErrorReportOutput),
 		zap.Int("total_errors", errorAnalysis.Summary.TotalErrors))
 
@@ -630,7 +685,7 @@ func runComparison(ctx context.Context, cfg *AnalysisConfig, logger *zap.Logger)
 		return fmt.Errorf("comparison file not found: %s", cfg.CompareFile)
 	}
 
-	logger.Info("Running comparison", 
+	logger.Info("Running comparison",
 		zap.String("compare_file", cfg.CompareFile),
 		zap.String("output", cfg.ComparisonOutput))
 
@@ -648,67 +703,67 @@ func runComparison(ctx context.Context, cfg *AnalysisConfig, logger *zap.Logger)
 
 // WorkflowResults represents the structure of the results file
 type WorkflowResults struct {
-	WorkflowType   int              `json:"workflow_type"`
-	Success        bool             `json:"success"`
-	StartTime      time.Time        `json:"start_time"`
-	EndTime        time.Time        `json:"end_time"`
-	Duration       int64            `json:"duration"`
-	PrewarmResults []PrewarmResult  `json:"prewarm_results"`
-	Statistics     *StatsSummary    `json:"statistics,omitempty"`
-	WorkerStats    *WorkerStats     `json:"worker_stats,omitempty"`
+	WorkflowType   int             `json:"workflow_type"`
+	Success        bool            `json:"success"`
+	StartTime      time.Time       `json:"start_time"`
+	EndTime        time.Time       `json:"end_time"`
+	Duration       int64           `json:"duration"`
+	PrewarmResults []PrewarmResult `json:"prewarm_results"`
+	Statistics     *StatsSummary   `json:"statistics,omitempty"`
+	WorkerStats    *WorkerStats    `json:"worker_stats,omitempty"`
 }
 
 // PrewarmResult represents a single file processing result
 type PrewarmResult struct {
-	Path           string                     `json:"path"`
-	SizeBytes      int64                      `json:"size_bytes"`
-	SizeCategory   string                     `json:"size_category"`
-	MediaType      string                     `json:"media_type"`
-	ProcessingTime int64                      `json:"processing_time"`
-	Success        bool                       `json:"success"`
-	Results        *VideoProcessResult        `json:"results"`
-	Error          string                     `json:"error,omitempty"`
+	Path           string              `json:"path"`
+	SizeBytes      int64               `json:"size_bytes"`
+	SizeCategory   string              `json:"size_category"`
+	MediaType      string              `json:"media_type"`
+	ProcessingTime int64               `json:"processing_time"`
+	Success        bool                `json:"success"`
+	Results        *VideoProcessResult `json:"results"`
+	Error          string              `json:"error,omitempty"`
 }
 
 // VideoProcessResult represents video processing results
 type VideoProcessResult struct {
-	Path           string                          `json:"path"`
-	SizeBytes      int64                           `json:"size_bytes"`
-	SizeCategory   string                          `json:"size_category"`
-	MediaType      string                          `json:"media_type"`
-	ProcessingTime int64                           `json:"processing_time"`
-	Success        bool                            `json:"success"`
-	Results        map[string]*DerivativeResult    `json:"results"`
-	Error          string                          `json:"error,omitempty"`
+	Path           string                       `json:"path"`
+	SizeBytes      int64                        `json:"size_bytes"`
+	SizeCategory   string                       `json:"size_category"`
+	MediaType      string                       `json:"media_type"`
+	ProcessingTime int64                        `json:"processing_time"`
+	Success        bool                         `json:"success"`
+	Results        map[string]*DerivativeResult `json:"results"`
+	Error          string                       `json:"error,omitempty"`
 }
 
 // DerivativeResult represents the result of processing a single derivative
 type DerivativeResult struct {
-	DerivativeName         string  `json:"derivative_name"`
-	URL                    string  `json:"url"`
-	Status                 string  `json:"status"`
-	StatusCode             int     `json:"status_code,omitempty"`
-	TimeToFirstByte        int64   `json:"time_to_first_byte,omitempty"`
-	TotalTime              int64   `json:"total_time"`
-	ResponseSize           int64   `json:"response_size_bytes,omitempty"`
-	ContentType            string  `json:"content_type,omitempty"`
-	Method                 string  `json:"method,omitempty"`
-	Retries                int     `json:"retries,omitempty"`
-	Error                  string  `json:"error,omitempty"`
-	ErrorType              string  `json:"error_type,omitempty"`
-	OriginalSize           int64   `json:"original_size_bytes,omitempty"`
-	SizeReductionBytes     int64   `json:"size_reduction_bytes,omitempty"`
-	SizeReductionPercent   float64 `json:"size_reduction_percent,omitempty"`
+	DerivativeName       string  `json:"derivative_name"`
+	URL                  string  `json:"url"`
+	Status               string  `json:"status"`
+	StatusCode           int     `json:"status_code,omitempty"`
+	TimeToFirstByte      int64   `json:"time_to_first_byte,omitempty"`
+	TotalTime            int64   `json:"total_time"`
+	ResponseSize         int64   `json:"response_size_bytes,omitempty"`
+	ContentType          string  `json:"content_type,omitempty"`
+	Method               string  `json:"method,omitempty"`
+	Retries              int     `json:"retries,omitempty"`
+	Error                string  `json:"error,omitempty"`
+	ErrorType            string  `json:"error_type,omitempty"`
+	OriginalSize         int64   `json:"original_size_bytes,omitempty"`
+	SizeReductionBytes   int64   `json:"size_reduction_bytes,omitempty"`
+	SizeReductionPercent float64 `json:"size_reduction_percent,omitempty"`
 }
 
 // StatsSummary represents statistics summary
 type StatsSummary struct {
-	TotalRequests    int64 `json:"total_requests"`
-	SuccessfulCount  int64 `json:"successful_count"`
-	ErrorCount       int64 `json:"error_count"`
+	TotalRequests   int64 `json:"total_requests"`
+	SuccessfulCount int64 `json:"successful_count"`
+	ErrorCount      int64 `json:"error_count"`
 }
 
-// WorkerStats represents worker statistics  
+// WorkerStats represents worker statistics
 type WorkerStats struct {
 	TasksSubmitted int64 `json:"tasks_submitted"`
 	TasksCompleted int64 `json:"tasks_completed"`
@@ -717,25 +772,25 @@ type WorkerStats struct {
 
 // ErrorAnalysis represents comprehensive error analysis
 type ErrorAnalysis struct {
-	Timestamp         string                      `json:"timestamp"`
-	OriginalTimestamp string                      `json:"original_timestamp"`
-	Summary           ErrorSummary                `json:"summary"`
-	ErrorTypes        map[string]int              `json:"error_types"`
-	StatusCodes       map[string]int              `json:"status_codes"`
-	SizeCategories    map[string]int              `json:"size_categories"`
-	Derivatives       map[string]int              `json:"derivatives"`
-	CommonMessages    map[string]int              `json:"common_error_messages"`
-	SizeStats         SizeStatistics              `json:"size_statistics"`
-	DetailedErrors    []DetailedError             `json:"detailed_errors"`
-	Recommendations   []string                    `json:"troubleshooting_recommendations"`
-	ErrorExamples     map[string]ErrorExample     `json:"error_examples"`
+	Timestamp         string                  `json:"timestamp"`
+	OriginalTimestamp string                  `json:"original_timestamp"`
+	Summary           ErrorSummary            `json:"summary"`
+	ErrorTypes        map[string]int          `json:"error_types"`
+	StatusCodes       map[string]int          `json:"status_codes"`
+	SizeCategories    map[string]int          `json:"size_categories"`
+	Derivatives       map[string]int          `json:"derivatives"`
+	CommonMessages    map[string]int          `json:"common_error_messages"`
+	SizeStats         SizeStatistics          `json:"size_statistics"`
+	DetailedErrors    []DetailedError         `json:"detailed_errors"`
+	Recommendations   []string                `json:"troubleshooting_recommendations"`
+	ErrorExamples     map[string]ErrorExample `json:"error_examples"`
 }
 
 // ErrorSummary represents error summary statistics
 type ErrorSummary struct {
-	TotalErrors     int     `json:"total_errors"`
-	TotalProcessed  int     `json:"total_processed"`
-	ErrorRate       float64 `json:"error_rate"`
+	TotalErrors    int     `json:"total_errors"`
+	TotalProcessed int     `json:"total_processed"`
+	ErrorRate      float64 `json:"error_rate"`
 }
 
 // SizeStatistics represents size-based error statistics
@@ -824,7 +879,7 @@ func extractAndAnalyzeErrors(results WorkflowResults, logger *zap.Logger) (*Erro
 					analysis.StatusCodes[fmt.Sprintf("%d", derivative.StatusCode)]++
 					analysis.SizeCategories[result.SizeCategory]++
 					analysis.Derivatives[derivativeName]++
-					
+
 					if derivative.Error != "" {
 						analysis.CommonMessages[derivative.Error]++
 					}
@@ -926,31 +981,31 @@ func generateRecommendations(analysis *ErrorAnalysis) []string {
 
 	// Check for timeout errors
 	if analysis.ErrorTypes["request_error"] > 0 {
-		recommendations = append(recommendations, 
+		recommendations = append(recommendations,
 			"Request Errors: Consider increasing timeout settings or reducing worker count to avoid overwhelming the server")
 	}
 
 	// Check for 500 errors
 	if analysis.StatusCodes["500"] > 0 {
-		recommendations = append(recommendations, 
+		recommendations = append(recommendations,
 			"Server Errors (500): These indicate issues on the server side. Consider retrying failed files or contacting the API provider")
 	}
 
 	// Check for 404 errors
 	if analysis.StatusCodes["404"] > 0 {
-		recommendations = append(recommendations, 
+		recommendations = append(recommendations,
 			"Not Found Errors (404): Verify file paths and base URL configuration are correct")
 	}
 
 	// Check for high error rate
 	if analysis.Summary.ErrorRate > 50 {
-		recommendations = append(recommendations, 
+		recommendations = append(recommendations,
 			"High Error Rate: Consider reducing concurrency, checking network connectivity, or validating input files")
 	}
 
 	// Check for large file errors
 	if analysis.SizeCategories["large"] > 0 {
-		recommendations = append(recommendations, 
+		recommendations = append(recommendations,
 			"Large File Errors: Consider pre-processing large files or increasing timeout settings for large file processing")
 	}
 
@@ -1022,7 +1077,7 @@ func generateErrorMarkdownReport(analysis *ErrorAnalysis) string {
 	// File Size Statistics
 	if analysis.SizeStats.ErrorFiles != nil || analysis.SizeStats.SuccessFiles != nil {
 		sb.WriteString("## File Size Statistics\n\n")
-		
+
 		if analysis.SizeStats.ErrorFiles != nil {
 			stats := analysis.SizeStats.ErrorFiles
 			sb.WriteString("### Error Files\n")
@@ -1071,21 +1126,21 @@ func generateErrorMarkdownReport(analysis *ErrorAnalysis) string {
 		sb.WriteString("## Detailed Error List\n\n")
 		sb.WriteString("| File | Derivative | Status | Error Type | Size | Category |\n")
 		sb.WriteString("|------|------------|--------|------------|------|----------|\n")
-		
+
 		maxShow := 20
 		if len(analysis.DetailedErrors) < maxShow {
 			maxShow = len(analysis.DetailedErrors)
 		}
-		
+
 		for i := 0; i < maxShow; i++ {
 			err := analysis.DetailedErrors[i]
 			sb.WriteString(fmt.Sprintf("| %s | %s | %d | %s | %s | %s |\n",
-				err.File, err.Derivative, err.StatusCode, err.ErrorType, 
+				err.File, err.Derivative, err.StatusCode, err.ErrorType,
 				err.SizeFormatted, err.SizeCategory))
 		}
-		
+
 		if len(analysis.DetailedErrors) > maxShow {
-			sb.WriteString(fmt.Sprintf("\n*Note: Showing only the first %d of %d errors*\n", 
+			sb.WriteString(fmt.Sprintf("\n*Note: Showing only the first %d of %d errors*\n",
 				maxShow, len(analysis.DetailedErrors)))
 		}
 	}
@@ -1095,25 +1150,35 @@ func generateErrorMarkdownReport(analysis *ErrorAnalysis) string {
 
 // Helper functions for statistics calculations
 func minInt64(vals []int64) int64 {
-	if len(vals) == 0 { return 0 }
+	if len(vals) == 0 {
+		return 0
+	}
 	min := vals[0]
 	for _, v := range vals[1:] {
-		if v < min { min = v }
+		if v < min {
+			min = v
+		}
 	}
 	return min
 }
 
 func maxInt64(vals []int64) int64 {
-	if len(vals) == 0 { return 0 }
+	if len(vals) == 0 {
+		return 0
+	}
 	max := vals[0]
 	for _, v := range vals[1:] {
-		if v > max { max = v }
+		if v > max {
+			max = v
+		}
 	}
 	return max
 }
 
 func avgInt64(vals []int64) int64 {
-	if len(vals) == 0 { return 0 }
+	if len(vals) == 0 {
+		return 0
+	}
 	return sumInt64(vals) / int64(len(vals))
 }
 
@@ -1126,7 +1191,9 @@ func sumInt64(vals []int64) int64 {
 }
 
 func medianInt64(vals []int64) int64 {
-	if len(vals) == 0 { return 0 }
+	if len(vals) == 0 {
+		return 0
+	}
 	// Simple median calculation (would need sorting for accuracy)
 	return vals[len(vals)/2]
 }

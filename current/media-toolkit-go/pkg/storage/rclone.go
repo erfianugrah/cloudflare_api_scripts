@@ -62,19 +62,19 @@ func (r *RcloneStorage) ListObjects(ctx context.Context, req ListRequest) ([]Obj
 		cmd.Args = append(cmd.Args, "--config", r.config.RcloneConfig)
 	}
 
-	r.logger.Info("Running rclone command", 
+	r.logger.Info("Running rclone command",
 		zap.String("command", strings.Join(cmd.Args, " ")),
 		zap.String("remote_path", remotePath))
 
 	output, err := cmd.Output()
 	if err != nil {
-		r.logger.Error("Rclone command failed", 
+		r.logger.Error("Rclone command failed",
 			zap.String("command", strings.Join(cmd.Args, " ")),
 			zap.Error(err))
 		return nil, NewStorageError("list_objects", remotePath, StorageBackendRclone, err)
 	}
 
-	r.logger.Info("Rclone command completed", 
+	r.logger.Info("Rclone command completed",
 		zap.String("command", strings.Join(cmd.Args, " ")),
 		zap.Int("output_size", len(output)))
 
@@ -94,8 +94,8 @@ func (r *RcloneStorage) ListObjects(ctx context.Context, req ListRequest) ([]Obj
 			if len(parts) >= 2 {
 				size, err := strconv.ParseInt(parts[0], 10, 64)
 				if err != nil {
-					r.logger.Warn("Failed to parse file size", 
-						zap.String("line", line), 
+					r.logger.Warn("Failed to parse file size",
+						zap.String("line", line),
 						zap.Error(err))
 					continue
 				}
@@ -138,14 +138,14 @@ func (r *RcloneStorage) ListObjects(ctx context.Context, req ListRequest) ([]Obj
 
 	// Apply limit if specified
 	if req.Limit > 0 && len(objects) > req.Limit {
-		r.logger.Info("Limiting results", 
-			zap.Int("total_found", len(objects)), 
+		r.logger.Info("Limiting results",
+			zap.Int("total_found", len(objects)),
 			zap.Int("limit", req.Limit))
 		objects = objects[:req.Limit]
 	}
 
-	r.logger.Info("Listed objects", 
-		zap.Int("count", len(objects)), 
+	r.logger.Info("Listed objects",
+		zap.Int("count", len(objects)),
 		zap.String("remote_path", remotePath))
 
 	return objects, nil
@@ -179,7 +179,7 @@ func (r *RcloneStorage) GetObjectSizes(ctx context.Context, objects []string) (m
 		}
 	}
 
-	r.logger.Info("Retrieved object sizes", 
+	r.logger.Info("Retrieved object sizes",
 		zap.Int("requested", len(objects)),
 		zap.Int("found", len(result)))
 
@@ -188,14 +188,14 @@ func (r *RcloneStorage) GetObjectSizes(ctx context.Context, objects []string) (m
 
 // getObjectSizesBatch gets sizes for a batch of objects using rclone lsjson
 func (r *RcloneStorage) getObjectSizesBatch(ctx context.Context, remotePath string, objects []string) (map[string]int64, error) {
-	cmd := exec.CommandContext(ctx, r.config.RcloneBinary, "lsjson", remotePath, 
+	cmd := exec.CommandContext(ctx, r.config.RcloneBinary, "lsjson", remotePath,
 		"--files-only", "--no-modtime", "--no-mimetype")
 
 	if r.config.RcloneConfig != "" {
 		cmd.Args = append(cmd.Args, "--config", r.config.RcloneConfig)
 	}
 
-	r.logger.Debug("Running rclone lsjson batch command", 
+	r.logger.Debug("Running rclone lsjson batch command",
 		zap.String("command", strings.Join(cmd.Args, " ")),
 		zap.Int("batch_size", len(objects)))
 
@@ -211,7 +211,7 @@ func (r *RcloneStorage) getObjectSizesBatch(ctx context.Context, remotePath stri
 	}
 
 	if err := json.Unmarshal(output, &fileInfos); err != nil {
-		return nil, NewStorageError("get_object_sizes_batch", remotePath, StorageBackendRclone, 
+		return nil, NewStorageError("get_object_sizes_batch", remotePath, StorageBackendRclone,
 			fmt.Errorf("failed to parse JSON: %w", err))
 	}
 
@@ -253,12 +253,12 @@ func (r *RcloneStorage) DownloadObject(ctx context.Context, remotePath, localPat
 	}
 
 	cmd := exec.CommandContext(ctx, r.config.RcloneBinary, "copyto", remotePath, localPath)
-	
+
 	if r.config.RcloneConfig != "" {
 		cmd.Args = append(cmd.Args, "--config", r.config.RcloneConfig)
 	}
 
-	r.logger.Debug("Downloading object", 
+	r.logger.Debug("Downloading object",
 		zap.String("remote", remotePath),
 		zap.String("local", localPath))
 
@@ -266,7 +266,7 @@ func (r *RcloneStorage) DownloadObject(ctx context.Context, remotePath, localPat
 		return NewStorageError("download_object", remotePath, StorageBackendRclone, err)
 	}
 
-	r.logger.Info("Downloaded object", 
+	r.logger.Info("Downloaded object",
 		zap.String("remote", remotePath),
 		zap.String("local", localPath))
 
@@ -276,12 +276,12 @@ func (r *RcloneStorage) DownloadObject(ctx context.Context, remotePath, localPat
 // UploadObject uploads a local file to remote storage
 func (r *RcloneStorage) UploadObject(ctx context.Context, localPath, remotePath string) error {
 	cmd := exec.CommandContext(ctx, r.config.RcloneBinary, "copyto", localPath, remotePath)
-	
+
 	if r.config.RcloneConfig != "" {
 		cmd.Args = append(cmd.Args, "--config", r.config.RcloneConfig)
 	}
 
-	r.logger.Debug("Uploading object", 
+	r.logger.Debug("Uploading object",
 		zap.String("local", localPath),
 		zap.String("remote", remotePath))
 
@@ -289,7 +289,7 @@ func (r *RcloneStorage) UploadObject(ctx context.Context, localPath, remotePath 
 		return NewStorageError("upload_object", localPath, StorageBackendRclone, err)
 	}
 
-	r.logger.Info("Uploaded object", 
+	r.logger.Info("Uploaded object",
 		zap.String("local", localPath),
 		zap.String("remote", remotePath))
 
@@ -307,7 +307,7 @@ func (r *RcloneStorage) GetObjectMetadata(ctx context.Context, objectPath string
 	remotePath := fmt.Sprintf("%s:%s/%s/%s", r.config.Remote, r.config.Bucket, r.config.Directory, objectPath)
 
 	cmd := exec.CommandContext(ctx, r.config.RcloneBinary, "lsjson", filepath.Dir(remotePath))
-	
+
 	if r.config.RcloneConfig != "" {
 		cmd.Args = append(cmd.Args, "--config", r.config.RcloneConfig)
 	}
@@ -326,7 +326,7 @@ func (r *RcloneStorage) GetObjectMetadata(ctx context.Context, objectPath string
 	}
 
 	if err := json.Unmarshal(output, &fileInfos); err != nil {
-		return nil, NewStorageError("get_object_metadata", objectPath, StorageBackendRclone, 
+		return nil, NewStorageError("get_object_metadata", objectPath, StorageBackendRclone,
 			fmt.Errorf("failed to parse JSON: %w", err))
 	}
 
@@ -344,7 +344,7 @@ func (r *RcloneStorage) GetObjectMetadata(ctx context.Context, objectPath string
 		}
 	}
 
-	return nil, NewStorageError("get_object_metadata", objectPath, StorageBackendRclone, 
+	return nil, NewStorageError("get_object_metadata", objectPath, StorageBackendRclone,
 		fmt.Errorf("object not found: %s", objectPath))
 }
 

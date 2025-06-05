@@ -23,12 +23,12 @@ type PathParam struct {
 // GenerateURL generates the URL for this variant
 func (v *Variant) GenerateURL(baseURL, filePath string) (string, error) {
 	baseURL = strings.TrimSuffix(baseURL, "/")
-	
+
 	if v.URLTemplate != "" {
 		// Use custom URL template if provided
 		return fmt.Sprintf(v.URLTemplate, baseURL, filePath), nil
 	}
-	
+
 	if len(v.PathParams) > 0 {
 		// Path-based parameters (e.g., /_width=800/_format=webp/image.jpg)
 		pathPrefix := ""
@@ -37,7 +37,7 @@ func (v *Variant) GenerateURL(baseURL, filePath string) (string, error) {
 		}
 		return fmt.Sprintf("%s%s/%s", baseURL, pathPrefix, filePath), nil
 	}
-	
+
 	if len(v.Parameters) > 0 {
 		// Query parameter-based (e.g., ?width=800&height=600&fit=cover)
 		params := url.Values{}
@@ -46,7 +46,7 @@ func (v *Variant) GenerateURL(baseURL, filePath string) (string, error) {
 		}
 		return fmt.Sprintf("%s/%s?%s", baseURL, filePath, params.Encode()), nil
 	}
-	
+
 	// No parameters (original)
 	return fmt.Sprintf("%s/%s", baseURL, filePath), nil
 }

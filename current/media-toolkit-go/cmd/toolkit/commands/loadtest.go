@@ -6,10 +6,10 @@ import (
 	"os"
 	"time"
 
-	"media-toolkit-go/pkg/loadtest"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"media-toolkit-go/pkg/loadtest"
 )
 
 // NewLoadTestCommand creates the load test command
@@ -49,60 +49,60 @@ success rates, and per-URL performance data.`,
 func addLoadTestFlags(cmd *cobra.Command) {
 	// Required flags
 	cmd.Flags().String("base-url", "", "Base URL for load testing (required)")
-	
+
 	// Input/Output
 	cmd.Flags().String("results-file", "media_transform_results.json", "Pre-warming results file")
 	cmd.Flags().String("output-file", "", "Output file for load test results (default: stdout)")
-	
+
 	// URL configuration
 	cmd.Flags().String("url-format", "imwidth", "URL format (imwidth, derivative, query)")
 	cmd.Flags().Bool("use-head-requests", false, "Use HEAD requests to check content size")
 	cmd.Flags().Bool("skip-large-files", true, "Skip large files in load test")
 	cmd.Flags().Int("large-file-threshold-mb", 256, "Threshold for large files in MB")
-	
+
 	// Request configuration
 	cmd.Flags().Duration("request-timeout", 120*time.Second, "Request timeout")
 	cmd.Flags().Duration("head-timeout", 30*time.Second, "HEAD request timeout")
 	cmd.Flags().Duration("connection-close-delay", 15*time.Second, "Connection close delay")
 	cmd.Flags().Int("max-retries", 2, "Max retry attempts")
 	cmd.Flags().Duration("retry-delay", time.Second, "Delay between retries")
-	
+
 	// Error report integration
 	cmd.Flags().Bool("use-error-report", false, "Use error report to exclude problematic files")
 	cmd.Flags().String("error-report-file", "error_report.json", "Error report file path")
-	
+
 	// Stage configuration
 	cmd.Flags().Int("stage1-users", 10, "Stage 1 concurrent users")
 	cmd.Flags().Duration("stage1-duration", 30*time.Second, "Stage 1 duration")
 	cmd.Flags().Duration("stage1-rampup", 0, "Stage 1 ramp-up time")
-	
+
 	cmd.Flags().Int("stage2-users", 20, "Stage 2 concurrent users")
 	cmd.Flags().Duration("stage2-duration", 60*time.Second, "Stage 2 duration")
 	cmd.Flags().Duration("stage2-rampup", 0, "Stage 2 ramp-up time")
-	
+
 	cmd.Flags().Int("stage3-users", 30, "Stage 3 concurrent users")
 	cmd.Flags().Duration("stage3-duration", 30*time.Second, "Stage 3 duration")
 	cmd.Flags().Duration("stage3-rampup", 0, "Stage 3 ramp-up time")
-	
+
 	cmd.Flags().Int("stage4-users", 20, "Stage 4 concurrent users")
 	cmd.Flags().Duration("stage4-duration", 60*time.Second, "Stage 4 duration")
 	cmd.Flags().Duration("stage4-rampup", 0, "Stage 4 ramp-up time")
-	
+
 	cmd.Flags().Int("stage5-users", 0, "Stage 5 concurrent users (0 to disable)")
 	cmd.Flags().Duration("stage5-duration", 30*time.Second, "Stage 5 duration")
 	cmd.Flags().Duration("stage5-rampup", 0, "Stage 5 ramp-up time")
-	
+
 	// Performance thresholds
 	cmd.Flags().Float64("success-rate-threshold", 95.0, "Minimum acceptable success rate (%)")
 	cmd.Flags().Duration("latency-threshold-p95", 5*time.Second, "Maximum acceptable P95 latency")
-	
+
 	// Mark required flags
 	cmd.MarkFlagRequired("base-url")
 }
 
 func runLoadTest(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
-	
+
 	// Get logger from context
 	logger, ok := ctx.Value("logger").(*zap.Logger)
 	if !ok || logger == nil {
@@ -116,7 +116,7 @@ func runLoadTest(cmd *cobra.Command, args []string) error {
 
 	// Build configuration
 	config := buildLoadTestConfig()
-	
+
 	// Validate configuration
 	if err := validateLoadTestConfig(config); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
@@ -157,13 +157,13 @@ func runLoadTest(cmd *cobra.Command, args []string) error {
 	// Check thresholds
 	successThreshold := viper.GetFloat64("success-rate-threshold")
 	latencyThreshold := viper.GetDuration("latency-threshold-p95")
-	
+
 	if result.SuccessRate < successThreshold {
 		logger.Warn("Success rate below threshold",
 			zap.Float64("actual", result.SuccessRate),
 			zap.Float64("threshold", successThreshold))
 	}
-	
+
 	if result.P95Latency > latencyThreshold {
 		logger.Warn("P95 latency above threshold",
 			zap.Duration("actual", result.P95Latency),
@@ -176,21 +176,21 @@ func runLoadTest(cmd *cobra.Command, args []string) error {
 
 func buildLoadTestConfig() loadtest.Config {
 	stages := []loadtest.StageConfig{}
-	
+
 	// Build stages based on configuration
 	for i := 1; i <= 5; i++ {
 		users := viper.GetInt(fmt.Sprintf("stage%d-users", i))
 		if users == 0 {
 			continue // Skip stages with 0 users
 		}
-		
+
 		stage := loadtest.StageConfig{
 			Name:     fmt.Sprintf("Stage %d", i),
 			Users:    users,
 			Duration: viper.GetDuration(fmt.Sprintf("stage%d-duration", i)),
 			RampUp:   viper.GetDuration(fmt.Sprintf("stage%d-rampup", i)),
 		}
-		
+
 		stages = append(stages, stage)
 	}
 
@@ -216,11 +216,11 @@ func validateLoadTestConfig(config loadtest.Config) error {
 	if config.BaseURL == "" {
 		return fmt.Errorf("base-url is required")
 	}
-	
+
 	if len(config.Stages) == 0 {
 		return fmt.Errorf("at least one stage must be configured")
 	}
-	
+
 	for i, stage := range config.Stages {
 		if stage.Users <= 0 {
 			return fmt.Errorf("stage %d: users must be positive", i+1)
@@ -229,14 +229,14 @@ func validateLoadTestConfig(config loadtest.Config) error {
 			return fmt.Errorf("stage %d: duration must be positive", i+1)
 		}
 	}
-	
+
 	return nil
 }
 
 func displayResults(result *loadtest.Result, config loadtest.Config, logger *zap.Logger) error {
 	fmt.Println("\n🎯 Load Test Results")
 	fmt.Println("═══════════════════════════════════════════════════════════════")
-	
+
 	// Overall summary
 	fmt.Printf("\n📊 Overall Summary:\n")
 	fmt.Printf("   • Total Duration: %s\n", result.Duration.Round(time.Second))
@@ -245,14 +245,14 @@ func displayResults(result *loadtest.Result, config loadtest.Config, logger *zap
 	fmt.Printf("   • Failed: %d\n", result.FailedRequests)
 	fmt.Printf("   • Requests/sec: %.1f\n", result.RequestsPerSecond)
 	fmt.Printf("   • Data Transferred: %.2f MB\n", float64(result.BytesReceived)/(1024*1024))
-	
+
 	// Latency metrics
 	fmt.Printf("\n⏱️  Latency Metrics:\n")
 	fmt.Printf("   • Average: %s\n", result.AverageLatency.Round(time.Millisecond))
 	fmt.Printf("   • Median: %s\n", result.MedianLatency.Round(time.Millisecond))
 	fmt.Printf("   • P95: %s\n", result.P95Latency.Round(time.Millisecond))
 	fmt.Printf("   • P99: %s\n", result.P99Latency.Round(time.Millisecond))
-	
+
 	// Stage results
 	if len(result.StageResults) > 0 {
 		fmt.Printf("\n📈 Stage Results:\n")
@@ -262,7 +262,7 @@ func displayResults(result *loadtest.Result, config loadtest.Config, logger *zap
 			fmt.Printf("      • Success Rate: %.1f%%\n", stage.SuccessRate)
 		}
 	}
-	
+
 	// Status code distribution
 	if len(result.StatusCodes) > 0 {
 		fmt.Printf("\n📊 Status Code Distribution:\n")
@@ -271,7 +271,7 @@ func displayResults(result *loadtest.Result, config loadtest.Config, logger *zap
 			fmt.Printf("   • %d: %d (%.1f%%)\n", code, count, percentage)
 		}
 	}
-	
+
 	// Top errors
 	if len(result.Errors) > 0 {
 		fmt.Printf("\n❌ Top Errors:\n")
@@ -284,7 +284,7 @@ func displayResults(result *loadtest.Result, config loadtest.Config, logger *zap
 			errorCount++
 		}
 	}
-	
+
 	// Problematic URLs
 	problemURLs := []string{}
 	for url, urlResult := range result.URLResults {
@@ -292,7 +292,7 @@ func displayResults(result *loadtest.Result, config loadtest.Config, logger *zap
 			problemURLs = append(problemURLs, url)
 		}
 	}
-	
+
 	if len(problemURLs) > 0 {
 		fmt.Printf("\n⚠️  Problematic URLs (success rate < 90%%):\n")
 		for i, url := range problemURLs {
@@ -302,16 +302,16 @@ func displayResults(result *loadtest.Result, config loadtest.Config, logger *zap
 			}
 			urlResult := result.URLResults[url]
 			fmt.Printf("   • %s\n", url)
-			fmt.Printf("     Success Rate: %.1f%%, Avg Latency: %s\n", 
+			fmt.Printf("     Success Rate: %.1f%%, Avg Latency: %s\n",
 				urlResult.SuccessRate, urlResult.AverageLatency.Round(time.Millisecond))
 			if urlResult.LastError != "" {
 				fmt.Printf("     Last Error: %s\n", urlResult.LastError)
 			}
 		}
 	}
-	
+
 	fmt.Println("\n═══════════════════════════════════════════════════════════════")
-	
+
 	return nil
 }
 
@@ -320,10 +320,10 @@ func saveResults(result *loadtest.Result, outputFile string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal results: %w", err)
 	}
-	
+
 	if err := os.WriteFile(outputFile, data, 0644); err != nil {
 		return fmt.Errorf("failed to write results file: %w", err)
 	}
-	
+
 	return nil
 }

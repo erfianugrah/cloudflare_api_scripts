@@ -7,10 +7,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"media-toolkit-go/cmd/toolkit/commands"
-	"media-toolkit-go/pkg/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"media-toolkit-go/cmd/toolkit/commands"
+	"media-toolkit-go/pkg/config"
 )
 
 var (
@@ -51,15 +51,15 @@ func main() {
 			if err != nil {
 				return fmt.Errorf("failed to setup logging: %w", err)
 			}
-			
+
 			// Bind dry-run flag to viper
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			viper.Set("dry-run", dryRun)
-			
+
 			// Store logger in context
 			ctx = context.WithValue(ctx, "logger", logger)
 			cmd.SetContext(ctx)
-			
+
 			return nil
 		},
 	}

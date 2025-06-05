@@ -10,11 +10,11 @@ import (
 	"text/template"
 	"time"
 
+	"go.uber.org/zap"
+	"media-toolkit-go/internal/workers"
 	"media-toolkit-go/pkg/ffmpeg"
 	"media-toolkit-go/pkg/loadtest"
 	"media-toolkit-go/pkg/stats"
-	"media-toolkit-go/internal/workers"
-	"go.uber.org/zap"
 )
 
 // ReportConfig configures report generation
@@ -42,41 +42,41 @@ func DefaultReportConfig() ReportConfig {
 // ReportData contains all data for report generation
 type ReportData struct {
 	// Report metadata
-	GeneratedAt     time.Time         `json:"generated_at"`
-	ReportName      string            `json:"report_name"`
-	Metadata        map[string]string `json:"metadata,omitempty"`
-	
+	GeneratedAt time.Time         `json:"generated_at"`
+	ReportName  string            `json:"report_name"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+
 	// Processing statistics
-	ProcessingStats *stats.CollectorSummary `json:"processing_stats,omitempty"`
+	ProcessingStats *stats.CollectorSummary  `json:"processing_stats,omitempty"`
 	WorkerStats     *workers.WorkerPoolStats `json:"worker_stats,omitempty"`
-	
+
 	// Optimization results
 	OptimizationResults []ffmpeg.OptimizationResult `json:"optimization_results,omitempty"`
-	
+
 	// Load test results
 	LoadTestResults []loadtest.Result `json:"load_test_results,omitempty"`
-	
+
 	// Error analysis
-	ErrorAnalysis   *ErrorAnalysis   `json:"error_analysis,omitempty"`
-	
+	ErrorAnalysis *ErrorAnalysis `json:"error_analysis,omitempty"`
+
 	// Performance summary
 	PerformanceSummary *PerformanceSummary `json:"performance_summary,omitempty"`
 }
 
 // ErrorAnalysis contains error analysis data
 type ErrorAnalysis struct {
-	TotalErrors       int64                    `json:"total_errors"`
-	ErrorsByType      map[string]int64         `json:"errors_by_type"`
-	ErrorsByCategory  map[string]int64         `json:"errors_by_category"`
-	MostCommonErrors  []ErrorFrequency         `json:"most_common_errors"`
-	ErrorRate         float64                  `json:"error_rate"`
-	CriticalErrors    []string                 `json:"critical_errors,omitempty"`
+	TotalErrors      int64            `json:"total_errors"`
+	ErrorsByType     map[string]int64 `json:"errors_by_type"`
+	ErrorsByCategory map[string]int64 `json:"errors_by_category"`
+	MostCommonErrors []ErrorFrequency `json:"most_common_errors"`
+	ErrorRate        float64          `json:"error_rate"`
+	CriticalErrors   []string         `json:"critical_errors,omitempty"`
 }
 
 // ErrorFrequency represents error frequency data
 type ErrorFrequency struct {
-	Error     string `json:"error"`
-	Count     int64  `json:"count"`
+	Error     string  `json:"error"`
+	Count     int64   `json:"count"`
 	Frequency float64 `json:"frequency"`
 }
 
@@ -86,20 +86,20 @@ type PerformanceSummary struct {
 	TotalProcessingTime   time.Duration `json:"total_processing_time"`
 	AverageProcessingTime time.Duration `json:"average_processing_time"`
 	ProcessingThroughput  float64       `json:"processing_throughput"` // items per second
-	
+
 	// Network performance
-	AverageResponseTime   time.Duration `json:"average_response_time"`
-	TotalDataTransferred  int64         `json:"total_data_transferred"`
-	NetworkThroughput     float64       `json:"network_throughput"` // bytes per second
-	
+	AverageResponseTime  time.Duration `json:"average_response_time"`
+	TotalDataTransferred int64         `json:"total_data_transferred"`
+	NetworkThroughput    float64       `json:"network_throughput"` // bytes per second
+
 	// Resource utilization
-	WorkerUtilization     float64       `json:"worker_utilization"`
-	QueueUtilization      float64       `json:"queue_utilization"`
-	
+	WorkerUtilization float64 `json:"worker_utilization"`
+	QueueUtilization  float64 `json:"queue_utilization"`
+
 	// Optimization performance
-	TotalSizeSaved        int64         `json:"total_size_saved"`
-	AverageCompressionRatio float64     `json:"average_compression_ratio"`
-	OptimizationEfficiency float64      `json:"optimization_efficiency"`
+	TotalSizeSaved          int64   `json:"total_size_saved"`
+	AverageCompressionRatio float64 `json:"average_compression_ratio"`
+	OptimizationEfficiency  float64 `json:"optimization_efficiency"`
 }
 
 // Generator handles report generation
@@ -120,19 +120,19 @@ func (g *Generator) GenerateReport(data ReportData, config ReportConfig) error {
 		zap.String("name", config.ReportName),
 		zap.Strings("formats", config.Format),
 		zap.String("output_dir", config.OutputDir))
-	
+
 	// Ensure output directory exists
 	if err := os.MkdirAll(config.OutputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
-	
+
 	// Add timestamp to report name if requested
 	reportName := config.ReportName
 	if config.Timestamp {
 		timestamp := data.GeneratedAt.Format("20060102-150405")
 		reportName = fmt.Sprintf("%s-%s", config.ReportName, timestamp)
 	}
-	
+
 	// Generate each requested format
 	for _, format := range config.Format {
 		var err error
@@ -147,7 +147,7 @@ func (g *Generator) GenerateReport(data ReportData, config ReportConfig) error {
 			g.logger.Warn("Unknown report format", zap.String("format", format))
 			continue
 		}
-		
+
 		if err != nil {
 			g.logger.Error("Failed to generate report format",
 				zap.String("format", format),
@@ -155,11 +155,11 @@ func (g *Generator) GenerateReport(data ReportData, config ReportConfig) error {
 			return err
 		}
 	}
-	
+
 	g.logger.Info("Report generation completed",
 		zap.String("name", reportName),
 		zap.String("output_dir", config.OutputDir))
-	
+
 	return nil
 }
 
@@ -325,19 +325,19 @@ func (g *Generator) generateMarkdown(data ReportData, config ReportConfig, repor
 		ReportData:      data,
 		IncludeSections: config.IncludeSections,
 	}
-	
+
 	// Execute template
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, templateData); err != nil {
 		return fmt.Errorf("failed to execute markdown template: %w", err)
 	}
-	
+
 	// Write to file
 	outputPath := filepath.Join(config.OutputDir, reportName+".md")
 	if err := os.WriteFile(outputPath, buf.Bytes(), 0644); err != nil {
 		return fmt.Errorf("failed to write markdown report: %w", err)
 	}
-	
+
 	g.logger.Debug("Generated markdown report", zap.String("path", outputPath))
 	return nil
 }
@@ -349,13 +349,13 @@ func (g *Generator) generateJSON(data ReportData, config ReportConfig, reportNam
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
-	
+
 	// Write to file
 	outputPath := filepath.Join(config.OutputDir, reportName+".json")
 	if err := os.WriteFile(outputPath, jsonData, 0644); err != nil {
 		return fmt.Errorf("failed to write JSON report: %w", err)
 	}
-	
+
 	g.logger.Debug("Generated JSON report", zap.String("path", outputPath))
 	return nil
 }
@@ -464,19 +464,19 @@ func (g *Generator) generateHTML(data ReportData, config ReportConfig, reportNam
 	if err != nil {
 		return fmt.Errorf("failed to parse HTML template: %w", err)
 	}
-	
+
 	// Execute template
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, data); err != nil {
 		return fmt.Errorf("failed to execute HTML template: %w", err)
 	}
-	
+
 	// Write to file
 	outputPath := filepath.Join(config.OutputDir, reportName+".html")
 	if err := os.WriteFile(outputPath, buf.Bytes(), 0644); err != nil {
 		return fmt.Errorf("failed to write HTML report: %w", err)
 	}
-	
+
 	g.logger.Debug("Generated HTML report", zap.String("path", outputPath))
 	return nil
 }
@@ -486,18 +486,18 @@ func (g *Generator) AnalyzeErrors(statsCollector *stats.Collector) *ErrorAnalysi
 	errors := statsCollector.GetErrors()
 	totalRequests := statsCollector.TotalRequests()
 	totalErrors := statsCollector.FailedRequests()
-	
+
 	analysis := &ErrorAnalysis{
 		TotalErrors:      totalErrors,
 		ErrorsByType:     make(map[string]int64),
 		ErrorsByCategory: make(map[string]int64),
 		MostCommonErrors: make([]ErrorFrequency, 0),
 	}
-	
+
 	if totalRequests > 0 {
 		analysis.ErrorRate = float64(totalErrors) / float64(totalRequests) * 100
 	}
-	
+
 	// Analyze error types and create frequency list
 	for errorMsg, count := range errors {
 		frequency := float64(count) / float64(totalErrors) * 100
@@ -506,12 +506,12 @@ func (g *Generator) AnalyzeErrors(statsCollector *stats.Collector) *ErrorAnalysi
 			Count:     count,
 			Frequency: frequency,
 		})
-		
+
 		// Categorize errors
 		category := categorizeError(errorMsg)
 		analysis.ErrorsByCategory[category] += count
 	}
-	
+
 	return analysis
 }
 
@@ -531,20 +531,20 @@ func humanizeBytes(bytes int64) string {
 	if bytes < unit {
 		return fmt.Sprintf("%d B", bytes)
 	}
-	
+
 	div, exp := int64(unit), 0
 	for n := bytes / unit; n >= unit; n /= unit {
 		div *= unit
 		exp++
 	}
-	
+
 	units := []string{"KB", "MB", "GB", "TB", "PB"}
 	return fmt.Sprintf("%.1f %s", float64(bytes)/float64(div), units[exp])
 }
 
 func categorizeError(errorMsg string) string {
 	errorMsg = strings.ToLower(errorMsg)
-	
+
 	if strings.Contains(errorMsg, "timeout") {
 		return "timeout"
 	}
@@ -563,6 +563,6 @@ func categorizeError(errorMsg string) string {
 	if strings.Contains(errorMsg, "400") {
 		return "client_error"
 	}
-	
+
 	return "other"
 }

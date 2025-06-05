@@ -80,26 +80,26 @@ type WorkerAllocationConfig struct {
 
 // ThresholdConfig defines size thresholds for file categorization
 type ThresholdConfig struct {
-	SmallFileMiB   int `mapstructure:"small-file-threshold"`
-	MediumFileMiB  int `mapstructure:"medium-file-threshold"`
+	SmallFileMiB     int `mapstructure:"small-file-threshold"`
+	MediumFileMiB    int `mapstructure:"medium-file-threshold"`
 	SizeThresholdMiB int `mapstructure:"size-threshold"`
 }
 
 // OptimizationConfig defines video optimization settings
 type OptimizationConfig struct {
-	Codec                      string `mapstructure:"codec"`
-	Quality                    string `mapstructure:"quality"`
-	TargetResolution          string `mapstructure:"target-resolution"`
-	Fit                       string `mapstructure:"fit"`
-	AudioProfile              string `mapstructure:"audio-profile"`
-	OutputFormat              string `mapstructure:"output-format"`
-	CreateWebM                bool   `mapstructure:"create-webm"`
-	HardwareAcceleration      string `mapstructure:"hardware-acceleration"`
-	DisableHardwareAcceleration bool `mapstructure:"disable-hardware-acceleration"`
-	BrowserCompatible         bool   `mapstructure:"browser-compatible"`
-	OptimizeVideos            bool   `mapstructure:"optimize-videos"`
-	OptimizeInPlace           bool   `mapstructure:"optimize-in-place"`
-	OptimizedVideosDir        string `mapstructure:"optimized-videos-dir"`
+	Codec                       string `mapstructure:"codec"`
+	Quality                     string `mapstructure:"quality"`
+	TargetResolution            string `mapstructure:"target-resolution"`
+	Fit                         string `mapstructure:"fit"`
+	AudioProfile                string `mapstructure:"audio-profile"`
+	OutputFormat                string `mapstructure:"output-format"`
+	CreateWebM                  bool   `mapstructure:"create-webm"`
+	HardwareAcceleration        string `mapstructure:"hardware-acceleration"`
+	DisableHardwareAcceleration bool   `mapstructure:"disable-hardware-acceleration"`
+	BrowserCompatible           bool   `mapstructure:"browser-compatible"`
+	OptimizeVideos              bool   `mapstructure:"optimize-videos"`
+	OptimizeInPlace             bool   `mapstructure:"optimize-in-place"`
+	OptimizedVideosDir          string `mapstructure:"optimized-videos-dir"`
 }
 
 // ValidationConfig defines video validation settings
@@ -115,19 +115,19 @@ type ValidationConfig struct {
 
 // LoadTestConfig defines load testing settings
 type LoadTestConfig struct {
-	RunLoadTest                  bool   `mapstructure:"run-load-test"`
-	URLFormat                    string `mapstructure:"url-format"`
-	DebugMode                    bool   `mapstructure:"debug-mode"`
-	UseHeadRequests              bool   `mapstructure:"use-head-requests"`
-	SkipLargeFiles               bool   `mapstructure:"skip-large-files"`
-	LargeFileThresholdMiB        int    `mapstructure:"large-file-threshold-mib"`
-	RequestTimeout               string `mapstructure:"request-timeout"`
-	HeadTimeout                  string `mapstructure:"head-timeout"`
-	GlobalTimeout                string `mapstructure:"global-timeout"`
-	FailureRateThreshold         string `mapstructure:"failure-rate-threshold"`
-	MaxRetries                   int    `mapstructure:"max-retries"`
-	UseErrorReportForLoadTest    bool   `mapstructure:"use-error-report-for-load-test"`
-	
+	RunLoadTest               bool   `mapstructure:"run-load-test"`
+	URLFormat                 string `mapstructure:"url-format"`
+	DebugMode                 bool   `mapstructure:"debug-mode"`
+	UseHeadRequests           bool   `mapstructure:"use-head-requests"`
+	SkipLargeFiles            bool   `mapstructure:"skip-large-files"`
+	LargeFileThresholdMiB     int    `mapstructure:"large-file-threshold-mib"`
+	RequestTimeout            string `mapstructure:"request-timeout"`
+	HeadTimeout               string `mapstructure:"head-timeout"`
+	GlobalTimeout             string `mapstructure:"global-timeout"`
+	FailureRateThreshold      string `mapstructure:"failure-rate-threshold"`
+	MaxRetries                int    `mapstructure:"max-retries"`
+	UseErrorReportForLoadTest bool   `mapstructure:"use-error-report-for-load-test"`
+
 	// Stage configuration
 	Stage1Users    int    `mapstructure:"stage1-users"`
 	Stage1Duration string `mapstructure:"stage1-duration"`
@@ -145,11 +145,11 @@ type LoadTestConfig struct {
 type Config struct {
 	// Global options
 	DryRun bool `mapstructure:"dry-run"`
-	
+
 	// Workflow options
-	ForcePrewarm                bool `mapstructure:"force-prewarm"`
-	UseErrorReportForLoadTest   bool `mapstructure:"use-error-report-for-load-test"`
-	FullWorkflow                bool `mapstructure:"full-workflow"`
+	ForcePrewarm              bool `mapstructure:"force-prewarm"`
+	UseErrorReportForLoadTest bool `mapstructure:"use-error-report-for-load-test"`
+	FullWorkflow              bool `mapstructure:"full-workflow"`
 
 	// Remote storage options
 	Remote    string `mapstructure:"remote"`
@@ -158,25 +158,25 @@ type Config struct {
 	BaseURL   string `mapstructure:"base-url"`
 
 	// Processing options
-	MediaType             MediaType `mapstructure:"-"`
-	MediaTypeString       string    `mapstructure:"media-type"`
-	Derivatives           []string  `mapstructure:"derivatives"`
-	ImageVariants         []string  `mapstructure:"image-variants"`
-	UseDerivatives        bool      `mapstructure:"use-derivatives"`
-	Workers               int       `mapstructure:"workers"`
-	Timeout               int       `mapstructure:"timeout"`
-	ConnectionCloseDelay  int       `mapstructure:"connection-close-delay"`
-	Retry                 int       `mapstructure:"retry"`
-	UseHeadForSize        bool      `mapstructure:"use-head-for-size"`
-	GenerateErrorReport   bool      `mapstructure:"generate-error-report"`
-	ErrorReportOutput     string    `mapstructure:"error-report-output"`
-	Format                string    `mapstructure:"format"`
+	MediaType            MediaType `mapstructure:"-"`
+	MediaTypeString      string    `mapstructure:"media-type"`
+	Derivatives          []string  `mapstructure:"derivatives"`
+	ImageVariants        []string  `mapstructure:"image-variants"`
+	UseDerivatives       bool      `mapstructure:"use-derivatives"`
+	Workers              int       `mapstructure:"workers"`
+	Timeout              int       `mapstructure:"timeout"`
+	ConnectionCloseDelay int       `mapstructure:"connection-close-delay"`
+	Retry                int       `mapstructure:"retry"`
+	UseHeadForSize       bool      `mapstructure:"use-head-for-size"`
+	GenerateErrorReport  bool      `mapstructure:"generate-error-report"`
+	ErrorReportOutput    string    `mapstructure:"error-report-output"`
+	Format               string    `mapstructure:"format"`
 
 	// Output and reporting options
-	Output              string    `mapstructure:"output"`
-	Limit               int       `mapstructure:"limit"`
-	Extensions          []string  `mapstructure:"extensions"`
-	Verbose             bool      `mapstructure:"verbose"`
+	Output     string   `mapstructure:"output"`
+	Limit      int      `mapstructure:"limit"`
+	Extensions []string `mapstructure:"extensions"`
+	Verbose    bool     `mapstructure:"verbose"`
 
 	// Comparison options
 	Compare          string `mapstructure:"compare"`
@@ -186,9 +186,9 @@ type Config struct {
 	OnlyCompare      bool   `mapstructure:"only-compare"`
 
 	// S3 and listing options
-	UseAWSCLI         bool   `mapstructure:"use-aws-cli"`
-	ListFiles         bool   `mapstructure:"list-files"`
-	SizeReportOutput  string `mapstructure:"size-report-output"`
+	UseAWSCLI        bool   `mapstructure:"use-aws-cli"`
+	ListFiles        bool   `mapstructure:"list-files"`
+	SizeReportOutput string `mapstructure:"size-report-output"`
 
 	// Performance and optimization
 	PerformanceReport string `mapstructure:"performance-report"`
@@ -207,18 +207,25 @@ type Config struct {
 
 	// Load testing settings
 	LoadTest LoadTestConfig `mapstructure:"load-test"`
+
+	// Exclusion filters
+	ExcludeExtensions  []string `mapstructure:"exclude-extensions"`
+	ExcludePatterns    []string `mapstructure:"exclude-patterns"`
+	ExcludeDirectories []string `mapstructure:"exclude-directories"`
+	ExcludeMinSize     int      `mapstructure:"exclude-min-size"`
+	ExcludeMaxSize     int      `mapstructure:"exclude-max-size"`
 }
 
 // FileMetadata represents metadata for a file being processed
 type FileMetadata struct {
-	Path               string        `json:"path"`
-	Size               int64         `json:"size_bytes"`
-	SizeCategory       SizeCategory  `json:"size_category"`
-	MediaType          MediaType     `json:"media_type,omitempty"`
-	ProcessingStarted  *time.Time    `json:"processing_started,omitempty"`
-	ProcessingCompleted *time.Time   `json:"processing_completed,omitempty"`
-	ProcessingDuration *time.Duration `json:"processing_duration,omitempty"`
-	Derivatives        map[string]DerivativeMetadata `json:"derivatives,omitempty"`
+	Path                string                        `json:"path"`
+	Size                int64                         `json:"size_bytes"`
+	SizeCategory        SizeCategory                  `json:"size_category"`
+	MediaType           MediaType                     `json:"media_type,omitempty"`
+	ProcessingStarted   *time.Time                    `json:"processing_started,omitempty"`
+	ProcessingCompleted *time.Time                    `json:"processing_completed,omitempty"`
+	ProcessingDuration  *time.Duration                `json:"processing_duration,omitempty"`
+	Derivatives         map[string]DerivativeMetadata `json:"derivatives,omitempty"`
 }
 
 // DerivativeMetadata represents processing metadata for a specific derivative/variant
@@ -260,12 +267,12 @@ func (f *FileMetadata) CompleteDerivativeProcessing(derivative string) {
 	if f.Derivatives == nil {
 		return
 	}
-	
+
 	meta, exists := f.Derivatives[derivative]
 	if !exists || meta.Started == nil {
 		return
 	}
-	
+
 	now := time.Now()
 	meta.Completed = &now
 	duration := now.Sub(*meta.Started)

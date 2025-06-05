@@ -41,22 +41,23 @@ func addValidateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("remote", "", "Remote storage for validation")
 	cmd.Flags().String("bucket", "", "Bucket name for remote validation")
 	cmd.Flags().String("directory", "", "Directory path within bucket")
-	
+
 	// Validation options
 	cmd.Flags().Int("validation-workers", 10, "Number of concurrent validation workers")
 	cmd.Flags().String("validation-report", "validation_report.md", "Output file for validation report")
 	cmd.Flags().String("validation-format", "markdown", "Format for validation report (text, markdown, json)")
 	cmd.Flags().String("video-pattern", "*.mp4", "File pattern to match for validation")
-	cmd.Flags().StringSlice("extensions", []string{}, "File extensions to filter by (e.g., .mp4,.mkv)")
-	cmd.Flags().String("media-type", "", "Media type preset: 'video' or 'all'")
-	
+
+	// Add common filtering flags
+	utils.AddFilteringFlags(cmd)
+
 	// Bind flags to viper
 	viper.BindPFlags(cmd.Flags())
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
-	
+
 	// Get logger from context
 	logger, ok := ctx.Value("logger").(*zap.Logger)
 	if !ok {
@@ -80,10 +81,10 @@ type ValidationConfig struct {
 	// Validation sources (mutually exclusive)
 	ValidateDirectory string
 	ValidateResults   string
-	Remote           string
-	Bucket           string
-	Directory        string
-	
+	Remote            string
+	Bucket            string
+	Directory         string
+
 	// Validation options
 	ValidationWorkers int
 	ValidationReport  string
@@ -95,25 +96,25 @@ type ValidationConfig struct {
 
 // ValidationResult represents the result of validating a single video
 type ValidationResult struct {
-	FilePath      string                `json:"file_path"`
-	Valid         bool                  `json:"valid"`
-	Corrupted     bool                  `json:"corrupted"`
-	Errors        []string              `json:"errors,omitempty"`
-	Metadata      *ffmpeg.VideoMetadata `json:"metadata,omitempty"`
-	ValidationTime time.Duration        `json:"validation_time"`
+	FilePath       string                `json:"file_path"`
+	Valid          bool                  `json:"valid"`
+	Corrupted      bool                  `json:"corrupted"`
+	Errors         []string              `json:"errors,omitempty"`
+	Metadata       *ffmpeg.VideoMetadata `json:"metadata,omitempty"`
+	ValidationTime time.Duration         `json:"validation_time"`
 	Timestamp      time.Time             `json:"timestamp"`
 }
 
 // ValidationReport represents the complete validation report
 type ValidationReport struct {
-	TotalFiles       int                 `json:"total_files"`
-	ValidFiles       int                 `json:"valid_files"`
-	CorruptedFiles   int                 `json:"corrupted_files"`
-	ErrorFiles       int                 `json:"error_files"`
-	TotalDuration    time.Duration       `json:"total_duration"`
-	Results          []ValidationResult  `json:"results"`
-	ErrorsByType     map[string]int      `json:"errors_by_type"`
-	GeneratedAt      time.Time           `json:"generated_at"`
+	TotalFiles     int                `json:"total_files"`
+	ValidFiles     int                `json:"valid_files"`
+	CorruptedFiles int                `json:"corrupted_files"`
+	ErrorFiles     int                `json:"error_files"`
+	TotalDuration  time.Duration      `json:"total_duration"`
+	Results        []ValidationResult `json:"results"`
+	ErrorsByType   map[string]int     `json:"errors_by_type"`
+	GeneratedAt    time.Time          `json:"generated_at"`
 }
 
 // executeValidationWorkflow performs the complete validation workflow
@@ -167,15 +168,15 @@ func buildValidationConfig() (*ValidationConfig, error) {
 	return &ValidationConfig{
 		ValidateDirectory: viper.GetString("validate-directory"),
 		ValidateResults:   viper.GetString("validate-results"),
-		Remote:           viper.GetString("remote"),
-		Bucket:           viper.GetString("bucket"),
-		Directory:        viper.GetString("directory"),
+		Remote:            viper.GetString("remote"),
+		Bucket:            viper.GetString("bucket"),
+		Directory:         viper.GetString("directory"),
 		ValidationWorkers: viper.GetInt("validation-workers"),
 		ValidationReport:  viper.GetString("validation-report"),
 		ValidationFormat:  viper.GetString("validation-format"),
-		VideoPattern:     viper.GetString("video-pattern"),
-		Extensions:       viper.GetStringSlice("extensions"),
-		MediaType:        viper.GetString("media-type"),
+		VideoPattern:      viper.GetString("video-pattern"),
+		Extensions:        viper.GetStringSlice("extensions"),
+		MediaType:         viper.GetString("media-type"),
 	}, nil
 }
 
@@ -226,11 +227,11 @@ func getVideoFilesForValidation(ctx context.Context, cfg *ValidationConfig, logg
 	if cfg.ValidateDirectory != "" {
 		return getVideoFilesFromDirectory(cfg.ValidateDirectory, cfg.VideoPattern, logger)
 	}
-	
+
 	if cfg.ValidateResults != "" {
 		return getVideoFilesFromResults(cfg.ValidateResults, logger)
 	}
-	
+
 	if cfg.Remote != "" {
 		return getVideoFilesFromRemote(ctx, cfg, logger)
 	}
@@ -244,8 +245,8 @@ func getVideoFilesFromDirectory(directory, pattern string, logger *zap.Logger) (
 		return nil, fmt.Errorf("directory does not exist: %s", directory)
 	}
 
-	logger.Info("Scanning directory for video files", 
-		zap.String("directory", directory), 
+	logger.Info("Scanning directory for video files",
+		zap.String("directory", directory),
 		zap.String("pattern", pattern))
 
 	// Use filepath.Glob to find matching files
@@ -255,12 +256,36 @@ func getVideoFilesFromDirectory(directory, pattern string, logger *zap.Logger) (
 		return nil, fmt.Errorf("failed to glob pattern %s: %w", searchPattern, err)
 	}
 
-	// Filter to only include video files
-	videoFiles := make([]string, 0, len(matches))
+	// Convert to FileInfo for filtering
+	fileInfos := make([]storage.FileInfo, 0, len(matches))
 	for _, match := range matches {
-		if utils.IsVideoFile(match) {
-			videoFiles = append(videoFiles, match)
+		info, err := os.Stat(match)
+		if err != nil {
+			continue
 		}
+		fileInfos = append(fileInfos, storage.FileInfo{
+			Path: match,
+			Size: info.Size(),
+		})
+	}
+
+	// Apply filters using shared utility
+	filterConfig := &utils.FilterConfig{
+		Extensions:         viper.GetStringSlice("extensions"),
+		MediaType:          viper.GetString("media-type"),
+		ExcludeExtensions:  viper.GetStringSlice("exclude-extensions"),
+		ExcludePatterns:    viper.GetStringSlice("exclude-patterns"),
+		ExcludeDirectories: viper.GetStringSlice("exclude-directories"),
+		ExcludeMinSize:     viper.GetInt("exclude-min-size"),
+		ExcludeMaxSize:     viper.GetInt("exclude-max-size"),
+	}
+
+	filteredFiles := utils.ApplyFileFilters(fileInfos, filterConfig)
+
+	// Extract file paths
+	videoFiles := make([]string, 0, len(filteredFiles))
+	for _, file := range filteredFiles {
+		videoFiles = append(videoFiles, file.Path)
 	}
 
 	logger.Info("Found video files", zap.Int("count", len(videoFiles)))
@@ -290,7 +315,7 @@ func getVideoFilesFromResults(resultsFile string, logger *zap.Logger) ([]string,
 	// Extract file paths from results
 	// This is a simplified implementation - adjust based on actual results format
 	videoFiles := make([]string, 0)
-	
+
 	// Look for common result formats
 	if files, ok := results["files"].([]interface{}); ok {
 		for _, file := range files {
@@ -333,12 +358,23 @@ func getVideoFilesFromRemote(ctx context.Context, cfg *ValidationConfig, logger 
 		return nil, fmt.Errorf("failed to list files: %w", err)
 	}
 
-	// Filter video files
-	videoFiles := make([]string, 0, len(objects))
-	for _, obj := range objects {
-		if utils.IsVideoFile(obj.Path) {
-			videoFiles = append(videoFiles, obj.Path)
-		}
+	// Apply filters using shared utility
+	filterConfig := &utils.FilterConfig{
+		Extensions:         viper.GetStringSlice("extensions"),
+		MediaType:          viper.GetString("media-type"),
+		ExcludeExtensions:  viper.GetStringSlice("exclude-extensions"),
+		ExcludePatterns:    viper.GetStringSlice("exclude-patterns"),
+		ExcludeDirectories: viper.GetStringSlice("exclude-directories"),
+		ExcludeMinSize:     viper.GetInt("exclude-min-size"),
+		ExcludeMaxSize:     viper.GetInt("exclude-max-size"),
+	}
+
+	filteredFiles := utils.ApplyFileFilters(objects, filterConfig)
+
+	// Extract file paths
+	videoFiles := make([]string, 0, len(filteredFiles))
+	for _, file := range filteredFiles {
+		videoFiles = append(videoFiles, file.Path)
 	}
 
 	logger.Info("Found video files in remote storage", zap.Int("count", len(videoFiles)))
@@ -347,7 +383,7 @@ func getVideoFilesFromRemote(ctx context.Context, cfg *ValidationConfig, logger 
 
 // runVideoValidation runs validation on all video files
 func runVideoValidation(ctx context.Context, videoFiles []string, cfg *ValidationConfig, logger *zap.Logger) (*ValidationReport, error) {
-	logger.Info("Starting video validation", 
+	logger.Info("Starting video validation",
 		zap.Int("files", len(videoFiles)),
 		zap.Int("workers", cfg.ValidationWorkers))
 
@@ -361,7 +397,7 @@ func runVideoValidation(ctx context.Context, videoFiles []string, cfg *Validatio
 	workerConfig.SmallFileWorkers = cfg.ValidationWorkers / 3
 	workerConfig.MediumFileWorkers = cfg.ValidationWorkers / 3
 	workerConfig.LargeFileWorkers = cfg.ValidationWorkers / 3
-	
+
 	pool := workers.NewWorkerPool(workerConfig, logger)
 	if err := pool.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start worker pool: %w", err)
@@ -376,7 +412,7 @@ func runVideoValidation(ctx context.Context, videoFiles []string, cfg *Validatio
 	// Submit validation tasks
 	for i, videoFile := range videoFiles {
 		wg.Add(1)
-		
+
 		task := &workers.Task{
 			ID:        fmt.Sprintf("validate-%d", i),
 			SizeBytes: 100 * 1024 * 1024, // Assume 100MB for worker allocation
@@ -384,17 +420,17 @@ func runVideoValidation(ctx context.Context, videoFiles []string, cfg *Validatio
 			Payload:   map[string]interface{}{"file": videoFile, "index": i},
 			ProcessFunc: func(ctx context.Context, payload interface{}) error {
 				defer wg.Done()
-				
+
 				data := payload.(map[string]interface{})
 				filePath := data["file"].(string)
 				index := data["index"].(int)
-				
+
 				result := validateSingleVideo(ctx, filePath, extractor, logger)
-				
+
 				resultsMutex.Lock()
 				results[index] = result
 				resultsMutex.Unlock()
-				
+
 				return nil
 			},
 			ResultChan: make(chan workers.TaskResult, 1),
@@ -447,7 +483,7 @@ func runVideoValidation(ctx context.Context, videoFiles []string, cfg *Validatio
 // validateSingleVideo validates a single video file
 func validateSingleVideo(ctx context.Context, filePath string, extractor *ffmpeg.MetadataExtractor, logger *zap.Logger) ValidationResult {
 	startTime := time.Now()
-	
+
 	result := ValidationResult{
 		FilePath:  filePath,
 		Timestamp: startTime,
@@ -477,7 +513,7 @@ func validateSingleVideo(ctx context.Context, filePath string, extractor *ffmpeg
 // categorizeError categorizes an error message for statistics
 func categorizeError(errMsg string) string {
 	errLower := strings.ToLower(errMsg)
-	
+
 	switch {
 	case strings.Contains(errLower, "corrupt"):
 		return "corruption"
@@ -544,11 +580,11 @@ func generateMarkdownValidationReport(report *ValidationReport) string {
 	// Summary
 	sb.WriteString("## Summary\n\n")
 	sb.WriteString(fmt.Sprintf("- **Total Files:** %d\n", report.TotalFiles))
-	sb.WriteString(fmt.Sprintf("- **Valid Files:** %d (%.1f%%)\n", 
+	sb.WriteString(fmt.Sprintf("- **Valid Files:** %d (%.1f%%)\n",
 		report.ValidFiles, float64(report.ValidFiles)/float64(report.TotalFiles)*100))
-	sb.WriteString(fmt.Sprintf("- **Corrupted Files:** %d (%.1f%%)\n", 
+	sb.WriteString(fmt.Sprintf("- **Corrupted Files:** %d (%.1f%%)\n",
 		report.CorruptedFiles, float64(report.CorruptedFiles)/float64(report.TotalFiles)*100))
-	sb.WriteString(fmt.Sprintf("- **Error Files:** %d (%.1f%%)\n\n", 
+	sb.WriteString(fmt.Sprintf("- **Error Files:** %d (%.1f%%)\n\n",
 		report.ErrorFiles, float64(report.ErrorFiles)/float64(report.TotalFiles)*100))
 
 	// Error breakdown
@@ -580,7 +616,7 @@ func generateMarkdownValidationReport(report *ValidationReport) string {
 				status = "Corrupted"
 			}
 			errors := strings.Join(result.Errors, "; ")
-			sb.WriteString(fmt.Sprintf("| %s | %s | %s |\n", 
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s |\n",
 				result.FilePath, status, utils.TruncateString(errors, 100)))
 		}
 	}
@@ -599,11 +635,11 @@ func generateTextValidationReport(report *ValidationReport) string {
 
 	sb.WriteString("Summary:\n")
 	sb.WriteString(fmt.Sprintf("  Total Files: %d\n", report.TotalFiles))
-	sb.WriteString(fmt.Sprintf("  Valid Files: %d (%.1f%%)\n", 
+	sb.WriteString(fmt.Sprintf("  Valid Files: %d (%.1f%%)\n",
 		report.ValidFiles, float64(report.ValidFiles)/float64(report.TotalFiles)*100))
-	sb.WriteString(fmt.Sprintf("  Corrupted Files: %d (%.1f%%)\n", 
+	sb.WriteString(fmt.Sprintf("  Corrupted Files: %d (%.1f%%)\n",
 		report.CorruptedFiles, float64(report.CorruptedFiles)/float64(report.TotalFiles)*100))
-	sb.WriteString(fmt.Sprintf("  Error Files: %d (%.1f%%)\n\n", 
+	sb.WriteString(fmt.Sprintf("  Error Files: %d (%.1f%%)\n\n",
 		report.ErrorFiles, float64(report.ErrorFiles)/float64(report.TotalFiles)*100))
 
 	// List failed files

@@ -12,7 +12,7 @@ func EnsureDir(path string) error {
 	if path == "" {
 		return fmt.Errorf("path cannot be empty")
 	}
-	
+
 	info, err := os.Stat(path)
 	if err == nil {
 		if !info.IsDir() {
@@ -20,11 +20,11 @@ func EnsureDir(path string) error {
 		}
 		return nil
 	}
-	
+
 	if os.IsNotExist(err) {
 		return os.MkdirAll(path, 0755)
 	}
-	
+
 	return err
 }
 
@@ -33,7 +33,7 @@ func FileExists(path string) bool {
 	if path == "" {
 		return false
 	}
-	
+
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
 }
@@ -43,7 +43,7 @@ func DirExists(path string) bool {
 	if path == "" {
 		return false
 	}
-	
+
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
 }
@@ -53,16 +53,16 @@ func GetFileSize(path string) (int64, error) {
 	if path == "" {
 		return 0, fmt.Errorf("path cannot be empty")
 	}
-	
+
 	info, err := os.Stat(path)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	if info.IsDir() {
 		return 0, fmt.Errorf("path is a directory, not a file: %s", path)
 	}
-	
+
 	return info.Size(), nil
 }
 
@@ -81,10 +81,10 @@ func GetFileNameWithoutExt(path string) string {
 // IsVideoFile checks if the file has a video extension
 func IsVideoFile(path string) bool {
 	videoExts := []string{
-		".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv", 
+		".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv",
 		".webm", ".m4v", ".3gp", ".ogv", ".ts", ".mts",
 	}
-	
+
 	ext := GetFileExtension(path)
 	for _, videoExt := range videoExts {
 		if ext == videoExt {
@@ -97,10 +97,10 @@ func IsVideoFile(path string) bool {
 // IsImageFile checks if the file has an image extension
 func IsImageFile(path string) bool {
 	imageExts := []string{
-		".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", 
+		".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff",
 		".webp", ".svg", ".ico", ".heic", ".heif",
 	}
-	
+
 	ext := GetFileExtension(path)
 	for _, imageExt := range imageExts {
 		if ext == imageExt {
@@ -115,7 +115,7 @@ func JoinPath(components ...string) string {
 	if len(components) == 0 {
 		return ""
 	}
-	
+
 	// Filter out empty components
 	filtered := make([]string, 0, len(components))
 	for _, component := range components {
@@ -123,11 +123,11 @@ func JoinPath(components ...string) string {
 			filtered = append(filtered, component)
 		}
 	}
-	
+
 	if len(filtered) == 0 {
 		return ""
 	}
-	
+
 	return filepath.Join(filtered...)
 }
 
@@ -136,22 +136,22 @@ func MakeRelativePath(path, basePath string) (string, error) {
 	if path == "" || basePath == "" {
 		return "", fmt.Errorf("path and basePath cannot be empty")
 	}
-	
+
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to get absolute path for %s: %w", path, err)
 	}
-	
+
 	absBase, err := filepath.Abs(basePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to get absolute path for %s: %w", basePath, err)
 	}
-	
+
 	relPath, err := filepath.Rel(absBase, absPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to make relative path: %w", err)
 	}
-	
+
 	return relPath, nil
 }
 
@@ -165,11 +165,11 @@ func CleanupTempDir(path string) error {
 	if path == "" {
 		return nil
 	}
-	
+
 	// Safety check - only remove directories under temp
 	if !strings.Contains(path, os.TempDir()) {
 		return fmt.Errorf("refusing to remove directory outside temp: %s", path)
 	}
-	
+
 	return os.RemoveAll(path)
 }

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"go.uber.org/zap"
 	"media-toolkit-go/pkg/config"
 	"media-toolkit-go/pkg/httpclient"
-	"go.uber.org/zap"
 )
 
 // Processor handles image variant processing
@@ -26,19 +26,19 @@ func NewProcessor(httpClient httpclient.Client, logger *zap.Logger) *Processor {
 
 // RequestResult represents the result of processing a single image variant
 type RequestResult struct {
-	VariantName      string        `json:"variant_name"`
-	URL              string        `json:"url"`
-	Status           string        `json:"status"`
-	StatusCode       int           `json:"status_code,omitempty"`
-	TimeToFirstByte  time.Duration `json:"time_to_first_byte,omitempty"`
-	TotalTime        time.Duration `json:"total_time"`
-	ResponseSize     int64         `json:"response_size_bytes,omitempty"`
-	ContentType      string        `json:"content_type,omitempty"`
-	Method           string        `json:"method,omitempty"`
-	Retries          int           `json:"retries,omitempty"`
-	Error            string        `json:"error,omitempty"`
-	ErrorType        string        `json:"error_type,omitempty"`
-	
+	VariantName     string        `json:"variant_name"`
+	URL             string        `json:"url"`
+	Status          string        `json:"status"`
+	StatusCode      int           `json:"status_code,omitempty"`
+	TimeToFirstByte time.Duration `json:"time_to_first_byte,omitempty"`
+	TotalTime       time.Duration `json:"total_time"`
+	ResponseSize    int64         `json:"response_size_bytes,omitempty"`
+	ContentType     string        `json:"content_type,omitempty"`
+	Method          string        `json:"method,omitempty"`
+	Retries         int           `json:"retries,omitempty"`
+	Error           string        `json:"error,omitempty"`
+	ErrorType       string        `json:"error_type,omitempty"`
+
 	// Size reduction metrics
 	OriginalSize         int64   `json:"original_size_bytes,omitempty"`
 	SizeReductionBytes   int64   `json:"size_reduction_bytes,omitempty"`
@@ -62,7 +62,7 @@ func (p *Processor) ProcessImage(ctx context.Context, metadata *config.FileMetad
 	metadata.StartProcessing()
 	defer metadata.CompleteProcessing()
 
-	p.logger.Debug("Processing image", 
+	p.logger.Debug("Processing image",
 		zap.String("path", metadata.Path),
 		zap.Int64("size", metadata.Size),
 		zap.Strings("variants", variants))
@@ -84,14 +84,14 @@ func (p *Processor) ProcessImage(ctx context.Context, metadata *config.FileMetad
 	// Process each variant
 	for variantName, variant := range variantMap {
 		metadata.StartDerivativeProcessing(variantName)
-		
+
 		requestResult, err := p.processVariant(ctx, metadata, variant, baseURL, timeout, useHeadRequest, dryRun)
 		if err != nil {
-			p.logger.Warn("Failed to process variant", 
-				zap.String("variant", variantName), 
+			p.logger.Warn("Failed to process variant",
+				zap.String("variant", variantName),
 				zap.String("path", metadata.Path),
 				zap.Error(err))
-			
+
 			requestResult = &RequestResult{
 				VariantName: variantName,
 				Status:      "error",
@@ -100,7 +100,7 @@ func (p *Processor) ProcessImage(ctx context.Context, metadata *config.FileMetad
 				TotalTime:   0,
 			}
 		}
-		
+
 		result.Results[variantName] = requestResult
 		metadata.CompleteDerivativeProcessing(variantName)
 	}
@@ -112,13 +112,13 @@ func (p *Processor) ProcessImage(ctx context.Context, metadata *config.FileMetad
 			successCount++
 		}
 	}
-	
+
 	result.Success = successCount > 0
 	if metadata.ProcessingDuration != nil {
 		result.ProcessingTime = *metadata.ProcessingDuration
 	}
 
-	p.logger.Info("Completed image processing", 
+	p.logger.Info("Completed image processing",
 		zap.String("path", metadata.Path),
 		zap.Int("variants_processed", len(result.Results)),
 		zap.Int("successful", successCount),
@@ -140,7 +140,7 @@ func (p *Processor) processVariant(ctx context.Context, metadata *config.FileMet
 		URL:         url,
 	}
 
-	p.logger.Debug("Processing image variant", 
+	p.logger.Debug("Processing image variant",
 		zap.String("variant", variant.Name),
 		zap.String("url", url))
 
@@ -163,31 +163,31 @@ func (p *Processor) processVariant(ctx context.Context, metadata *config.FileMet
 			result.TotalTime = response.TotalTime
 			result.Method = "HEAD"
 			result.Retries = response.Retries
-			
+
 			if response.ContentLength > 0 {
 				result.ResponseSize = response.ContentLength
 			}
-			
+
 			if contentType := response.Headers.Get("Content-Type"); contentType != "" {
 				result.ContentType = contentType
 			}
-			
+
 			// Calculate size reduction if we have original size
 			if metadata.Size > 0 && result.ResponseSize > 0 {
 				result.OriginalSize = metadata.Size
 				result.SizeReductionBytes = metadata.Size - result.ResponseSize
 				result.SizeReductionPercent = float64(result.SizeReductionBytes) / float64(metadata.Size) * 100
 			}
-			
-			p.logger.Debug("HEAD request successful", 
+
+			p.logger.Debug("HEAD request successful",
 				zap.String("variant", variant.Name),
 				zap.Int("status_code", response.StatusCode),
 				zap.Duration("ttfb", response.TTFB))
-			
+
 			return result, nil
 		}
-		
-		p.logger.Debug("HEAD request failed, falling back to GET", 
+
+		p.logger.Debug("HEAD request failed, falling back to GET",
 			zap.String("variant", variant.Name),
 			zap.Error(err))
 	}
@@ -212,7 +212,7 @@ func (p *Processor) processVariant(ctx context.Context, metadata *config.FileMet
 	result.Method = "GET"
 	result.Retries = response.Retries
 	result.ResponseSize = int64(len(response.Body))
-	
+
 	if contentType := response.Headers.Get("Content-Type"); contentType != "" {
 		result.ContentType = contentType
 	}
@@ -221,7 +221,7 @@ func (p *Processor) processVariant(ctx context.Context, metadata *config.FileMet
 	if response.StatusCode >= 400 {
 		result.Status = "error"
 		result.Error = fmt.Sprintf("HTTP %d: %s", response.StatusCode, response.Status)
-		
+
 		// Categorize error types
 		switch {
 		case response.StatusCode == 404:
@@ -237,7 +237,7 @@ func (p *Processor) processVariant(ctx context.Context, metadata *config.FileMet
 		}
 	} else {
 		result.Status = "success"
-		
+
 		// Calculate size reduction if we have original size
 		if metadata.Size > 0 && result.ResponseSize > 0 {
 			result.OriginalSize = metadata.Size
@@ -246,7 +246,7 @@ func (p *Processor) processVariant(ctx context.Context, metadata *config.FileMet
 		}
 	}
 
-	p.logger.Debug("GET request completed", 
+	p.logger.Debug("GET request completed",
 		zap.String("variant", variant.Name),
 		zap.String("status", result.Status),
 		zap.Int("status_code", response.StatusCode),

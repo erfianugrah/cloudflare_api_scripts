@@ -12,21 +12,21 @@ import (
 
 // FileListCache provides caching for file listings between workflow stages
 type FileListCache struct {
-	logger    *zap.Logger
-	cacheDir  string
-	ttl       time.Duration
+	logger   *zap.Logger
+	cacheDir string
+	ttl      time.Duration
 }
 
 // CachedFileList represents a cached file listing
 type CachedFileList struct {
-	Timestamp   time.Time  `json:"timestamp"`
-	Remote      string     `json:"remote"`
-	Bucket      string     `json:"bucket"`
-	Directory   string     `json:"directory"`
-	Extensions  []string   `json:"extensions,omitempty"`
-	Files       []FileInfo `json:"files"`
-	TotalCount  int        `json:"total_count"`
-	FilteredCount int      `json:"filtered_count,omitempty"`
+	Timestamp     time.Time  `json:"timestamp"`
+	Remote        string     `json:"remote"`
+	Bucket        string     `json:"bucket"`
+	Directory     string     `json:"directory"`
+	Extensions    []string   `json:"extensions,omitempty"`
+	Files         []FileInfo `json:"files"`
+	TotalCount    int        `json:"total_count"`
+	FilteredCount int        `json:"filtered_count,omitempty"`
 }
 
 // NewFileListCache creates a new file list cache
@@ -34,10 +34,10 @@ func NewFileListCache(cacheDir string, ttl time.Duration, logger *zap.Logger) *F
 	if cacheDir == "" {
 		cacheDir = "workflow-results"
 	}
-	
+
 	// Ensure cache directory exists
 	os.MkdirAll(cacheDir, 0755)
-	
+
 	return &FileListCache{
 		logger:   logger,
 		cacheDir: cacheDir,
@@ -65,7 +65,7 @@ func (c *FileListCache) getCachePath(key string) string {
 func (c *FileListCache) Get(remote, bucket, directory string, extensions []string) (*CachedFileList, bool) {
 	key := c.getCacheKey(remote, bucket, directory, extensions)
 	cachePath := c.getCachePath(key)
-	
+
 	// Check if cache file exists
 	info, err := os.Stat(cachePath)
 	if err != nil {
@@ -74,41 +74,41 @@ func (c *FileListCache) Get(remote, bucket, directory string, extensions []strin
 		}
 		return nil, false
 	}
-	
+
 	// Check if cache is expired
 	if time.Since(info.ModTime()) > c.ttl {
-		c.logger.Debug("Cache entry expired", 
+		c.logger.Debug("Cache entry expired",
 			zap.String("key", key),
 			zap.Duration("age", time.Since(info.ModTime())),
 			zap.Duration("ttl", c.ttl))
 		return nil, false
 	}
-	
+
 	// Read cache file
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		c.logger.Warn("Failed to read cache file", zap.String("path", cachePath), zap.Error(err))
 		return nil, false
 	}
-	
+
 	// Unmarshal cache data
 	var cached CachedFileList
 	if err := json.Unmarshal(data, &cached); err != nil {
 		c.logger.Warn("Failed to unmarshal cache data", zap.String("path", cachePath), zap.Error(err))
 		return nil, false
 	}
-	
+
 	// Verify cache is for the same parameters
 	if cached.Remote != remote || cached.Bucket != bucket || cached.Directory != directory {
 		c.logger.Warn("Cache entry parameters mismatch", zap.String("key", key))
 		return nil, false
 	}
-	
+
 	c.logger.Info("Using cached file listing",
 		zap.String("key", key),
 		zap.Int("file_count", len(cached.Files)),
 		zap.Duration("age", time.Since(cached.Timestamp)))
-	
+
 	return &cached, true
 }
 
@@ -116,7 +116,7 @@ func (c *FileListCache) Get(remote, bucket, directory string, extensions []strin
 func (c *FileListCache) Set(remote, bucket, directory string, extensions []string, files []FileInfo) error {
 	key := c.getCacheKey(remote, bucket, directory, extensions)
 	cachePath := c.getCachePath(key)
-	
+
 	// Create cache entry
 	cached := CachedFileList{
 		Timestamp:  time.Now(),
@@ -127,7 +127,7 @@ func (c *FileListCache) Set(remote, bucket, directory string, extensions []strin
 		Files:      files,
 		TotalCount: len(files),
 	}
-	
+
 	// If extensions were specified, count how many files matched
 	if len(extensions) > 0 {
 		filteredCount := 0
@@ -142,23 +142,23 @@ func (c *FileListCache) Set(remote, bucket, directory string, extensions []strin
 		}
 		cached.FilteredCount = filteredCount
 	}
-	
+
 	// Marshal to JSON
 	data, err := json.MarshalIndent(cached, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal cache data: %w", err)
 	}
-	
+
 	// Write to file
 	if err := os.WriteFile(cachePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write cache file: %w", err)
 	}
-	
+
 	c.logger.Info("Cached file listing",
 		zap.String("key", key),
 		zap.String("path", cachePath),
 		zap.Int("file_count", len(files)))
-	
+
 	return nil
 }
 
@@ -169,13 +169,13 @@ func (c *FileListCache) Clear() error {
 	if err != nil {
 		return fmt.Errorf("failed to list cache files: %w", err)
 	}
-	
+
 	for _, file := range files {
 		if err := os.Remove(file); err != nil {
 			c.logger.Warn("Failed to remove cache file", zap.String("path", file), zap.Error(err))
 		}
 	}
-	
+
 	c.logger.Info("Cleared file list cache", zap.Int("files_removed", len(files)))
 	return nil
 }

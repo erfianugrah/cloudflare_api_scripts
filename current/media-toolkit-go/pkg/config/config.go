@@ -14,23 +14,23 @@ import (
 
 // Default values
 const (
-	DefaultWorkers               = 5
-	DefaultTimeout               = 120
-	DefaultConnectionCloseDelay  = 15
-	DefaultRetry                 = 2
-	DefaultSmallFileThreshold    = 50
-	DefaultMediumFileThreshold   = 200
-	DefaultSizeThreshold         = 256
-	DefaultValidationWorkers     = 10
-	DefaultOutputFile            = "media_transform_results.json"
-	DefaultErrorReportOutput     = "error_report.json"
-	DefaultPerformanceReport     = "performance_report.md"
-	DefaultSizeReportOutput      = "file_size_report.md"
-	DefaultComparisonOutput      = "comparison_results.json"
-	DefaultSummaryOutput         = "comparison_summary.md"
-	DefaultValidationReport      = "validation_report.md"
-	DefaultOptimizedVideosDir    = "optimized_videos"
-	DefaultURLFormat             = "imwidth"
+	DefaultWorkers              = 5
+	DefaultTimeout              = 120
+	DefaultConnectionCloseDelay = 15
+	DefaultRetry                = 2
+	DefaultSmallFileThreshold   = 50
+	DefaultMediumFileThreshold  = 200
+	DefaultSizeThreshold        = 256
+	DefaultValidationWorkers    = 10
+	DefaultOutputFile           = "media_transform_results.json"
+	DefaultErrorReportOutput    = "error_report.json"
+	DefaultPerformanceReport    = "performance_report.md"
+	DefaultSizeReportOutput     = "file_size_report.md"
+	DefaultComparisonOutput     = "comparison_results.json"
+	DefaultSummaryOutput        = "comparison_summary.md"
+	DefaultValidationReport     = "validation_report.md"
+	DefaultOptimizedVideosDir   = "optimized_videos"
+	DefaultURLFormat            = "imwidth"
 )
 
 // SetDefaults sets default values for the configuration
@@ -210,13 +210,13 @@ func postProcessConfig(config *Config) error {
 	if config.Optimization.OptimizeVideos || config.Optimization.OptimizeInPlace {
 		validCodecs := []string{"h264", "h265", "vp9", "vp8", "av1"}
 		if !contains(validCodecs, config.Optimization.Codec) {
-			return fmt.Errorf("invalid codec: %s, must be one of: %s", 
+			return fmt.Errorf("invalid codec: %s, must be one of: %s",
 				config.Optimization.Codec, strings.Join(validCodecs, ", "))
 		}
 
 		validQualities := []string{"maximum", "high", "balanced", "efficient", "minimum"}
 		if !contains(validQualities, config.Optimization.Quality) {
-			return fmt.Errorf("invalid quality: %s, must be one of: %s", 
+			return fmt.Errorf("invalid quality: %s, must be one of: %s",
 				config.Optimization.Quality, strings.Join(validQualities, ", "))
 		}
 	}
@@ -331,7 +331,7 @@ func ValidateConfig(config *Config) error {
 	// Create optimized videos directory if needed
 	if config.Optimization.OptimizeVideos || config.Optimization.OptimizeInPlace {
 		if err := os.MkdirAll(config.Optimization.OptimizedVideosDir, 0755); err != nil {
-			errors = append(errors, fmt.Sprintf("cannot create optimized videos directory %s: %v", 
+			errors = append(errors, fmt.Sprintf("cannot create optimized videos directory %s: %v",
 				config.Optimization.OptimizedVideosDir, err))
 		}
 	}
@@ -349,7 +349,7 @@ func GetExtensionsForMediaType(mediaType string, customExtensions []string) []st
 	if len(customExtensions) > 0 {
 		return customExtensions
 	}
-	
+
 	// Otherwise, use media type presets
 	switch strings.ToLower(mediaType) {
 	case "image":

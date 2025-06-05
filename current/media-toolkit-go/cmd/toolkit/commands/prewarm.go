@@ -8,17 +8,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"go.uber.org/zap"
+	"media-toolkit-go/internal/orchestrator"
+	"media-toolkit-go/internal/workers"
 	"media-toolkit-go/pkg/config"
 	"media-toolkit-go/pkg/httpclient"
 	"media-toolkit-go/pkg/media"
 	"media-toolkit-go/pkg/reporting"
 	"media-toolkit-go/pkg/stats"
 	"media-toolkit-go/pkg/storage"
-	"media-toolkit-go/internal/orchestrator"
-	"media-toolkit-go/internal/workers"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-	"go.uber.org/zap"
+	"media-toolkit-go/pkg/utils"
 )
 
 // NewPrewarmCommand creates the prewarm command
@@ -34,7 +35,7 @@ response times for end users by populating the cache.`,
 
 	// Add flags specific to pre-warming
 	addPrewarmFlags(cmd)
-	
+
 	return cmd
 }
 
@@ -43,10 +44,9 @@ func addPrewarmFlags(cmd *cobra.Command) {
 	cmd.Flags().String("remote", "", "rclone remote name (required)")
 	cmd.Flags().String("bucket", "", "S3 bucket name (required)")
 	cmd.Flags().String("base-url", "", "Base URL to prepend to object paths (required)")
-	
+
 	// Optional flags
 	cmd.Flags().String("directory", "", "Directory path within bucket")
-	cmd.Flags().String("media-type", "auto", "Type of media to process (auto, image, video)")
 	cmd.Flags().StringSlice("derivatives", []string{"desktop", "tablet", "mobile"}, "Video derivatives to process")
 	cmd.Flags().StringSlice("image-variants", []string{"thumbnail", "small", "medium", "large", "webp"}, "Image variants to process")
 	cmd.Flags().Int("workers", 5, "Number of concurrent workers")
@@ -54,28 +54,30 @@ func addPrewarmFlags(cmd *cobra.Command) {
 	cmd.Flags().Int("connection-close-delay", 15, "Delay before closing connections")
 	cmd.Flags().Int("retry", 2, "Number of retry attempts")
 	cmd.Flags().Bool("use-head-for-size", false, "Use HEAD requests to verify content sizes")
-	cmd.Flags().StringSlice("extensions", []string{}, "File extensions to filter by (e.g., .mp4,.jpg,.png)")
 	cmd.Flags().Int("limit", 0, "Limit number of objects to process (0 = no limit)")
 	cmd.Flags().String("url-format", "imwidth", "URL format for derivatives (imwidth, derivative, query)")
-	
+
+	// Add common filtering flags
+	utils.AddFilteringFlags(cmd)
+
 	// Output options
 	cmd.Flags().String("output", "media_transform_results.json", "Output JSON file path")
 	cmd.Flags().String("performance-report", "performance_report.md", "Performance report output file")
-	
+
 	// Size thresholds
 	cmd.Flags().Int("small-file-threshold", 50, "Threshold in MiB for small files")
-	cmd.Flags().Int("medium-file-threshold", 200, "Threshold in MiB for medium files") 
+	cmd.Flags().Int("medium-file-threshold", 200, "Threshold in MiB for medium files")
 	cmd.Flags().Int("size-threshold", 256, "Size threshold in MiB for reporting")
-	
+
 	// Worker allocation
 	cmd.Flags().Int("small-file-workers", 0, "Workers for small files (0 = auto)")
 	cmd.Flags().Int("medium-file-workers", 0, "Workers for medium files (0 = auto)")
 	cmd.Flags().Int("large-file-workers", 0, "Workers for large files (0 = auto)")
 	cmd.Flags().Bool("optimize-by-size", false, "Enable size-based worker optimization")
-	
+
 	// Storage options
 	cmd.Flags().Bool("use-aws-cli", false, "Use AWS CLI instead of rclone")
-	
+
 	// Mark required flags
 	cmd.MarkFlagRequired("remote")
 	cmd.MarkFlagRequired("bucket")
@@ -84,7 +86,7 @@ func addPrewarmFlags(cmd *cobra.Command) {
 
 func runPrewarm(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
-	
+
 	// Get logger from context
 	logger, ok := ctx.Value("logger").(*zap.Logger)
 	if !ok || logger == nil {
@@ -101,7 +103,7 @@ func runPrewarm(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	
+
 	// Validate configuration
 	if err := config.ValidateConfig(cfg); err != nil {
 		return fmt.Errorf("config validation failed: %w", err)
@@ -125,21 +127,21 @@ func runPrewarm(cmd *cobra.Command, args []string) error {
 // Helper function to check required flags
 func validatePrewarmFlags(cfg *config.Config) error {
 	var errors []string
-	
+
 	if cfg.Remote == "" {
 		errors = append(errors, "remote is required")
 	}
 	if cfg.Bucket == "" {
-		errors = append(errors, "bucket is required") 
+		errors = append(errors, "bucket is required")
 	}
 	if cfg.BaseURL == "" {
 		errors = append(errors, "base-url is required")
 	}
-	
+
 	if len(errors) > 0 {
 		return fmt.Errorf("validation failed: %s", strings.Join(errors, ", "))
 	}
-	
+
 	return nil
 }
 
@@ -157,7 +159,7 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 	// 1. Create storage client
 	var storageClient storage.Storage
 	var err error
-	
+
 	if cfg.UseAWSCLI {
 		// Use AWS storage backend
 		storageConfig := storage.StorageConfig{
@@ -180,29 +182,29 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 		}
 		storageClient = storage.NewRcloneStorage(storageConfig, logger)
 	}
-	
+
 	// 2. Create HTTP client
 	httpConfig := httpclient.Config{
-		Timeout:                 time.Duration(cfg.Timeout) * time.Second,
-		RetryAttempts:          cfg.Retry,
-		RetryDelay:             time.Second,
-		ConnectionCloseDelay:   time.Duration(cfg.ConnectionCloseDelay) * time.Second,
-		MaxIdleConns:           100,
-		MaxIdleConnsPerHost:    10,
-		IdleConnTimeout:        90 * time.Second,
-		DisableKeepAlives:      false,
-		UserAgent:              "media-toolkit-go/1.0",
+		Timeout:              time.Duration(cfg.Timeout) * time.Second,
+		RetryAttempts:        cfg.Retry,
+		RetryDelay:           time.Second,
+		ConnectionCloseDelay: time.Duration(cfg.ConnectionCloseDelay) * time.Second,
+		MaxIdleConns:         100,
+		MaxIdleConnsPerHost:  10,
+		IdleConnTimeout:      90 * time.Second,
+		DisableKeepAlives:    false,
+		UserAgent:            "media-toolkit-go/1.0",
 	}
 	httpClient := httpclient.NewHTTPClient(httpConfig, logger)
 	defer httpClient.Close()
-	
+
 	// 3. Create media processor
 	mediaProcessor := media.NewProcessor(httpClient, logger)
 	defer mediaProcessor.Close()
-	
+
 	// 4. Create statistics collector
 	statsCollector := stats.NewCollector()
-	
+
 	// 5. Create worker pool
 	// Calculate appropriate queue size based on worker count
 	totalWorkers := cfg.WorkerAllocation.SmallFileWorkers + cfg.WorkerAllocation.MediumFileWorkers + cfg.WorkerAllocation.LargeFileWorkers
@@ -213,7 +215,7 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 	if queueSize < 1000 {
 		queueSize = 1000
 	}
-	
+
 	workerConfig := workers.WorkerPoolConfig{
 		SmallFileWorkers:  cfg.WorkerAllocation.SmallFileWorkers,
 		MediumFileWorkers: cfg.WorkerAllocation.MediumFileWorkers,
@@ -222,7 +224,7 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 		WorkerTimeout:     time.Duration(cfg.Timeout) * time.Second,
 		ShutdownTimeout:   60 * time.Second,
 	}
-	
+
 	// Auto-calculate worker counts if not specified
 	if workerConfig.SmallFileWorkers == 0 {
 		workerConfig.SmallFileWorkers = cfg.Workers * 30 / 100
@@ -242,9 +244,9 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 			workerConfig.LargeFileWorkers = 1
 		}
 	}
-	
+
 	workerPool := workers.NewWorkerPool(workerConfig, logger)
-	
+
 	// 6. Create workflow coordinator
 	coordinator := orchestrator.NewCoordinator(
 		storageClient,
@@ -255,21 +257,21 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 		logger,
 	)
 	defer coordinator.Shutdown()
-	
+
 	// Set file list cache if available
 	if fileListCache != nil {
 		coordinator.SetFileListCache(fileListCache)
 	}
-	
+
 	// 7. Configure and execute workflow
 	workflowConfig := orchestrator.WorkflowConfig{
-		Type:                orchestrator.WorkflowPrewarm,
+		Type:                 orchestrator.WorkflowPrewarm,
 		EnableErrorReporting: cfg.GenerateErrorReport,
-		EnableReporting:     true,
-		ContinueOnError:     true,
-		MaxRetries:          cfg.Retry,
-		RetryDelay:          5 * time.Second,
-		DryRun:              dryRun,
+		EnableReporting:      true,
+		ContinueOnError:      true,
+		MaxRetries:           cfg.Retry,
+		RetryDelay:           5 * time.Second,
+		DryRun:               dryRun,
 		PrewarmConfig: &orchestrator.PrewarmStageConfig{
 			MediaType:        cfg.MediaType,
 			ImageVariants:    cfg.ImageVariants,
@@ -286,21 +288,21 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 			Timestamp:       true,
 		},
 	}
-	
+
 	// 8. Execute the workflow
 	result, err := coordinator.ExecuteWorkflow(workflowConfig)
 	if err != nil {
 		logger.Error("Pre-warming workflow failed", zap.Error(err))
 		return fmt.Errorf("pre-warming failed: %w", err)
 	}
-	
+
 	// 9. Output results
 	logger.Info("Pre-warming completed successfully",
 		zap.Bool("success", result.Success),
 		zap.Duration("duration", result.Duration),
 		zap.Int("processed_files", len(result.PrewarmResults)),
 		zap.Strings("report_paths", result.ReportPaths))
-	
+
 	// 10. Save JSON results if specified
 	if cfg.Output != "" {
 		if dryRun {
@@ -311,7 +313,7 @@ func executePrewarmingWorkflow(ctx context.Context, cfg *config.Config, logger *
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -321,11 +323,11 @@ func saveResultsToJSON(result *orchestrator.WorkflowResult, outputPath string, l
 	if err != nil {
 		return fmt.Errorf("failed to marshal results: %w", err)
 	}
-	
+
 	if err := os.WriteFile(outputPath, jsonData, 0644); err != nil {
 		return fmt.Errorf("failed to write results file: %w", err)
 	}
-	
+
 	logger.Info("Results saved to JSON file", zap.String("path", outputPath))
 	return nil
 }

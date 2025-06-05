@@ -32,26 +32,26 @@ func (s *SizeReductionStats) UpdateSizeReduction(originalBytes, optimizedBytes i
 	if originalBytes <= 0 || optimizedBytes < 0 {
 		return // Invalid input
 	}
-	
+
 	atomic.AddInt64(&s.filesProcessed, 1)
-	
+
 	// Calculate reduction ratio (0-1, where 1 = 100% reduction)
 	reductionRatio := 0.0
 	if originalBytes > 0 {
 		reductionRatio = float64(originalBytes-optimizedBytes) / float64(originalBytes)
 	}
-	
+
 	// Update statistics
 	s.originalSize.Update(float64(originalBytes))
 	s.optimizedSize.Update(float64(optimizedBytes))
 	s.reductionRatio.Update(reductionRatio)
-	
+
 	// Update bytes saved
 	bytesSaved := originalBytes - optimizedBytes
 	if bytesSaved > 0 {
 		atomic.AddInt64(&s.bytesSaved, bytesSaved)
 	}
-	
+
 	atomic.StoreInt64(&s.lastUpdated, time.Now().Unix())
 }
 
@@ -91,7 +91,7 @@ func (s *SizeReductionStats) OverallReductionRatio() float64 {
 	if totalOriginal == 0 {
 		return 0
 	}
-	
+
 	totalOptimized := s.TotalOptimizedSize()
 	return float64(totalOriginal-totalOptimized) / float64(totalOriginal)
 }
@@ -109,18 +109,18 @@ func (s *SizeReductionStats) LastUpdated() time.Time {
 
 // SizeReductionSummary provides a comprehensive summary of size reduction metrics
 type SizeReductionSummary struct {
-	FilesProcessed            int64   `json:"files_processed"`
-	BytesSaved                int64   `json:"bytes_saved"`
-	TotalOriginalSize         int64   `json:"total_original_size"`
-	TotalOptimizedSize        int64   `json:"total_optimized_size"`
-	AverageReductionRatio     float64 `json:"average_reduction_ratio"`
-	AverageReductionPercent   float64 `json:"average_reduction_percent"`
-	OverallReductionRatio     float64 `json:"overall_reduction_ratio"`
-	OverallReductionPercent   float64 `json:"overall_reduction_percent"`
-	OriginalSizeStats         Summary `json:"original_size_stats"`
-	OptimizedSizeStats        Summary `json:"optimized_size_stats"`
-	ReductionRatioStats       Summary `json:"reduction_ratio_stats"`
-	LastUpdate                time.Time `json:"last_update"`
+	FilesProcessed          int64     `json:"files_processed"`
+	BytesSaved              int64     `json:"bytes_saved"`
+	TotalOriginalSize       int64     `json:"total_original_size"`
+	TotalOptimizedSize      int64     `json:"total_optimized_size"`
+	AverageReductionRatio   float64   `json:"average_reduction_ratio"`
+	AverageReductionPercent float64   `json:"average_reduction_percent"`
+	OverallReductionRatio   float64   `json:"overall_reduction_ratio"`
+	OverallReductionPercent float64   `json:"overall_reduction_percent"`
+	OriginalSizeStats       Summary   `json:"original_size_stats"`
+	OptimizedSizeStats      Summary   `json:"optimized_size_stats"`
+	ReductionRatioStats     Summary   `json:"reduction_ratio_stats"`
+	LastUpdate              time.Time `json:"last_update"`
 }
 
 // GetSummary returns a comprehensive summary of all size reduction statistics

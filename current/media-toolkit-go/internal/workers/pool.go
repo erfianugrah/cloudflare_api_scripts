@@ -13,7 +13,7 @@ import (
 // WorkerPoolConfig configures worker pool behavior
 type WorkerPoolConfig struct {
 	SmallFileWorkers  int           // Workers for files ≤50MB
-	MediumFileWorkers int           // Workers for files 50-300MB  
+	MediumFileWorkers int           // Workers for files 50-300MB
 	LargeFileWorkers  int           // Workers for files >300MB
 	QueueSize         int           // Maximum queue size
 	WorkerTimeout     time.Duration // Individual worker timeout
@@ -58,10 +58,10 @@ func (sc SizeCategory) String() string {
 // GetSizeCategory determines the size category for a file
 func GetSizeCategory(sizeBytes int64) SizeCategory {
 	const (
-		smallThreshold  = 50 * 1024 * 1024   // 50MB
-		mediumThreshold = 300 * 1024 * 1024  // 300MB
+		smallThreshold  = 50 * 1024 * 1024  // 50MB
+		mediumThreshold = 300 * 1024 * 1024 // 300MB
 	)
-	
+
 	if sizeBytes <= smallThreshold {
 		return SmallFile
 	} else if sizeBytes <= mediumThreshold {
@@ -92,24 +92,24 @@ type TaskResult struct {
 
 // WorkerPool manages size-based worker pools with graceful shutdown
 type WorkerPool struct {
-	config   WorkerPoolConfig
-	logger   *zap.Logger
-	
+	config WorkerPoolConfig
+	logger *zap.Logger
+
 	// Worker pools by size category
 	smallPool  *categoryPool
 	mediumPool *categoryPool
 	largePool  *categoryPool
-	
+
 	// Coordination
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+
 	// Statistics
 	tasksSubmitted int64
 	tasksCompleted int64
 	tasksFailed    int64
-	
+
 	// Shutdown coordination
 	shutdown      int32
 	shutdownMutex sync.RWMutex
@@ -117,16 +117,16 @@ type WorkerPool struct {
 
 // categoryPool manages workers for a specific size category
 type categoryPool struct {
-	name       string
+	name        string
 	workerCount int
-	taskQueue  chan *Task
-	workers    []*worker
-	
+	taskQueue   chan *Task
+	workers     []*worker
+
 	// Statistics
 	activeWorkers int64
 	idleWorkers   int64
 	queueSize     int64
-	
+
 	logger *zap.Logger
 }
 
@@ -142,19 +142,19 @@ type worker struct {
 // NewWorkerPool creates a new worker pool with the given configuration
 func NewWorkerPool(config WorkerPoolConfig, logger *zap.Logger) *WorkerPool {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	wp := &WorkerPool{
 		config: config,
 		logger: logger,
 		ctx:    ctx,
 		cancel: cancel,
 	}
-	
+
 	// Create category pools
 	wp.smallPool = newCategoryPool("small", config.SmallFileWorkers, config.QueueSize/3, logger)
 	wp.mediumPool = newCategoryPool("medium", config.MediumFileWorkers, config.QueueSize/3, logger)
 	wp.largePool = newCategoryPool("large", config.LargeFileWorkers, config.QueueSize/3, logger)
-	
+
 	return wp
 }
 
@@ -173,29 +173,29 @@ func newCategoryPool(name string, workerCount, queueSize int, logger *zap.Logger
 func (wp *WorkerPool) Start() error {
 	wp.shutdownMutex.Lock()
 	defer wp.shutdownMutex.Unlock()
-	
+
 	if atomic.LoadInt32(&wp.shutdown) == 1 {
 		return fmt.Errorf("worker pool is shutting down")
 	}
-	
+
 	wp.logger.Info("Starting worker pool",
 		zap.Int("small_workers", wp.config.SmallFileWorkers),
 		zap.Int("medium_workers", wp.config.MediumFileWorkers),
 		zap.Int("large_workers", wp.config.LargeFileWorkers))
-	
+
 	// Start all category pools
 	if err := wp.startCategoryPool(wp.smallPool); err != nil {
 		return fmt.Errorf("failed to start small file pool: %w", err)
 	}
-	
+
 	if err := wp.startCategoryPool(wp.mediumPool); err != nil {
 		return fmt.Errorf("failed to start medium file pool: %w", err)
 	}
-	
+
 	if err := wp.startCategoryPool(wp.largePool); err != nil {
 		return fmt.Errorf("failed to start large file pool: %w", err)
 	}
-	
+
 	wp.logger.Info("Worker pool started successfully")
 	return nil
 }
@@ -210,13 +210,13 @@ func (wp *WorkerPool) startCategoryPool(pool *categoryPool) error {
 			ctx:      wp.ctx,
 			logger:   pool.logger.With(zap.String("worker", fmt.Sprintf("%s-%d", pool.name, i))),
 		}
-		
+
 		pool.workers = append(pool.workers, w)
-		
+
 		wp.wg.Add(1)
 		go wp.runWorker(w)
 	}
-	
+
 	atomic.StoreInt64(&pool.idleWorkers, int64(pool.workerCount))
 	return nil
 }
@@ -224,28 +224,28 @@ func (wp *WorkerPool) startCategoryPool(pool *categoryPool) error {
 // runWorker runs the main worker loop
 func (wp *WorkerPool) runWorker(w *worker) {
 	defer wp.wg.Done()
-	
+
 	w.logger.Debug("Worker started")
 	defer w.logger.Debug("Worker stopped")
-	
+
 	for {
 		select {
 		case <-w.ctx.Done():
 			return
-			
+
 		case task := <-w.taskChan:
 			if task == nil {
 				return // Channel closed
 			}
-			
+
 			// Update worker statistics
 			atomic.AddInt64(&w.pool.activeWorkers, 1)
 			atomic.AddInt64(&w.pool.idleWorkers, -1)
 			atomic.AddInt64(&w.pool.queueSize, -1)
-			
+
 			// Process the task
 			result := wp.processTask(w, task)
-			
+
 			// Send result if channel is available
 			select {
 			case task.ResultChan <- result:
@@ -254,13 +254,13 @@ func (wp *WorkerPool) runWorker(w *worker) {
 			default:
 				// Don't block if no one is listening for results
 			}
-			
+
 			// Update statistics
 			atomic.AddInt64(&wp.tasksCompleted, 1)
 			if !result.Success {
 				atomic.AddInt64(&wp.tasksFailed, 1)
 			}
-			
+
 			// Update worker statistics
 			atomic.AddInt64(&w.pool.activeWorkers, -1)
 			atomic.AddInt64(&w.pool.idleWorkers, 1)
@@ -271,27 +271,27 @@ func (wp *WorkerPool) runWorker(w *worker) {
 // processTask executes a single task with timeout handling
 func (wp *WorkerPool) processTask(w *worker, task *Task) TaskResult {
 	startTime := time.Now()
-	
+
 	// Create timeout context for the task
 	taskCtx, taskCancel := context.WithTimeout(w.ctx, wp.config.WorkerTimeout)
 	defer taskCancel()
-	
+
 	w.logger.Debug("Processing task",
 		zap.String("task_id", task.ID),
 		zap.String("category", task.Category.String()),
 		zap.Int64("size_bytes", task.SizeBytes))
-	
+
 	// Execute the task
 	var err error
 	done := make(chan error, 1) // Buffered to prevent goroutine leak
-	
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				done <- fmt.Errorf("task panicked: %v", r)
 			}
 		}()
-		
+
 		// Check if context is already cancelled before starting
 		select {
 		case <-taskCtx.Done():
@@ -299,12 +299,12 @@ func (wp *WorkerPool) processTask(w *worker, task *Task) TaskResult {
 			return
 		default:
 		}
-		
+
 		// Execute the task function
 		taskErr := task.ProcessFunc(taskCtx, task.Payload)
 		done <- taskErr
 	}()
-	
+
 	// Wait for completion, timeout, or worker shutdown
 	select {
 	case err = <-done:
@@ -316,10 +316,10 @@ func (wp *WorkerPool) processTask(w *worker, task *Task) TaskResult {
 		// Worker pool is shutting down
 		err = fmt.Errorf("worker pool shutting down: %w", w.ctx.Err())
 	}
-	
+
 	endTime := time.Now()
 	duration := endTime.Sub(startTime)
-	
+
 	result := TaskResult{
 		TaskID:    task.ID,
 		Success:   err == nil,
@@ -328,7 +328,7 @@ func (wp *WorkerPool) processTask(w *worker, task *Task) TaskResult {
 		StartTime: startTime,
 		EndTime:   endTime,
 	}
-	
+
 	if err != nil {
 		w.logger.Error("Task failed",
 			zap.String("task_id", task.ID),
@@ -339,7 +339,7 @@ func (wp *WorkerPool) processTask(w *worker, task *Task) TaskResult {
 			zap.String("task_id", task.ID),
 			zap.Duration("duration", duration))
 	}
-	
+
 	return result
 }
 
@@ -347,11 +347,11 @@ func (wp *WorkerPool) processTask(w *worker, task *Task) TaskResult {
 func (wp *WorkerPool) SubmitTask(task *Task) error {
 	wp.shutdownMutex.RLock()
 	defer wp.shutdownMutex.RUnlock()
-	
+
 	if atomic.LoadInt32(&wp.shutdown) == 1 {
 		return fmt.Errorf("worker pool is shutting down")
 	}
-	
+
 	// Determine the appropriate pool
 	var pool *categoryPool
 	switch task.Category {
@@ -364,11 +364,11 @@ func (wp *WorkerPool) SubmitTask(task *Task) error {
 	default:
 		return fmt.Errorf("unknown task category: %v", task.Category)
 	}
-	
+
 	// Submit to the appropriate queue with timeout
 	timeout := time.NewTimer(5 * time.Second)
 	defer timeout.Stop()
-	
+
 	select {
 	case pool.taskQueue <- task:
 		atomic.AddInt64(&wp.tasksSubmitted, 1)
@@ -396,23 +396,23 @@ func (wp *WorkerPool) SubmitTask(task *Task) error {
 func (wp *WorkerPool) Shutdown() error {
 	wp.shutdownMutex.Lock()
 	defer wp.shutdownMutex.Unlock()
-	
+
 	if atomic.SwapInt32(&wp.shutdown, 1) == 1 {
 		return nil // Already shutting down
 	}
-	
+
 	wp.logger.Info("Shutting down worker pool")
-	
+
 	// First signal shutdown by setting atomic flag and canceling context
 	wp.cancel()
-	
+
 	// Wait for workers to finish with timeout
 	done := make(chan struct{})
 	go func() {
 		wp.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		wp.logger.Info("All workers stopped gracefully")
@@ -423,7 +423,7 @@ func (wp *WorkerPool) Shutdown() error {
 		// Close channels even if workers haven't finished
 		wp.closeChannelsSafely()
 	}
-	
+
 	wp.logger.Info("Worker pool shutdown complete")
 	return nil
 }
@@ -436,7 +436,7 @@ func (wp *WorkerPool) closeChannelsSafely() {
 			wp.logger.Warn("Recovered from panic while closing channels", zap.Any("panic", r))
 		}
 	}()
-	
+
 	// Close channels if not already closed
 	select {
 	case <-wp.smallPool.taskQueue:
@@ -444,14 +444,14 @@ func (wp *WorkerPool) closeChannelsSafely() {
 	default:
 		close(wp.smallPool.taskQueue)
 	}
-	
+
 	select {
 	case <-wp.mediumPool.taskQueue:
 		// Channel already closed
 	default:
 		close(wp.mediumPool.taskQueue)
 	}
-	
+
 	select {
 	case <-wp.largePool.taskQueue:
 		// Channel already closed

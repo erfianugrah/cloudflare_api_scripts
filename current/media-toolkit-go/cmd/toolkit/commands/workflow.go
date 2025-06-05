@@ -12,8 +12,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
-	
+
 	"media-toolkit-go/pkg/storage"
+	"media-toolkit-go/pkg/utils"
 )
 
 // WorkflowStage represents a stage in the workflow
@@ -46,19 +47,19 @@ type EnhancedWorkflowConfig struct {
 	FileListCache *storage.FileListCache
 
 	// Pre-warm configuration
-	Workers                int
-	Timeout                int
-	ConnectionCloseDelay   int
-	Retry                  int
-	OptimizeBySize        bool
-	SmallFileWorkers      int
-	MediumFileWorkers     int
-	LargeFileWorkers      int
-	SmallFileThreshold    int
-	MediumFileThreshold   int
-	UseHeadForSize        bool
-	URLFormat             string
-	Limit                 int
+	Workers              int
+	Timeout              int
+	ConnectionCloseDelay int
+	Retry                int
+	OptimizeBySize       bool
+	SmallFileWorkers     int
+	MediumFileWorkers    int
+	LargeFileWorkers     int
+	SmallFileThreshold   int
+	MediumFileThreshold  int
+	UseHeadForSize       bool
+	URLFormat            string
+	Limit                int
 
 	// Analysis configuration
 	SizeThreshold      int
@@ -85,35 +86,35 @@ type EnhancedWorkflowConfig struct {
 	RequestTimeout       string
 
 	// Optimization configuration
-	OptimizeVideos          bool
-	OptimizeThreshold       int
-	OptimizeCodec           string
-	OptimizeQuality         string
-	OptimizeResolution      string
-	OptimizeWorkers         int
-	HardwareAcceleration    string
-	BrowserCompatible       bool
+	OptimizeVideos       bool
+	OptimizeThreshold    int
+	OptimizeCodec        string
+	OptimizeQuality      string
+	OptimizeResolution   string
+	OptimizeWorkers      int
+	HardwareAcceleration string
+	BrowserCompatible    bool
 
 	// Workflow control
-	DryRun         bool
+	DryRun          bool
 	ContinueOnError bool
-	ResumeFrom     string
-	SkipAnalysis   bool
-	SkipPrewarm    bool
-	SkipErrors     bool
-	SkipLoadTest   bool
-	SkipOptimize   bool
-	Interactive    bool
-	SaveProgress   bool
+	ResumeFrom      string
+	SkipAnalysis    bool
+	SkipPrewarm     bool
+	SkipErrors      bool
+	SkipLoadTest    bool
+	SkipOptimize    bool
+	Interactive     bool
+	SaveProgress    bool
 }
 
 // WorkflowProgress tracks workflow execution progress
 type WorkflowProgress struct {
-	StartTime      time.Time              `json:"start_time"`
-	LastUpdate     time.Time              `json:"last_update"`
-	CompletedStages []string              `json:"completed_stages"`
-	CurrentStage    string                `json:"current_stage"`
-	OutputFiles     map[string]string     `json:"output_files"`
+	StartTime       time.Time              `json:"start_time"`
+	LastUpdate      time.Time              `json:"last_update"`
+	CompletedStages []string               `json:"completed_stages"`
+	CurrentStage    string                 `json:"current_stage"`
+	OutputFiles     map[string]string      `json:"output_files"`
 	Configuration   map[string]interface{} `json:"configuration"`
 }
 
@@ -193,10 +194,11 @@ func addEnhancedWorkflowFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("use-aws-cli", false, "Use AWS CLI instead of rclone")
 
 	// Media configuration
-	cmd.Flags().String("media-type", "video", "Type of media to process (auto, image, video)")
-	cmd.Flags().StringSlice("extensions", []string{}, "File extensions to filter by")
 	cmd.Flags().StringSlice("derivatives", []string{"desktop", "tablet", "mobile"}, "Video derivatives")
 	cmd.Flags().StringSlice("image-variants", []string{"thumbnail", "small", "medium", "large", "webp"}, "Image variants")
+
+	// Add common filtering flags
+	utils.AddFilteringFlags(cmd)
 
 	// Pre-warm configuration
 	cmd.Flags().Int("workers", 500, "Number of concurrent workers")
@@ -211,7 +213,6 @@ func addEnhancedWorkflowFlags(cmd *cobra.Command) {
 	cmd.Flags().Int("medium-file-threshold", 200, "Threshold in MiB for medium files")
 	cmd.Flags().Bool("use-head-for-size", false, "Use HEAD requests for size verification")
 	cmd.Flags().String("url-format", "imwidth", "URL format (imwidth, derivative, query)")
-	cmd.Flags().Int("limit", 0, "Limit number of files to process (0=no limit)")
 
 	// Analysis configuration
 	cmd.Flags().Int("size-threshold", 100, "Size threshold in MiB for reporting")
@@ -486,7 +487,7 @@ func validateEnhancedConfig(cfg *EnhancedWorkflowConfig) error {
 func showWorkflowPreview(cfg *EnhancedWorkflowConfig, logger *zap.Logger) error {
 	fmt.Println("\n🔷 Media Processing Workflow Preview")
 	fmt.Println("═══════════════════════════════════════════════════════════════")
-	
+
 	// Configuration summary
 	fmt.Printf("\n📋 Configuration:\n")
 	fmt.Printf("   • Remote: %s\n", cfg.Remote)
@@ -499,7 +500,7 @@ func showWorkflowPreview(cfg *EnhancedWorkflowConfig, logger *zap.Logger) error 
 	fmt.Printf("   • Extensions: %s\n", strings.Join(cfg.Extensions, ", "))
 	fmt.Printf("   • Workers: %d\n", cfg.Workers)
 	fmt.Printf("   • Timeout: %ds\n", cfg.Timeout)
-	
+
 	if cfg.OptimizeBySize {
 		fmt.Printf("\n📊 Size-based Worker Allocation:\n")
 		fmt.Printf("   • Small files (≤%dMB): %d workers\n", cfg.SmallFileThreshold, cfg.SmallFileWorkers)
@@ -642,28 +643,28 @@ func executeEnhancedWorkflow(ctx context.Context, cfg *EnhancedWorkflowConfig, s
 		stageStart := time.Now()
 		if err := stage.Execute(ctx, cfg, logger); err != nil {
 			stageResults = append(stageResults, fmt.Sprintf("❌ %s: Failed - %v", stage.Name, err))
-			
+
 			logger.Error("Stage failed",
 				zap.String("stage", stage.Name),
 				zap.Error(err))
-			
+
 			if !cfg.ContinueOnError {
 				fmt.Printf("\n❌ Stage failed: %v\n", err)
 				fmt.Println("💡 Tip: Use --continue-on-error to proceed despite failures")
 				return fmt.Errorf("stage %s failed: %w", stage.Name, err)
 			}
-			
+
 			fmt.Printf("\n⚠️  Stage failed but continuing: %v\n", err)
 		} else {
 			stageDuration := time.Since(stageStart)
 			stageResults = append(stageResults, fmt.Sprintf("✅ %s: Completed in %s", stage.Name, formatDuration(stageDuration)))
-			
+
 			// Mark stage as completed
 			progress.CompletedStages = append(progress.CompletedStages, stage.Name)
 			if cfg.SaveProgress {
 				saveProgress(progress, cfg.OutputDir)
 			}
-			
+
 			fmt.Printf("\n✅ Stage completed in %s\n", formatDuration(stageDuration))
 		}
 	}
@@ -701,7 +702,7 @@ func executeEnhancedWorkflow(ctx context.Context, cfg *EnhancedWorkflowConfig, s
 	}
 
 	fmt.Println("\n✅ Workflow completed successfully!")
-	
+
 	// Clean up progress file on success
 	if cfg.SaveProgress {
 		cleanupProgress(cfg.OutputDir)
@@ -713,7 +714,7 @@ func executeEnhancedWorkflow(ctx context.Context, cfg *EnhancedWorkflowConfig, s
 // Stage execution functions
 func executeEnhancedAnalysisStage(ctx context.Context, cfg *EnhancedWorkflowConfig, logger *zap.Logger) error {
 	cmd := NewAnalyzeCommand()
-	
+
 	// Create a new context with the file list cache
 	ctxWithCache := context.WithValue(ctx, "fileListCache", cfg.FileListCache)
 	cmd.SetContext(ctxWithCache)
@@ -728,7 +729,7 @@ func executeEnhancedAnalysisStage(ctx context.Context, cfg *EnhancedWorkflowConf
 
 func executeEnhancedPrewarmStage(ctx context.Context, cfg *EnhancedWorkflowConfig, logger *zap.Logger) error {
 	cmd := NewPrewarmCommand()
-	
+
 	// Create a new context with the file list cache
 	ctxWithCache := context.WithValue(ctx, "fileListCache", cfg.FileListCache)
 	cmd.SetContext(ctxWithCache)
@@ -849,7 +850,7 @@ func buildPrewarmArgs(cfg *EnhancedWorkflowConfig) []string {
 		if cfg.LargeFileWorkers > 0 {
 			args = append(args, "--large-file-workers", fmt.Sprintf("%d", cfg.LargeFileWorkers))
 		}
-		args = append(args, 
+		args = append(args,
 			"--small-file-threshold", fmt.Sprintf("%d", cfg.SmallFileThreshold),
 			"--medium-file-threshold", fmt.Sprintf("%d", cfg.MediumFileThreshold))
 	}
@@ -884,22 +885,22 @@ func buildLoadTestArgs(cfg *EnhancedWorkflowConfig) []string {
 		"--stage4-duration", cfg.Stage4Duration,
 		"--request-timeout", cfg.RequestTimeout,
 	}
-	
+
 	// Only add stage5 parameters if they have values
 	if cfg.Stage5Duration != "" {
-		args = append(args, 
+		args = append(args,
 			"--stage5-users", fmt.Sprintf("%d", cfg.Stage5Users),
 			"--stage5-duration", cfg.Stage5Duration)
 	}
 
 	if cfg.UseErrorReport {
-		args = append(args, 
+		args = append(args,
 			"--use-error-report",
 			"--error-report-file", filepath.Join(cfg.OutputDir, fmt.Sprintf("error_analysis_%s.md", cfg.DateSuffix)))
 	}
 
 	if cfg.SkipLargeFiles {
-		args = append(args, 
+		args = append(args,
 			"--skip-large-files",
 			"--large-file-threshold-mb", fmt.Sprintf("%d", cfg.LargeFileThresholdMB))
 	}
@@ -934,7 +935,7 @@ func buildOptimizationArgs(cfg *EnhancedWorkflowConfig) []string {
 // Progress tracking functions
 func loadOrCreateProgress(cfg *EnhancedWorkflowConfig) (*WorkflowProgress, error) {
 	progressFile := filepath.Join(cfg.OutputDir, ".workflow_progress.json")
-	
+
 	data, err := os.ReadFile(progressFile)
 	if err != nil {
 		return nil, err
@@ -950,7 +951,7 @@ func loadOrCreateProgress(cfg *EnhancedWorkflowConfig) (*WorkflowProgress, error
 
 func saveProgress(progress *WorkflowProgress, outputDir string) error {
 	progressFile := filepath.Join(outputDir, ".workflow_progress.json")
-	
+
 	data, err := json.MarshalIndent(progress, "", "  ")
 	if err != nil {
 		return err

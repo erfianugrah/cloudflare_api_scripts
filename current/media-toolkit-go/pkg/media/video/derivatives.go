@@ -18,29 +18,29 @@ type Derivative struct {
 // GenerateURL generates the URL for this derivative
 func (d *Derivative) GenerateURL(baseURL, filePath string, urlFormat string) (string, error) {
 	baseURL = strings.TrimSuffix(baseURL, "/")
-	
+
 	switch urlFormat {
 	case "imwidth":
 		// Format: /{path}?imwidth={width}
 		return fmt.Sprintf("%s/%s?imwidth=%d", baseURL, filePath, d.Width), nil
-		
+
 	case "derivative":
 		// Format: /{path}/{derivative_name}/
 		return fmt.Sprintf("%s/%s/%s/", baseURL, filePath, d.Name), nil
-		
+
 	case "query":
 		// Format: /{path}?width={width}&height={height}
 		params := url.Values{}
 		params.Add("width", fmt.Sprintf("%d", d.Width))
 		params.Add("height", fmt.Sprintf("%d", d.Height))
-		
+
 		// Add any additional parameters
 		for key, value := range d.Parameters {
 			params.Add(key, value)
 		}
-		
+
 		return fmt.Sprintf("%s/%s?%s", baseURL, filePath, params.Encode()), nil
-		
+
 	default:
 		// Default to imwidth format
 		return fmt.Sprintf("%s/%s?imwidth=%d", baseURL, filePath, d.Width), nil
@@ -74,7 +74,7 @@ var PredefinedDerivatives = map[string]*Derivative{
 		Width:  480,
 		Height: 360,
 	},
-	
+
 	// Additional common resolutions
 	"4k": {
 		Name:   "4k",
@@ -111,7 +111,7 @@ var PredefinedDerivatives = map[string]*Derivative{
 		Width:  426,
 		Height: 240,
 	},
-	
+
 	// Aspect ratio specific
 	"widescreen": {
 		Name:   "widescreen",
@@ -133,7 +133,7 @@ var PredefinedDerivatives = map[string]*Derivative{
 		Width:  1080,
 		Height: 1920,
 	},
-	
+
 	// Social media optimized
 	"instagram_feed": {
 		Name:   "instagram_feed",
@@ -160,7 +160,7 @@ var PredefinedDerivatives = map[string]*Derivative{
 		Width:  1280,
 		Height: 720,
 	},
-	
+
 	// Bandwidth optimized
 	"low_bandwidth": {
 		Name:   "low_bandwidth",
@@ -233,7 +233,7 @@ func GetDerivativeDimensions(derivativeName string) (width, height int) {
 	if derivative, exists := PredefinedDerivatives[derivativeName]; exists {
 		return derivative.Width, derivative.Height
 	}
-	
+
 	// Default dimensions for unknown derivatives
 	return 1280, 720
 }

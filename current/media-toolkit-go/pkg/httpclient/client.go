@@ -26,15 +26,15 @@ type HTTPClient struct {
 
 // Config holds HTTP client configuration
 type Config struct {
-	Timeout                 time.Duration
-	RetryAttempts          int
-	RetryDelay             time.Duration
-	ConnectionCloseDelay   time.Duration
-	MaxIdleConns           int
-	MaxIdleConnsPerHost    int
-	IdleConnTimeout        time.Duration
-	DisableKeepAlives      bool
-	UserAgent              string
+	Timeout              time.Duration
+	RetryAttempts        int
+	RetryDelay           time.Duration
+	ConnectionCloseDelay time.Duration
+	MaxIdleConns         int
+	MaxIdleConnsPerHost  int
+	IdleConnTimeout      time.Duration
+	DisableKeepAlives    bool
+	UserAgent            string
 }
 
 // Response represents an HTTP response
@@ -164,7 +164,7 @@ func (c *HTTPClient) doRequest(ctx context.Context, method, url string, opts ...
 		c.logger.Info("[DRY-RUN] Would make HTTP request",
 			zap.String("method", method),
 			zap.String("url", url))
-		
+
 		// Return a mock successful response
 		return &Response{
 			StatusCode:    200,
@@ -187,7 +187,7 @@ func (c *HTTPClient) doRequest(ctx context.Context, method, url string, opts ...
 	for attempt := 0; attempt <= c.config.RetryAttempts; attempt++ {
 		if attempt > 0 {
 			response.Retries = attempt
-			
+
 			// Wait before retry
 			select {
 			case <-ctx.Done():
@@ -230,12 +230,12 @@ func (c *HTTPClient) doRequest(ctx context.Context, method, url string, opts ...
 
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
-			
+
 			// Don't retry on context cancellation
 			if ctx.Err() != nil {
 				break
 			}
-			
+
 			continue
 		}
 
@@ -296,18 +296,18 @@ func (c *HTTPClient) doRequest(ctx context.Context, method, url string, opts ...
 // Close closes the HTTP client and its underlying transport
 func (c *HTTPClient) Close() error {
 	c.logger.Debug("Closing HTTP client")
-	
+
 	if transport, ok := c.client.Transport.(*http.Transport); ok {
 		transport.CloseIdleConnections()
 	}
-	
+
 	return nil
 }
 
 // GetStats returns client statistics (could be extended with metrics)
 func (c *HTTPClient) GetStats() map[string]interface{} {
 	return map[string]interface{}{
-		"timeout":                  c.config.Timeout,
+		"timeout":                 c.config.Timeout,
 		"retry_attempts":          c.config.RetryAttempts,
 		"max_idle_conns":          c.config.MaxIdleConns,
 		"max_idle_conns_per_host": c.config.MaxIdleConnsPerHost,

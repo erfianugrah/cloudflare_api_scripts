@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"media-toolkit-go/pkg/config"
-	"media-toolkit-go/pkg/ffmpeg"
-	"media-toolkit-go/pkg/reporting"
-	"media-toolkit-go/pkg/storage"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"media-toolkit-go/pkg/ffmpeg"
+	"media-toolkit-go/pkg/reporting"
+	"media-toolkit-go/pkg/storage"
+	"media-toolkit-go/pkg/utils"
 )
 
 // NewOptimizeCommand creates the optimize command
@@ -35,7 +35,7 @@ func addOptimizeFlags(cmd *cobra.Command) {
 	// Required flags
 	cmd.Flags().String("remote", "", "rclone remote name (required)")
 	cmd.Flags().String("bucket", "", "S3 bucket name (required)")
-	
+
 	// Optional flags
 	cmd.Flags().String("directory", "", "Directory path within bucket")
 	cmd.Flags().Bool("optimize-videos", false, "Enable video optimization")
@@ -53,20 +53,20 @@ func addOptimizeFlags(cmd *cobra.Command) {
 	cmd.Flags().String("optimized-videos-dir", "optimized_videos", "Directory for optimized videos")
 	cmd.Flags().Int("size-threshold", 256, "Size threshold in MiB for optimization")
 	cmd.Flags().Int("workers", 5, "Number of concurrent workers")
-	cmd.Flags().StringSlice("extensions", []string{}, "File extensions to filter by (e.g., .mp4,.mkv)")
-	cmd.Flags().String("media-type", "video", "Media type preset: 'video' or 'all'")
-	
+	// Add common filtering flags
+	utils.AddFilteringFlags(cmd)
+
 	// Mark required flags
 	cmd.MarkFlagRequired("remote")
 	cmd.MarkFlagRequired("bucket")
-	
+
 	// Bind flags to viper
 	viper.BindPFlags(cmd.Flags())
 }
 
 func runOptimize(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
-	
+
 	// Get logger from context
 	logger, ok := ctx.Value("logger").(*zap.Logger)
 	if !ok {
@@ -86,21 +86,21 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 	bucket := viper.GetString("bucket")
 	directory := viper.GetString("directory")
 	dryRun := viper.GetBool("dry-run")
-	
+
 	if remote == "" || bucket == "" {
 		return fmt.Errorf("remote and bucket are required for optimization")
 	}
-	
+
 	// Create storage client
 	storageConfig := storage.StorageConfig{
 		Remote:       remote,
 		RcloneBinary: "rclone",
 	}
 	storageClient := storage.NewRcloneStorage(storageConfig, logger)
-	
+
 	// Create FFmpeg optimizer
 	optimizer := ffmpeg.NewVideoOptimizer(logger)
-	
+
 	// Configure optimization
 	optimizationConfig := ffmpeg.OptimizationConfig{
 		CRF:              23, // Balanced quality
@@ -118,67 +118,62 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 		Overwrite:        false,
 		PreserveMetadata: true,
 	}
-	
+
 	// Get list of video files to optimize
 	listReq := storage.ListRequest{
 		Bucket:    bucket,
 		Directory: directory,
 	}
-	
+
 	objects, err := storageClient.ListObjects(ctx, listReq)
 	if err != nil {
 		return fmt.Errorf("failed to list objects: %w", err)
 	}
-	
+
 	logger.Info("Found objects for optimization", zap.Int("count", len(objects)))
-	
-	// Filter for video files
-	var videoFiles []storage.Object
-	
-	// Get extensions to filter by
-	extensions := viper.GetStringSlice("extensions")
-	mediaType := viper.GetString("media-type")
-	
-	// Use config helper to get appropriate extensions
-	videoExtensions := config.GetExtensionsForMediaType(mediaType, extensions)
-	
+
+	// Apply filters using shared utility
+	filterConfig := &utils.FilterConfig{
+		Extensions:         viper.GetStringSlice("extensions"),
+		MediaType:          viper.GetString("media-type"),
+		ExcludeExtensions:  viper.GetStringSlice("exclude-extensions"),
+		ExcludePatterns:    viper.GetStringSlice("exclude-patterns"),
+		ExcludeDirectories: viper.GetStringSlice("exclude-directories"),
+		ExcludeMinSize:     viper.GetInt("exclude-min-size"),
+		ExcludeMaxSize:     viper.GetInt("exclude-max-size"),
+	}
+
+	// Convert to FileInfo type for filtering
+	fileInfos := make([]storage.FileInfo, len(objects))
+	for i, obj := range objects {
+		fileInfos[i] = storage.FileInfo(obj)
+	}
+
+	filteredFiles := utils.ApplyFileFilters(fileInfos, filterConfig)
+
+	// Filter by size threshold for optimization
 	sizeThreshold := int64(viper.GetInt("size-threshold") * 1024 * 1024) // Convert MiB to bytes
-	
-	for _, obj := range objects {
-		// Check if it's a video file or if no filter is applied
-		includeFile := len(videoExtensions) == 0 // Include all if no extensions specified
-		
-		if !includeFile {
-			// Check if file matches any extension
-			fileExt := strings.ToLower(filepath.Ext(obj.Path))
-			for _, ext := range videoExtensions {
-				if fileExt == strings.ToLower(ext) {
-					includeFile = true
-					break
-				}
-			}
-		}
-		
-		// Only include files above size threshold
-		if includeFile && obj.Size > sizeThreshold {
-			videoFiles = append(videoFiles, obj)
+	var videoFiles []storage.Object
+	for _, file := range filteredFiles {
+		if file.Size > sizeThreshold {
+			videoFiles = append(videoFiles, storage.Object(file))
 		}
 	}
-	
-	logger.Info("Filtered video files for optimization", 
+
+	logger.Info("Filtered video files for optimization",
 		zap.Int("total_files", len(objects)),
 		zap.Int("video_files", len(videoFiles)),
 		zap.Int64("size_threshold_mb", sizeThreshold/(1024*1024)))
-	
+
 	if len(videoFiles) == 0 {
 		logger.Info("No video files found above size threshold")
 		return nil
 	}
-	
+
 	if dryRun {
 		logger.Info("Running in dry-run mode - no files will be modified")
 	}
-	
+
 	// Create working directory
 	workDir := "./temp_optimization"
 	if !dryRun {
@@ -187,22 +182,22 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 		}
 		defer os.RemoveAll(workDir)
 	}
-	
+
 	// Process files
 	var results []ffmpeg.OptimizationResult
 	optimizeInPlace := viper.GetBool("optimize-in-place")
-	
+
 	for i, videoFile := range videoFiles {
-		logger.Info("Processing video file", 
+		logger.Info("Processing video file",
 			zap.Int("progress", i+1),
 			zap.Int("total", len(videoFiles)),
 			zap.String("file", videoFile.Path),
 			zap.Int64("size_mb", videoFile.Size/(1024*1024)))
-		
+
 		// Download file for processing
 		localPath := fmt.Sprintf("%s/%s", workDir, strings.ReplaceAll(videoFile.Path, "/", "_"))
 		remotePath := fmt.Sprintf("%s/%s", bucket, videoFile.Path)
-		
+
 		if dryRun {
 			logger.Info("[DRY-RUN] Would download file",
 				zap.String("remote", remotePath),
@@ -213,7 +208,7 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 				continue
 			}
 		}
-		
+
 		// Create output path
 		var outputPath string
 		if optimizeInPlace {
@@ -221,7 +216,7 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 		} else {
 			outputPath = localPath + ".opt." + viper.GetString("output-format")
 		}
-		
+
 		// Optimize the video
 		var result *ffmpeg.OptimizationResult
 		if dryRun {
@@ -230,7 +225,7 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 				zap.String("output", outputPath),
 				zap.String("codec", viper.GetString("codec")),
 				zap.String("format", viper.GetString("output-format")))
-			
+
 			// Create simulated result for dry-run
 			result = &ffmpeg.OptimizationResult{
 				InputFile:        localPath,
@@ -257,18 +252,18 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 				}
 			}
 		}
-		
+
 		results = append(results, *result)
-		
+
 		// Upload optimized file back if successful
 		if result.Success {
 			uploadPath := videoFile.Path
 			if !optimizeInPlace {
 				// Create new path for optimized version
-				uploadPath = strings.TrimSuffix(videoFile.Path, filepath.Ext(videoFile.Path)) + 
+				uploadPath = strings.TrimSuffix(videoFile.Path, filepath.Ext(videoFile.Path)) +
 					"_optimized." + viper.GetString("output-format")
 			}
-			
+
 			remoteUploadPath := fmt.Sprintf("%s/%s", bucket, uploadPath)
 			if dryRun {
 				logger.Info("[DRY-RUN] Would upload optimized file",
@@ -277,7 +272,7 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 					zap.Int64("estimated_size_mb", result.OptimizedSize/(1024*1024)))
 			} else {
 				if err := storageClient.UploadObject(ctx, outputPath, remoteUploadPath); err != nil {
-					logger.Error("Failed to upload optimized file", 
+					logger.Error("Failed to upload optimized file",
 						zap.String("local", outputPath),
 						zap.String("remote", remoteUploadPath),
 						zap.Error(err))
@@ -290,14 +285,14 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 				}
 			}
 		}
-		
+
 		// Clean up local files
 		if !dryRun {
 			os.Remove(localPath)
 			os.Remove(outputPath)
 		}
 	}
-	
+
 	// Generate optimization report
 	if dryRun {
 		logger.Info("[DRY-RUN] Would generate optimization report with", zap.Int("results", len(results)))
@@ -306,7 +301,7 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 			logger.Warn("Failed to generate optimization report", zap.Error(err))
 		}
 	}
-	
+
 	// Log summary
 	successCount := 0
 	totalSaved := int64(0)
@@ -316,13 +311,13 @@ func executeOptimization(ctx context.Context, logger *zap.Logger) error {
 			totalSaved += result.SizeReduction
 		}
 	}
-	
+
 	logger.Info("Video optimization completed",
 		zap.Int("total_files", len(videoFiles)),
 		zap.Int("successful", successCount),
 		zap.Int("failed", len(results)-successCount),
 		zap.Int64("total_saved_mb", totalSaved/(1024*1024)))
-	
+
 	return nil
 }
 
@@ -352,7 +347,7 @@ func generateOptimizationReport(results []ffmpeg.OptimizationResult, logger *zap
 		ReportName:          "video-optimization",
 		OptimizationResults: results,
 	}
-	
+
 	// Generate report
 	generator := reporting.NewGenerator(logger)
 	reportConfig := reporting.ReportConfig{
@@ -362,6 +357,6 @@ func generateOptimizationReport(results []ffmpeg.OptimizationResult, logger *zap
 		IncludeSections: []string{"summary", "optimization"},
 		Timestamp:       true,
 	}
-	
+
 	return generator.GenerateReport(reportData, reportConfig)
 }

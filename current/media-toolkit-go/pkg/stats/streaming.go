@@ -10,12 +10,12 @@ import (
 // using mutex for thread safety
 type StreamingStats struct {
 	mu          sync.RWMutex
-	count       int64     // Number of values processed
-	sum         float64   // Sum of all values
-	sumSquares  float64   // Sum of squares for variance calculation
-	min         float64   // Minimum value seen
-	max         float64   // Maximum value seen
-	lastUpdated int64     // Unix timestamp of last update
+	count       int64   // Number of values processed
+	sum         float64 // Sum of all values
+	sumSquares  float64 // Sum of squares for variance calculation
+	min         float64 // Minimum value seen
+	max         float64 // Maximum value seen
+	lastUpdated int64   // Unix timestamp of last update
 }
 
 // NewStreamingStats creates a new StreamingStats instance
@@ -34,18 +34,18 @@ func NewStreamingStats() *StreamingStats {
 func (s *StreamingStats) Update(value float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	s.count++
 	s.sum += value
 	s.sumSquares += value * value
-	
+
 	if value < s.min {
 		s.min = value
 	}
 	if value > s.max {
 		s.max = value
 	}
-	
+
 	s.lastUpdated = time.Now().Unix()
 }
 
@@ -97,13 +97,13 @@ func (s *StreamingStats) Max() float64 {
 func (s *StreamingStats) Variance() float64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if s.count <= 1 {
 		return 0
 	}
-	
+
 	mean := s.sum / float64(s.count)
-	
+
 	// Sample variance formula: (sum_squares - n * mean^2) / (n - 1)
 	return (s.sumSquares - float64(s.count)*mean*mean) / float64(s.count-1)
 }
@@ -150,7 +150,7 @@ func (s *StreamingStats) GetSummary() Summary {
 func (s *StreamingStats) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	s.count = 0
 	s.sum = 0
 	s.sumSquares = 0

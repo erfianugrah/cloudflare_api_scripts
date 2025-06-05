@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"media-toolkit-go/pkg/config"
 	"media-toolkit-go/pkg/httpclient"
-	"go.uber.org/zap"
 )
 
 // Processor handles video derivative processing
@@ -27,19 +27,19 @@ func NewProcessor(httpClient httpclient.Client, logger *zap.Logger) *Processor {
 
 // RequestResult represents the result of processing a single video derivative
 type RequestResult struct {
-	DerivativeName   string        `json:"derivative_name"`
-	URL              string        `json:"url"`
-	Status           string        `json:"status"`
-	StatusCode       int           `json:"status_code,omitempty"`
-	TimeToFirstByte  time.Duration `json:"time_to_first_byte,omitempty"`
-	TotalTime        time.Duration `json:"total_time"`
-	ResponseSize     int64         `json:"response_size_bytes,omitempty"`
-	ContentType      string        `json:"content_type,omitempty"`
-	Method           string        `json:"method,omitempty"`
-	Retries          int           `json:"retries,omitempty"`
-	Error            string        `json:"error,omitempty"`
-	ErrorType        string        `json:"error_type,omitempty"`
-	
+	DerivativeName  string        `json:"derivative_name"`
+	URL             string        `json:"url"`
+	Status          string        `json:"status"`
+	StatusCode      int           `json:"status_code,omitempty"`
+	TimeToFirstByte time.Duration `json:"time_to_first_byte,omitempty"`
+	TotalTime       time.Duration `json:"total_time"`
+	ResponseSize    int64         `json:"response_size_bytes,omitempty"`
+	ContentType     string        `json:"content_type,omitempty"`
+	Method          string        `json:"method,omitempty"`
+	Retries         int           `json:"retries,omitempty"`
+	Error           string        `json:"error,omitempty"`
+	ErrorType       string        `json:"error_type,omitempty"`
+
 	// Size reduction metrics
 	OriginalSize         int64   `json:"original_size_bytes,omitempty"`
 	SizeReductionBytes   int64   `json:"size_reduction_bytes,omitempty"`
@@ -63,7 +63,7 @@ func (p *Processor) ProcessVideo(ctx context.Context, metadata *config.FileMetad
 	metadata.StartProcessing()
 	defer metadata.CompleteProcessing()
 
-	p.logger.Debug("Processing video", 
+	p.logger.Debug("Processing video",
 		zap.String("path", metadata.Path),
 		zap.Int64("size", metadata.Size),
 		zap.Strings("derivatives", derivatives),
@@ -86,14 +86,14 @@ func (p *Processor) ProcessVideo(ctx context.Context, metadata *config.FileMetad
 	// Process each derivative
 	for derivativeName, derivative := range derivativeMap {
 		metadata.StartDerivativeProcessing(derivativeName)
-		
+
 		requestResult, err := p.processDerivative(ctx, metadata, derivative, baseURL, urlFormat, timeout, useHeadRequest, dryRun)
 		if err != nil {
-			p.logger.Warn("Failed to process derivative", 
-				zap.String("derivative", derivativeName), 
+			p.logger.Warn("Failed to process derivative",
+				zap.String("derivative", derivativeName),
 				zap.String("path", metadata.Path),
 				zap.Error(err))
-			
+
 			requestResult = &RequestResult{
 				DerivativeName: derivativeName,
 				Status:         "error",
@@ -102,7 +102,7 @@ func (p *Processor) ProcessVideo(ctx context.Context, metadata *config.FileMetad
 				TotalTime:      0,
 			}
 		}
-		
+
 		result.Results[derivativeName] = requestResult
 		metadata.CompleteDerivativeProcessing(derivativeName)
 	}
@@ -114,13 +114,13 @@ func (p *Processor) ProcessVideo(ctx context.Context, metadata *config.FileMetad
 			successCount++
 		}
 	}
-	
+
 	result.Success = successCount > 0
 	if metadata.ProcessingDuration != nil {
 		result.ProcessingTime = *metadata.ProcessingDuration
 	}
 
-	p.logger.Info("Completed video processing", 
+	p.logger.Info("Completed video processing",
 		zap.String("path", metadata.Path),
 		zap.Int("derivatives_processed", len(result.Results)),
 		zap.Int("successful", successCount),
@@ -134,7 +134,7 @@ func (p *Processor) ProcessVideoWithoutDerivatives(ctx context.Context, metadata
 	metadata.StartProcessing()
 	defer metadata.CompleteProcessing()
 
-	p.logger.Debug("Processing video without derivatives", 
+	p.logger.Debug("Processing video without derivatives",
 		zap.String("path", metadata.Path),
 		zap.Int64("size", metadata.Size))
 
@@ -155,10 +155,10 @@ func (p *Processor) ProcessVideoWithoutDerivatives(ctx context.Context, metadata
 
 	requestResult, err := p.processDerivative(ctx, metadata, defaultDerivative, baseURL, "simple", timeout, useHeadRequest, dryRun)
 	if err != nil {
-		p.logger.Warn("Failed to process video", 
+		p.logger.Warn("Failed to process video",
 			zap.String("path", metadata.Path),
 			zap.Error(err))
-		
+
 		requestResult = &RequestResult{
 			DerivativeName: "default",
 			Status:         "error",
@@ -167,15 +167,15 @@ func (p *Processor) ProcessVideoWithoutDerivatives(ctx context.Context, metadata
 			TotalTime:      0,
 		}
 	}
-	
+
 	result.Results["default"] = requestResult
 	result.Success = requestResult.Status == "success"
-	
+
 	if metadata.ProcessingDuration != nil {
 		result.ProcessingTime = *metadata.ProcessingDuration
 	}
 
-	p.logger.Info("Completed video processing", 
+	p.logger.Info("Completed video processing",
 		zap.String("path", metadata.Path),
 		zap.Bool("successful", result.Success),
 		zap.Duration("processing_time", result.ProcessingTime))
@@ -187,7 +187,7 @@ func (p *Processor) ProcessVideoWithoutDerivatives(ctx context.Context, metadata
 func (p *Processor) processDerivative(ctx context.Context, metadata *config.FileMetadata, derivative *Derivative, baseURL string, urlFormat string, timeout time.Duration, useHeadRequest bool, dryRun bool) (*RequestResult, error) {
 	var url string
 	var err error
-	
+
 	if urlFormat == "simple" {
 		// Simple URL format: just base_url/file_path
 		baseURL = strings.TrimSuffix(baseURL, "/")
@@ -205,7 +205,7 @@ func (p *Processor) processDerivative(ctx context.Context, metadata *config.File
 		URL:            url,
 	}
 
-	p.logger.Debug("Processing video derivative", 
+	p.logger.Debug("Processing video derivative",
 		zap.String("derivative", derivative.Name),
 		zap.String("url", url))
 
@@ -228,31 +228,31 @@ func (p *Processor) processDerivative(ctx context.Context, metadata *config.File
 			result.TotalTime = response.TotalTime
 			result.Method = "HEAD"
 			result.Retries = response.Retries
-			
+
 			if response.ContentLength > 0 {
 				result.ResponseSize = response.ContentLength
 			}
-			
+
 			if contentType := response.Headers.Get("Content-Type"); contentType != "" {
 				result.ContentType = contentType
 			}
-			
+
 			// Calculate size reduction if we have original size
 			if metadata.Size > 0 && result.ResponseSize > 0 {
 				result.OriginalSize = metadata.Size
 				result.SizeReductionBytes = metadata.Size - result.ResponseSize
 				result.SizeReductionPercent = float64(result.SizeReductionBytes) / float64(metadata.Size) * 100
 			}
-			
-			p.logger.Debug("HEAD request successful", 
+
+			p.logger.Debug("HEAD request successful",
 				zap.String("derivative", derivative.Name),
 				zap.Int("status_code", response.StatusCode),
 				zap.Duration("ttfb", response.TTFB))
-			
+
 			return result, nil
 		}
-		
-		p.logger.Debug("HEAD request failed, falling back to GET", 
+
+		p.logger.Debug("HEAD request failed, falling back to GET",
 			zap.String("derivative", derivative.Name),
 			zap.Error(err))
 	}
@@ -277,7 +277,7 @@ func (p *Processor) processDerivative(ctx context.Context, metadata *config.File
 	result.Method = "GET"
 	result.Retries = response.Retries
 	result.ResponseSize = int64(len(response.Body))
-	
+
 	if contentType := response.Headers.Get("Content-Type"); contentType != "" {
 		result.ContentType = contentType
 	}
@@ -286,7 +286,7 @@ func (p *Processor) processDerivative(ctx context.Context, metadata *config.File
 	if response.StatusCode >= 400 {
 		result.Status = "error"
 		result.Error = fmt.Sprintf("HTTP %d: %s", response.StatusCode, response.Status)
-		
+
 		// Categorize error types
 		switch {
 		case response.StatusCode == 404:
@@ -302,7 +302,7 @@ func (p *Processor) processDerivative(ctx context.Context, metadata *config.File
 		}
 	} else {
 		result.Status = "success"
-		
+
 		// Calculate size reduction if we have original size
 		if metadata.Size > 0 && result.ResponseSize > 0 {
 			result.OriginalSize = metadata.Size
@@ -311,7 +311,7 @@ func (p *Processor) processDerivative(ctx context.Context, metadata *config.File
 		}
 	}
 
-	p.logger.Debug("GET request completed", 
+	p.logger.Debug("GET request completed",
 		zap.String("derivative", derivative.Name),
 		zap.String("status", result.Status),
 		zap.Int("status_code", response.StatusCode),

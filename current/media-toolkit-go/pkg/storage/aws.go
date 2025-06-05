@@ -64,7 +64,7 @@ func NewAWSStorage(storageConfig StorageConfig, logger *zap.Logger) (*AWSStorage
 
 	client := s3.NewFromConfig(awsConfig, s3Options...)
 
-	logger.Info("AWS storage initialized", 
+	logger.Info("AWS storage initialized",
 		zap.String("region", storageConfig.AWSRegion),
 		zap.String("profile", storageConfig.AWSProfile),
 		zap.String("endpoint", storageConfig.AWSEndpoint))
@@ -92,7 +92,7 @@ func (a *AWSStorage) ListObjects(ctx context.Context, req ListRequest) ([]Object
 		input.MaxKeys = aws.Int32(int32(req.Limit))
 	}
 
-	a.logger.Debug("Listing S3 objects", 
+	a.logger.Debug("Listing S3 objects",
 		zap.String("bucket", req.Bucket),
 		zap.String("prefix", prefix),
 		zap.Int("limit", req.Limit))
@@ -167,7 +167,7 @@ func (a *AWSStorage) ListObjects(ctx context.Context, req ListRequest) ([]Object
 		}
 	}
 
-	a.logger.Info("Listed S3 objects", 
+	a.logger.Info("Listed S3 objects",
 		zap.Int("count", len(objects)),
 		zap.String("bucket", req.Bucket))
 
@@ -199,7 +199,7 @@ func (a *AWSStorage) GetObjectSizes(ctx context.Context, objects []string) (map[
 		}
 	}
 
-	a.logger.Info("Retrieved S3 object sizes", 
+	a.logger.Info("Retrieved S3 object sizes",
 		zap.Int("requested", len(objects)),
 		zap.Int("found", len(result)))
 
@@ -209,7 +209,7 @@ func (a *AWSStorage) GetObjectSizes(ctx context.Context, objects []string) (map[
 // getObjectSizesBatch gets sizes for a batch of objects using concurrent HeadObject calls
 func (a *AWSStorage) getObjectSizesBatch(ctx context.Context, objects []string) (map[string]int64, error) {
 	result := make(map[string]int64)
-	
+
 	// Use a channel to limit concurrency
 	semaphore := make(chan struct{}, 10) // Limit to 10 concurrent requests
 	results := make(chan struct {
@@ -221,7 +221,7 @@ func (a *AWSStorage) getObjectSizesBatch(ctx context.Context, objects []string) 
 	// Launch goroutines for each object
 	for _, objPath := range objects {
 		go func(path string) {
-			semaphore <- struct{}{} // Acquire semaphore
+			semaphore <- struct{}{}        // Acquire semaphore
 			defer func() { <-semaphore }() // Release semaphore
 
 			fullPath := path
@@ -236,8 +236,8 @@ func (a *AWSStorage) getObjectSizesBatch(ctx context.Context, objects []string) 
 
 			output, err := a.client.HeadObject(ctx, input)
 			if err != nil {
-				a.logger.Warn("Failed to get object metadata", 
-					zap.String("path", path), 
+				a.logger.Warn("Failed to get object metadata",
+					zap.String("path", path),
 					zap.Error(err))
 				results <- struct {
 					path string
@@ -283,7 +283,7 @@ func (a *AWSStorage) DownloadObject(ctx context.Context, remotePath, localPath s
 		Key:    aws.String(fullPath),
 	}
 
-	a.logger.Debug("Downloading S3 object", 
+	a.logger.Debug("Downloading S3 object",
 		zap.String("bucket", a.config.Bucket),
 		zap.String("key", fullPath),
 		zap.String("local", localPath))
@@ -307,7 +307,7 @@ func (a *AWSStorage) DownloadObject(ctx context.Context, remotePath, localPath s
 		return NewStorageError("download_object", remotePath, StorageBackendAWS, err)
 	}
 
-	a.logger.Info("Downloaded S3 object", 
+	a.logger.Info("Downloaded S3 object",
 		zap.String("bucket", a.config.Bucket),
 		zap.String("key", fullPath),
 		zap.String("local", localPath))
@@ -334,7 +334,7 @@ func (a *AWSStorage) UploadObject(ctx context.Context, localPath, remotePath str
 		Body:   file,
 	}
 
-	a.logger.Debug("Uploading to S3", 
+	a.logger.Debug("Uploading to S3",
 		zap.String("local", localPath),
 		zap.String("bucket", a.config.Bucket),
 		zap.String("key", fullPath))
@@ -344,7 +344,7 @@ func (a *AWSStorage) UploadObject(ctx context.Context, localPath, remotePath str
 		return NewStorageError("upload_object", localPath, StorageBackendAWS, err)
 	}
 
-	a.logger.Info("Uploaded to S3", 
+	a.logger.Info("Uploaded to S3",
 		zap.String("local", localPath),
 		zap.String("bucket", a.config.Bucket),
 		zap.String("key", fullPath))

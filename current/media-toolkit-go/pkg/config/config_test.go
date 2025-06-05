@@ -1,17 +1,17 @@
 package config
 
 import (
-	"testing"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"testing"
 )
 
 func TestMediaTypeFiltering(t *testing.T) {
 	tests := []struct {
-		name           string
-		mediaType      string
-		expectedType   MediaType
-		expectedExts   int // expected number of extensions
+		name         string
+		mediaType    string
+		expectedType MediaType
+		expectedExts int // expected number of extensions
 	}{
 		{
 			name:         "Video media type",
@@ -38,21 +38,21 @@ func TestMediaTypeFiltering(t *testing.T) {
 			// Reset viper for clean test
 			viper.Reset()
 			SetDefaults()
-			
+
 			// Set media type and required fields for validation
 			viper.Set("media-type", tt.mediaType)
 			viper.Set("remote", "test-remote")
 			viper.Set("bucket", "test-bucket")
 			viper.Set("base-url", "https://example.com")
-			
+
 			// Load config
 			cfg, err := LoadConfig()
 			assert.NoError(t, err)
 			assert.NotNil(t, cfg)
-			
+
 			// Check media type
 			assert.Equal(t, tt.expectedType, cfg.MediaType)
-			
+
 			// Check extensions were set based on media type
 			assert.NotEmpty(t, cfg.Extensions)
 		})
@@ -63,13 +63,13 @@ func TestSingleExtensionOverride(t *testing.T) {
 	// Reset viper
 	viper.Reset()
 	SetDefaults()
-	
+
 	// Set extensions and required fields
 	viper.Set("extensions", []string{".mp4"})
 	viper.Set("remote", "test-remote")
 	viper.Set("bucket", "test-bucket")
 	viper.Set("base-url", "https://example.com")
-	
+
 	cfg, err := LoadConfig()
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
@@ -78,9 +78,9 @@ func TestSingleExtensionOverride(t *testing.T) {
 
 func TestGetSizeCategory(t *testing.T) {
 	tests := []struct {
-		name       string
-		sizeBytes  int64
-		expected   SizeCategory
+		name      string
+		sizeBytes int64
+		expected  SizeCategory
 	}{
 		{
 			name:      "Small file (10MB)",

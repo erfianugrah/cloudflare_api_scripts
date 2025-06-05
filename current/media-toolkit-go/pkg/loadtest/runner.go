@@ -167,10 +167,10 @@ func (r *Runner) LoadURLs() error {
 	// Parse results - try new format first, then fall back to old format
 	var results struct {
 		PrewarmResults []struct {
-			Path        string `json:"path"`
-			SizeBytes   int64  `json:"size_bytes"`
-			Success     bool   `json:"success"`
-			Results     *struct {
+			Path      string `json:"path"`
+			SizeBytes int64  `json:"size_bytes"`
+			Success   bool   `json:"success"`
+			Results   *struct {
 				Results map[string]struct {
 					URL    string `json:"url"`
 					Status string `json:"status"`
@@ -199,7 +199,7 @@ func (r *Runner) LoadURLs() error {
 
 	// Build URL list
 	r.urls = []URLInfo{}
-	
+
 	// Handle new format (prewarm_results)
 	if len(results.PrewarmResults) > 0 {
 		for _, result := range results.PrewarmResults {
@@ -207,7 +207,7 @@ func (r *Runner) LoadURLs() error {
 			if !result.Success || result.Results == nil {
 				continue
 			}
-			
+
 			sizeMB := float64(result.SizeBytes) / (1024 * 1024)
 
 			// Skip large files if configured

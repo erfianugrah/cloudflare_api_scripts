@@ -13,8 +13,8 @@ import (
 
 // LocalStorage implements Storage interface for local filesystem
 type LocalStorage struct {
-	config StorageConfig
-	logger *zap.Logger
+	config   StorageConfig
+	logger   *zap.Logger
 	basePath string
 }
 
@@ -43,7 +43,7 @@ func (l *LocalStorage) ListObjects(ctx context.Context, req ListRequest) ([]Obje
 	l.logger.Debug("Listing local files", zap.String("path", searchPath))
 
 	var objects []Object
-	
+
 	err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -114,7 +114,7 @@ func (l *LocalStorage) ListObjects(ctx context.Context, req ListRequest) ([]Obje
 		}
 	}
 
-	l.logger.Info("Listed local files", 
+	l.logger.Info("Listed local files",
 		zap.Int("count", len(objects)),
 		zap.String("path", searchPath))
 
@@ -127,11 +127,11 @@ func (l *LocalStorage) GetObjectSizes(ctx context.Context, objects []string) (ma
 
 	for _, objPath := range objects {
 		fullPath := filepath.Join(l.basePath, objPath)
-		
+
 		info, err := os.Stat(fullPath)
 		if err != nil {
-			l.logger.Warn("Failed to stat file", 
-				zap.String("path", objPath), 
+			l.logger.Warn("Failed to stat file",
+				zap.String("path", objPath),
 				zap.Error(err))
 			continue
 		}
@@ -139,7 +139,7 @@ func (l *LocalStorage) GetObjectSizes(ctx context.Context, objects []string) (ma
 		result[objPath] = info.Size()
 	}
 
-	l.logger.Info("Retrieved local file sizes", 
+	l.logger.Info("Retrieved local file sizes",
 		zap.Int("requested", len(objects)),
 		zap.Int("found", len(result)))
 
@@ -155,7 +155,7 @@ func (l *LocalStorage) DownloadObject(ctx context.Context, remotePath, localPath
 		return NewStorageError("download_object", localPath, StorageBackendLocal, err)
 	}
 
-	l.logger.Debug("Copying local file", 
+	l.logger.Debug("Copying local file",
 		zap.String("source", sourcePath),
 		zap.String("destination", localPath))
 
@@ -179,7 +179,7 @@ func (l *LocalStorage) DownloadObject(ctx context.Context, remotePath, localPath
 		return NewStorageError("download_object", remotePath, StorageBackendLocal, err)
 	}
 
-	l.logger.Info("Copied local file", 
+	l.logger.Info("Copied local file",
 		zap.String("source", sourcePath),
 		zap.String("destination", localPath))
 
@@ -195,7 +195,7 @@ func (l *LocalStorage) UploadObject(ctx context.Context, localPath, remotePath s
 		return NewStorageError("upload_object", destPath, StorageBackendLocal, err)
 	}
 
-	l.logger.Debug("Copying to local storage", 
+	l.logger.Debug("Copying to local storage",
 		zap.String("source", localPath),
 		zap.String("destination", destPath))
 
@@ -219,7 +219,7 @@ func (l *LocalStorage) UploadObject(ctx context.Context, localPath, remotePath s
 		return NewStorageError("upload_object", localPath, StorageBackendLocal, err)
 	}
 
-	l.logger.Info("Copied to local storage", 
+	l.logger.Info("Copied to local storage",
 		zap.String("source", localPath),
 		zap.String("destination", destPath))
 

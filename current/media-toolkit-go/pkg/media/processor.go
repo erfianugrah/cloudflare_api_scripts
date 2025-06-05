@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"media-toolkit-go/pkg/config"
 	"media-toolkit-go/pkg/httpclient"
 	"media-toolkit-go/pkg/media/image"
 	"media-toolkit-go/pkg/media/video"
-	"go.uber.org/zap"
 )
 
 // Processor handles media processing for both images and videos
@@ -32,14 +32,14 @@ func NewProcessor(httpClient httpclient.Client, logger *zap.Logger) *Processor {
 
 // ProcessConfig contains configuration for processing
 type ProcessConfig struct {
-	BaseURL         string
-	MediaType       config.MediaType
-	ImageVariants   []string
+	BaseURL          string
+	MediaType        config.MediaType
+	ImageVariants    []string
 	VideoDerivatives []string
-	URLFormat       string
-	Timeout         time.Duration
-	UseHeadRequest  bool
-	DryRun          bool
+	URLFormat        string
+	Timeout          time.Duration
+	UseHeadRequest   bool
+	DryRun           bool
 }
 
 // ProcessResult represents the result of processing media
@@ -63,7 +63,7 @@ func (p *Processor) ProcessMedia(ctx context.Context, metadata *config.FileMetad
 		metadata.MediaType = mediaType
 	}
 
-	p.logger.Debug("Processing media file", 
+	p.logger.Debug("Processing media file",
 		zap.String("path", metadata.Path),
 		zap.String("media_type", mediaType.String()),
 		zap.Int64("size", metadata.Size))
@@ -81,7 +81,7 @@ func (p *Processor) ProcessMedia(ctx context.Context, metadata *config.FileMetad
 	}
 
 	if err != nil {
-		p.logger.Error("Failed to process media", 
+		p.logger.Error("Failed to process media",
 			zap.String("path", metadata.Path),
 			zap.String("media_type", mediaType.String()),
 			zap.Error(err))
@@ -142,35 +142,35 @@ func (p *Processor) processVideo(ctx context.Context, metadata *config.FileMetad
 // detectMediaType detects the media type based on file extension
 func (p *Processor) detectMediaType(filePath string, imageVariants, videoDerivatives []string) config.MediaType {
 	ext := strings.ToLower(filepath.Ext(filePath))
-	
+
 	// Define common extensions
 	imageExts := []string{".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg", ".tiff", ".ico"}
 	videoExts := []string{".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v", ".flv", ".wmv", ".mpg", ".mpeg"}
-	
+
 	// Check image extensions
 	for _, imgExt := range imageExts {
 		if ext == imgExt {
 			return config.MediaTypeImage
 		}
 	}
-	
+
 	// Check video extensions
 	for _, vidExt := range videoExts {
 		if ext == vidExt {
 			return config.MediaTypeVideo
 		}
 	}
-	
+
 	// If we have image variants specified and no video derivatives, assume image
 	if len(imageVariants) > 0 && len(videoDerivatives) == 0 {
 		return config.MediaTypeImage
 	}
-	
+
 	// If we have video derivatives specified and no image variants, assume video
 	if len(videoDerivatives) > 0 && len(imageVariants) == 0 {
 		return config.MediaTypeVideo
 	}
-	
+
 	// Default to video for backward compatibility
 	return config.MediaTypeVideo
 }
@@ -178,22 +178,22 @@ func (p *Processor) detectMediaType(filePath string, imageVariants, videoDerivat
 // Close closes the media processor and its resources
 func (p *Processor) Close() error {
 	var err1, err2 error
-	
+
 	if p.imageProcessor != nil {
 		err1 = p.imageProcessor.Close()
 	}
-	
+
 	if p.videoProcessor != nil {
 		err2 = p.videoProcessor.Close()
 	}
-	
+
 	if err1 != nil {
 		return err1
 	}
 	if err2 != nil {
 		return err2
 	}
-	
+
 	return nil
 }
 
