@@ -12,6 +12,7 @@ A high-performance, comprehensive media processing toolkit written in Go for pre
 - **Performance Monitoring**: Real-time statistics and comprehensive reporting
 - **Smart Worker Allocation**: Size-based worker pools for optimal performance
 - **Error Analysis**: Detailed error tracking and troubleshooting recommendations
+- **Advanced File Filtering**: Comprehensive exclusion options available across all commands
 
 ## 📋 Table of Contents
 
@@ -28,6 +29,7 @@ A high-performance, comprehensive media processing toolkit written in Go for pre
   - [optimize](#optimize---video-optimization)
   - [validate](#validate---content-validation)
 - [Configuration](#configuration)
+- [File Filtering](#file-filtering)
 - [Complete Workflow Guide](#complete-workflow-guide)
 - [URL Formats](#url-formats)
 - [Performance Optimization](#performance-optimization)
@@ -458,7 +460,7 @@ media-toolkit prewarm \
 
 ### `analyze` - File Analysis
 
-Analyze media files and generate comprehensive reports.
+Analyze media files and generate comprehensive reports with multiple output formats.
 
 ```bash
 media-toolkit analyze [flags]
@@ -471,14 +473,21 @@ media-toolkit analyze [flags]
 - `--list-files`: List all files with their sizes
 - `--size-threshold`: Size threshold in MiB for reporting [default: 256]
 - `--size-report-output`: Size report output file [default: file_size_report.md]
+- `--base-url`: Base URL to prepend to file paths in output
+- `--url-encode`: URL encode file paths (spaces become %20) [default: true]
+- `--format`: Report format (json, markdown, text)
 - `--extensions`: File extensions to filter by
 - `--media-type`: Media type preset (auto, image, video)
 - `--limit`: Limit number of files to analyze
 - `--generate-error-report`: Generate error report from results
 - `--results-file`: Results file to analyze [default: media_transform_results.json]
 - `--error-report-output`: Error report output file [default: error_report.json]
-- `--format`: Report format (json, markdown)
 - `--compare`: Path to Cloudflare KV JSON file for comparison
+
+**Special Features:**
+- **Text Output Format**: When using `--format text` with `--list-files`, outputs one file path per line, perfect for scripts
+- **URL Generation**: Use `--base-url` to generate complete URLs for each file
+- **URL Encoding**: Automatically handles spaces and special characters in file names
 
 **Examples:**
 
@@ -490,6 +499,27 @@ media-toolkit analyze \
   --list-files \
   --size-threshold 100 \
   --size-report-output analysis_report.md
+
+# Generate text file list with URLs
+media-toolkit analyze \
+  --remote r2 \
+  --bucket media \
+  --list-files \
+  --format text \
+  --base-url https://cdn.example.com/media/ \
+  --size-report-output urls.txt
+
+# Generate list with filtering
+media-toolkit analyze \
+  --remote r2 \
+  --bucket videos \
+  --list-files \
+  --format text \
+  --base-url https://cdn.example.com/ \
+  --extensions .mp4,.mov \
+  --exclude-patterns "*test*,*backup*" \
+  --exclude-max-size 5368709120 \
+  --size-report-output video_urls.txt
 
 # Generate error report
 media-toolkit analyze \
@@ -687,6 +717,14 @@ medium_file_threshold: 200
 derivatives: [desktop, tablet, mobile]
 image_variants: [thumbnail, small, medium, large, webp]
 
+# File filtering
+extensions: [.mp4, .mov, .jpg, .png]
+exclude_extensions: [.tmp, .temp]
+exclude_patterns: ["*test*", "*backup*"]
+exclude_directories: ["tmp/", "backup/", "archive/"]
+exclude_min_size: 100  # bytes
+exclude_max_size: 5368709120  # 5GB
+
 # Optimization
 codec: h264
 quality: balanced
@@ -714,6 +752,96 @@ export MEDIA_TOOLKIT_BASE_URL=https://cdn.example.com/
 export MEDIA_TOOLKIT_WORKERS=500
 export MEDIA_TOOLKIT_TIMEOUT=300
 ```
+
+## File Filtering
+
+All commands support comprehensive file filtering options for precise control over which files to process.
+
+### Filtering Options
+
+The following filtering flags are available across `analyze`, `prewarm`, `optimize`, `validate`, and `workflow` commands:
+
+**Inclusion Filters:**
+- `--extensions`: Include only files with specific extensions (e.g., `.mp4,.jpg`)
+- `--media-type`: Quick preset for common media types (`image`, `video`, `auto`)
+
+**Exclusion Filters:**
+- `--exclude-extensions`: Exclude files with specific extensions
+- `--exclude-patterns`: Exclude files matching wildcard patterns
+- `--exclude-directories`: Exclude entire directories
+- `--exclude-min-size`: Exclude files smaller than specified size (in bytes)
+- `--exclude-max-size`: Exclude files larger than specified size (in bytes)
+
+### Examples
+
+```bash
+# Process only video files, excluding temporary files
+media-toolkit prewarm \
+  --remote r2 \
+  --bucket media \
+  --base-url https://cdn.example.com/ \
+  --extensions .mp4,.mov,.webm \
+  --exclude-extensions .tmp,.temp
+
+# Exclude test and backup files
+media-toolkit analyze \
+  --remote r2 \
+  --bucket media \
+  --exclude-patterns "*test*,*backup*,*_old*" \
+  --exclude-directories "tmp/,backup/,archive/"
+
+# Process only files within a specific size range
+media-toolkit optimize \
+  --remote r2 \
+  --bucket videos \
+  --exclude-min-size 1048576      # Exclude files < 1MB
+  --exclude-max-size 5368709120   # Exclude files > 5GB
+
+# Complex filtering with multiple criteria
+media-toolkit workflow \
+  --remote r2 \
+  --bucket production \
+  --base-url https://cdn.example.com/ \
+  --extensions .mp4,.mov \
+  --exclude-patterns "*test*,*sample*" \
+  --exclude-directories "archive/,old/" \
+  --exclude-max-size 10737418240  # Exclude files > 10GB
+```
+
+### Pattern Matching
+
+The `--exclude-patterns` flag supports standard glob patterns:
+- `*` matches any sequence of characters
+- `?` matches any single character
+- `[abc]` matches any character in the set
+- `[a-z]` matches any character in the range
+
+Examples:
+- `*test*` - matches any file containing "test"
+- `backup_*` - matches files starting with "backup_"
+- `*.tmp.*` - matches files with .tmp. in their name
+- `video_[0-9]*` - matches video_0, video_1, etc.
+
+### Configuration File
+
+Filtering options can also be set in the configuration file:
+
+```yaml
+# File filtering
+extensions: [.mp4, .mov, .jpg, .png]
+exclude_extensions: [.tmp, .temp, .bak]
+exclude_patterns: ["*test*", "*backup*", "._*"]
+exclude_directories: ["tmp/", "backup/", "archive/", ".git/"]
+exclude_min_size: 1024  # 1KB minimum
+exclude_max_size: 10737418240  # 10GB maximum
+```
+
+### Performance Impact
+
+Filtering is applied efficiently at the file listing stage, meaning:
+- Excluded files are never downloaded or processed
+- No resources are wasted on unwanted files
+- Significantly faster execution when processing subsets of data
 
 ## Complete Workflow Guide
 
