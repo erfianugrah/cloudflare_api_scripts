@@ -18,18 +18,30 @@ class KvManager {
     this.namespaceId = namespaceId;
   }
 
+  /**
+   * Extracts a common identifier from various key formats.
+   * @param key The key string from KV.
+   * @returns A common identifier or the full key as a fallback.
+   */
   private extractIdentifier(key: string): string {
-    let match = key.match(/^video:videos\/([a-zA-Z0-9_]+)\.mp4/);
-    if (match && match[1]) {
-      return match[1];
+    const colonParts = key.split(":");
+
+    // Handles formats like "type:path:details" (e.g., "video:videos/123.mp4:derivative=tablet")
+    // by extracting the middle 'path' part. This is the most generic pattern.
+    if (colonParts.length > 1) {
+      // We return the second part, which is assumed to be the main identifier.
+      // e.g., "videos/1473234_fe004132.mp4"
+      return colonParts[1].trim();
     }
 
+    // Fallback for the original URL format (e.g., "https://.../m/identifier/...")
     const pathParts = key.split("/");
     const mIndex = pathParts.indexOf("m");
     if (mIndex > -1 && pathParts.length > mIndex + 1) {
       return pathParts[mIndex + 1];
     }
 
+    // If no other pattern matches, return the full key.
     return key;
   }
 
@@ -180,6 +192,56 @@ class KvManager {
       console.error("An unexpected error occurred during deletion:", error);
     }
   }
+
+  async putKey(
+    key: string,
+    value: string,
+    ttl?: number,
+    metadataJSON?: string,
+  ) {
+    console.log(`Writing to key: "${key}"...`);
+    try {
+      const body: {
+        account_id: string;
+        value: string;
+        metadata: any;
+        expiration_ttl?: number;
+      } = {
+        account_id: this.accountId,
+        value: value,
+        metadata: null,
+      };
+
+      if (ttl) {
+        body.expiration_ttl = ttl;
+        console.log(`  With TTL: ${ttl} seconds`);
+      }
+
+      if (metadataJSON) {
+        try {
+          body.metadata = JSON.parse(metadataJSON);
+          console.log(`  With metadata:`, body.metadata);
+        } catch (e) {
+          console.error(
+            "Error: The --metadata value is not a valid JSON string.",
+          );
+          return;
+        }
+      }
+
+      await this.client.kv.namespaces.values.update(
+        this.namespaceId,
+        key,
+        body,
+      );
+      console.log("Successfully wrote key-value pair.");
+      console.log(
+        "Note: Your local JSON file may now be out of date. Run the 'list' command to refresh it.",
+      );
+    } catch (error) {
+      console.error(`Error writing key "${key}":`, error);
+    }
+  }
 }
 
 async function main() {
@@ -201,9 +263,9 @@ async function main() {
   );
 
   yargs(hideBin(process.argv))
-    // Improved command definition for 'list'
+    .usage("Usage: $0 <command> [options]")
     .command(
-      "list",
+      ["list", "ls"],
       "List KV keys and store them in a JSON file.",
       (yargs) => {
         return yargs
@@ -230,9 +292,8 @@ async function main() {
         await kvManager.listAndStoreKeys(argv.prefix, argv.output);
       },
     )
-    // Improved command definition for 'delete'
     .command(
-      "delete <identifier>",
+      ["delete <identifier>", "rm <identifier>"],
       "Delete one or more KV keys by a common identifier.",
       (yargs) => {
         return yargs
@@ -254,12 +315,12 @@ async function main() {
           })
           .example([
             [
-              "$0 delete 1473234_fe004132",
+              "$0 delete videos/1473359_fe004134.mp4",
               "Delete all keys for the given ID using kv-keys.json.",
             ],
             [
-              "$0 delete some-other-id -i my-keys.json",
-              "Delete using a custom input file.",
+              "$0 rm some-other-id -i my-keys.json",
+              "Delete using a custom input file and the 'rm' alias.",
             ],
           ]);
       },
@@ -273,11 +334,48 @@ async function main() {
         }
       },
     )
-    .demandCommand(1, "You must provide a valid command (list or delete).")
-    .strict() // Throws an error for unknown commands or options
-    .alias("h", "help") // Adds '-h' as an alias for '--help'
-    .epilogue("For more information, please check the documentation.")
-    .argv;
+    .command(
+      "put <key> <value>",
+      "Write a key-value pair to the KV namespace.",
+      (yargs) => {
+        return yargs
+          .positional("key", {
+            describe: "The key to write to.",
+            type: "string",
+          })
+          .positional("value", {
+            describe: "The value to store.",
+            type: "string",
+          })
+          .option("ttl", {
+            type: "number",
+            description: "Time-to-live (in seconds) for the key.",
+          })
+          .option("metadata", {
+            type: "string",
+            description: "A valid JSON string to be stored as metadata.",
+          })
+          .example([
+            ['$0 put my-key "my value"', "Write a simple key-value pair."],
+            [
+              '$0 put temp-key "secret" --ttl 60 --metadata \'{"owner":"test"}\'',
+              "Write a key with a TTL and metadata.",
+            ],
+          ]);
+      },
+      async (argv) => {
+        const key = argv.key as string;
+        const value = argv.value as string;
+        await kvManager.putKey(key, value, argv.ttl, argv.metadata);
+      },
+    )
+    .demandCommand(
+      1,
+      "You must provide a valid command (list, delete, or put).",
+    )
+    .strict()
+    .alias("h", "help")
+    .wrap(yargs.terminalWidth).argv;
 }
 
 main();

@@ -1,10 +1,11 @@
 {
 	"name": "kv-key-manager",
+	"type": "module",
 	"version": "1.0.0",
 	"description": "A script to manage Cloudflare KV keys.",
 	"main": "kv-manager.js",
 	"scripts": {
-		"start": "ts-node kv-manager.ts"
+		"start": "ts-node index.ts"
 	},
 	"dependencies": {
 		"cloudflare": "^4.3.0",
