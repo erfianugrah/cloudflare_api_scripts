@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.log
+.env
+config.json
+kv-keys.json
+*.tsbuildinfo
+.DS_Store
