@@ -1,0 +1,21 @@
+{
+	"name": "kv-key-manager",
+	"version": "1.0.0",
+	"description": "A script to manage Cloudflare KV keys.",
+	"main": "kv-manager.js",
+	"scripts": {
+		"start": "ts-node kv-manager.ts"
+	},
+	"dependencies": {
+		"cloudflare": "^4.3.0",
+		"yargs": "^17.7.2",
+		"inquirer": "^8.2.4"
+	},
+	"devDependencies": {
+		"@types/node": "^20.11.17",
+		"@types/yargs": "^17.0.32",
+		"@types/inquirer": "^8.2.1",
+		"ts-node": "^10.9.2",
+		"typescript": "^5.3.3"
+	}
+}

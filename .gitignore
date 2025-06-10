@@ -9,5 +9,7 @@ __pycache__/
 reports/
 .DS_Store
 *.csv
-*.json
 logs
+node_modules
+config.json
+kv-keys*
