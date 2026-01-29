@@ -22,7 +22,7 @@ setup(
     entry_points={
         'console_scripts': [
             'cloudflare-analytics=src.main:main',
-            'cloudflare-dashboard=src.dash_main:main',
+            'cloudflare-dashboard=src.dash:main',
         ],
     },
     python_requires='>=3.8',
