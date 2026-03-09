@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Cloudflare Zero Trust User & Seat Management Tool
 
