@@ -108,7 +108,7 @@ def prepare_firewall_rules_for_migration(BASE_URL, headers, zone_id):
         # Extract top-level prop from the firewall rule payload
         new_custom_rule = {}
         new_custom_rule["description"] = firewall_rule["description"]
-        new_custom_rule["description"] + "(Firewall Rule)"
+        new_custom_rule["description"] += " (Firewall Rule)"
         new_custom_rule["action"] = firewall_rule["action"]
         
         # Fix those bypass rules into skip rules, since bypass doesn't exist in custom rules
